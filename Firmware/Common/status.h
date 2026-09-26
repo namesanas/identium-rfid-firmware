@@ -1,0 +1,19 @@
+#ifndef RFID_CONTROLLER_STATUS_H
+#define RFID_CONTROLLER_STATUS_H
+
+#include <stdint.h>
+
+typedef enum
+{
+    STATUS_OK = 0U,
+    STATUS_ERROR,
+    STATUS_TIMEOUT,
+    STATUS_BUSY,
+    STATUS_INVALID_PARAM,
+    STATUS_NOT_READY,
+    STATUS_NO_DATA,
+    STATUS_OVERFLOW,
+    STATUS_UNSUPPORTED
+} Status_t;
+
+#endif /* RFID_CONTROLLER_STATUS_H */

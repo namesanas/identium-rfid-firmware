@@ -1,0 +1,9 @@
+* text=auto
+*.c   text
+*.h   text
+*.s   text
+*.ld  text
+*.md  text
+*.py  text
+*.ioc text
+*.pdf binary

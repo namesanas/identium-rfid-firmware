@@ -1,0 +1,17 @@
+#ifndef RFID_CONTROLLER_PRODUCT_CONFIG_H
+#define RFID_CONTROLLER_PRODUCT_CONFIG_H
+
+/* These are the currently working product defaults from the F429 firmware. */
+#define PRODUCT_ETHERNET_TCP_PORT       5000U
+
+#define PRODUCT_RFID_BAUDRATE           115200U
+#define PRODUCT_HOST_BAUDRATE           115200U
+
+#define PRODUCT_RFID_DEFAULT_REGION     0U
+#define PRODUCT_RFID_TX_ANTENNA         1U
+#define PRODUCT_RFID_RX_ANTENNA         1U
+#define PRODUCT_RFID_READ_POWER         2500U
+#define PRODUCT_RFID_WRITE_POWER        2500U
+#define PRODUCT_RFID_SESSION            0U
+
+#endif /* RFID_CONTROLLER_PRODUCT_CONFIG_H */

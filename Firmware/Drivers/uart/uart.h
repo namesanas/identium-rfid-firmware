@@ -84,24 +84,24 @@ typedef struct
 #define USART_FLAG_TC                 6U
 #define USART_FLAG_TXE                7U
 
-#define USART_CR1_RE                  2U
-#define USART_CR1_TE                  3U
-#define USART_CR1_IDLEIE              4U
-#define USART_CR1_RXNEIE              5U
-#define USART_CR1_TCIE                6U
-#define USART_CR1_TXEIE               7U
-#define USART_CR1_PCE                 10U
-#define USART_CR1_PS                  9U
-#define USART_CR1_M                   12U
-#define USART_CR1_OVER8               15U
-#define USART_CR1_UE                  13U
-#define USART_CR2_STOP                12U
-#define USART_CR3_RTSE               8U
-#define USART_CR3_CTSE               9U
+#define UART_CR1_RE_BIT               USART_CR1_RE_Pos
+#define UART_CR1_TE_BIT               USART_CR1_TE_Pos
+#define UART_CR1_IDLEIE_BIT           USART_CR1_IDLEIE_Pos
+#define UART_CR1_RXNEIE_BIT           USART_CR1_RXNEIE_Pos
+#define UART_CR1_TCIE_BIT             USART_CR1_TCIE_Pos
+#define UART_CR1_TXEIE_BIT            USART_CR1_TXEIE_Pos
+#define UART_CR1_PCE_BIT              USART_CR1_PCE_Pos
+#define UART_CR1_PS_BIT               USART_CR1_PS_Pos
+#define UART_CR1_M_BIT                USART_CR1_M_Pos
+#define UART_CR1_OVER8_BIT            USART_CR1_OVER8_Pos
+#define UART_CR1_UE_BIT              USART_CR1_UE_Pos
+#define UART_CR2_STOP_BIT             USART_CR2_STOP_Pos
+#define UART_CR3_RTSE_BIT             USART_CR3_RTSE_Pos
+#define UART_CR3_CTSE_BIT             USART_CR3_CTSE_Pos
 
-#define USART_IRQ_RXNE                USART_CR1_RXNEIE
-#define USART_IRQ_TC                  USART_CR1_TCIE
-#define USART_IRQ_TXE                 USART_CR1_TXEIE
+#define USART_IRQ_RXNE                UART_CR1_RXNEIE_BIT
+#define USART_IRQ_TC                  UART_CR1_TCIE_BIT
+#define USART_IRQ_TXE                 UART_CR1_TXEIE_BIT
 
 #define USART_EVENT_TX_CMPLT          1U
 #define USART_EVENT_RX_CMPLT          2U

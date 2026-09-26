@@ -64,24 +64,24 @@ typedef struct
 #define SPI_TXE_FLAG                       (1UL << 1U)
 #define SPI_RXNE_FLAG                      (1UL << 0U)
 
-#define SPI_CR1_CPHA                       0U
-#define SPI_CR1_CPOL                       1U
-#define SPI_CR1_MSTR                       2U
-#define SPI_CR1_BR                         3U
-#define SPI_CR1_SPE                        6U
-#define SPI_CR1_SSI                        8U
-#define SPI_CR1_SSM                        9U
-#define SPI_CR1_RXONLY                     10U
-#define SPI_CR1_DFF                        11U
-#define SPI_CR1_BIDIMODE                   15U
-#define SPI_CR2_ERRIE                      5U
-#define SPI_CR2_RXNEIE                     6U
-#define SPI_CR2_TXEIE                      7U
-#define SPI_CR2_SSOE                       2U
-#define SPI_SR_TXE                         1U
-#define SPI_SR_RXNE                        0U
-#define SPI_SR_OVR                         6U
-#define SPI_SR_BSY                         7U
+#define SPI_CR1_CPHA_BIT                    SPI_CR1_CPHA_Pos
+#define SPI_CR1_CPOL_BIT                    SPI_CR1_CPOL_Pos
+#define SPI_CR1_MSTR_BIT                    SPI_CR1_MSTR_Pos
+#define SPI_CR1_BR_BIT                      SPI_CR1_BR_Pos
+#define SPI_CR1_SPE_BIT                     SPI_CR1_SPE_Pos
+#define SPI_CR1_SSI_BIT                     SPI_CR1_SSI_Pos
+#define SPI_CR1_SSM_BIT                     SPI_CR1_SSM_Pos
+#define SPI_CR1_RXONLY_BIT                  SPI_CR1_RXONLY_Pos
+#define SPI_CR1_DFF_BIT                     SPI_CR1_DFF_Pos
+#define SPI_CR1_BIDIMODE_BIT                SPI_CR1_BIDIMODE_Pos
+#define SPI_CR2_ERRIE_BIT                   SPI_CR2_ERRIE_Pos
+#define SPI_CR2_RXNEIE_BIT                  SPI_CR2_RXNEIE_Pos
+#define SPI_CR2_TXEIE_BIT                   SPI_CR2_TXEIE_Pos
+#define SPI_CR2_SSOE_BIT                    SPI_CR2_SSOE_Pos
+#define SPI_SR_TXE_BIT                      SPI_SR_TXE_Pos
+#define SPI_SR_RXNE_BIT                     SPI_SR_RXNE_Pos
+#define SPI_SR_OVR_BIT                      SPI_SR_OVR_Pos
+#define SPI_SR_BSY_BIT                      SPI_SR_BSY_Pos
 
 #define SPI_EVENT_TX_CMPLT                 1U
 #define SPI_EVENT_RX_CMPLT                 2U

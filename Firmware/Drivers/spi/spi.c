@@ -45,29 +45,29 @@ void SPI_Init(SPI_Handle_t *pSPIHandle)
 	SPI_PeriClockControl(pSPIHandle->pSPIx, ENABLE);
 
 	uint32_t tempreg = 0;
-	tempreg |= pSPIHandle->SPIConfig.SPI_DeviceMode << SPI_CR1_MSTR;
+	tempreg |= pSPIHandle->SPIConfig.SPI_DeviceMode << SPI_CR1_MSTR_BIT;
 
 	if(pSPIHandle->SPIConfig.SPI_BusConfig == SPI_BUS_CONFIG_FD)
 	{
-		tempreg &= ~(1 << SPI_CR1_BIDIMODE);
+		tempreg &= ~(1 << SPI_CR1_BIDIMODE_BIT);
 	}else if(pSPIHandle->SPIConfig.SPI_BusConfig == SPI_BUS_CONFIG_HD)
 	{
-		tempreg |= 1 << SPI_CR1_BIDIMODE;
+		tempreg |= 1 << SPI_CR1_BIDIMODE_BIT;
 	}else if(pSPIHandle->SPIConfig.SPI_BusConfig == SPI_BUS_CONFIG_SIMPLEX_RXONLY)
 	{
-		tempreg &= ~(1 << SPI_CR1_BIDIMODE);
-		tempreg |= 1 << SPI_CR1_RXONLY;
+		tempreg &= ~(1 << SPI_CR1_BIDIMODE_BIT);
+		tempreg |= 1 << SPI_CR1_RXONLY_BIT;
 	}
 
-	tempreg |= pSPIHandle->SPIConfig.SPI_SclkSpeed << SPI_CR1_BR;
+	tempreg |= pSPIHandle->SPIConfig.SPI_SclkSpeed << SPI_CR1_BR_BIT;
 
-	tempreg |= pSPIHandle->SPIConfig.SPI_DFF << SPI_CR1_DFF;
+	tempreg |= pSPIHandle->SPIConfig.SPI_DFF << SPI_CR1_DFF_BIT;
 
-	tempreg |= pSPIHandle->SPIConfig.SPI_CPOL << SPI_CR1_CPOL;
+	tempreg |= pSPIHandle->SPIConfig.SPI_CPOL << SPI_CR1_CPOL_BIT;
 
-	tempreg |= pSPIHandle->SPIConfig.SPI_CPHA << SPI_CR1_CPHA;
+	tempreg |= pSPIHandle->SPIConfig.SPI_CPHA << SPI_CR1_CPHA_BIT;
 
-	tempreg |= pSPIHandle->SPIConfig.SPI_SSM << SPI_CR1_SSM;
+	tempreg |= pSPIHandle->SPIConfig.SPI_SSM << SPI_CR1_SSM_BIT;
 
 	pSPIHandle->pSPIx->CR1 = tempreg;
 
@@ -96,7 +96,7 @@ void SPI_SendData(SPI_RegDef_t *pSPIx, uint8_t *pTxBuffer, uint32_t Len)
 	{
 		while(SPI_GetFlagStatus(pSPIx,SPI_TXE_FLAG) == FLAG_RESET);
 
-		if(pSPIx->CR1 & (1 << SPI_CR1_DFF))
+		if(pSPIx->CR1 & (1 << SPI_CR1_DFF_BIT))
 		{
 			pSPIx->DR = *((uint16_t*)pTxBuffer);
 			Len--;
@@ -121,7 +121,7 @@ void SPI_ReceiveData(SPI_RegDef_t *pSPIx, uint8_t *pRxBuffer, uint32_t Len)
 	{
 		while(SPI_GetFlagStatus(pSPIx,SPI_RXNE_FLAG) == FLAG_RESET);
 
-		if(pSPIx->CR1 & (1 << SPI_CR1_DFF))
+		if(pSPIx->CR1 & (1 << SPI_CR1_DFF_BIT))
 		{
 			*((uint16_t*)pRxBuffer) = pSPIx->DR;
 			Len--;
@@ -154,7 +154,7 @@ uint8_t SPI_SendDataIT(SPI_Handle_t *pSPIHandle, uint8_t *pTxBuffer, uint32_t Le
 		pSPIHandle->TxState = SPI_BUSY_IN_TX;
 
 		//3. Enable the TXEIE control bit to get interrupt whenever TXE flag is set in SR
-		pSPIHandle->pSPIx->CR2 |= ( 1 << SPI_CR2_TXEIE );
+		pSPIHandle->pSPIx->CR2 |= ( 1 << SPI_CR2_TXEIE_BIT );
 	}
 	return state;
 }
@@ -173,7 +173,7 @@ uint8_t SPI_ReceiveDataIT(SPI_Handle_t *pSPIHandle, uint8_t *pRxBuffer, uint32_t
 		pSPIHandle->RxState = SPI_BUSY_IN_RX;
 
 		//3. Enable the TXEIE control bit to get interrupt whenever TXE flag is set in SR
-		pSPIHandle->pSPIx->CR2 |= ( 1 << SPI_CR2_RXNEIE );
+		pSPIHandle->pSPIx->CR2 |= ( 1 << SPI_CR2_RXNEIE_BIT );
 	}
 	return state;
 }
@@ -193,8 +193,8 @@ void SPI_IRQHandling(SPI_Handle_t *pHandle)
 {
 	uint8_t temp1 , temp2;
 	//first lets check txe
-	temp1 = pHandle->pSPIx->SR & ( 1 << SPI_SR_TXE);
-	temp2 = pHandle->pSPIx->CR2 & ( 1 << SPI_CR2_TXEIE);
+	temp1 = pHandle->pSPIx->SR & ( 1 << SPI_SR_TXE_BIT);
+	temp2 = pHandle->pSPIx->CR2 & ( 1 << SPI_CR2_TXEIE_BIT);
 
 	if(temp1 && temp2)
 	{
@@ -203,8 +203,8 @@ void SPI_IRQHandling(SPI_Handle_t *pHandle)
 	}
 
 	//check for rxne
-	temp1 = pHandle->pSPIx->SR & ( 1 << SPI_SR_RXNE);
-	temp2 = pHandle->pSPIx->CR2 & ( 1 << SPI_CR2_RXNEIE);
+	temp1 = pHandle->pSPIx->SR & ( 1 << SPI_SR_RXNE_BIT);
+	temp2 = pHandle->pSPIx->CR2 & ( 1 << SPI_CR2_RXNEIE_BIT);
 
 	if(temp1 && temp2)
 	{
@@ -213,8 +213,8 @@ void SPI_IRQHandling(SPI_Handle_t *pHandle)
 	}
 
 	//check for ovr flag
-	temp1 = pHandle->pSPIx->SR & ( 1 << SPI_SR_OVR);
-	temp2 = pHandle->pSPIx->CR2 & ( 1 << SPI_CR2_ERRIE);
+	temp1 = pHandle->pSPIx->SR & ( 1 << SPI_SR_OVR_BIT);
+	temp2 = pHandle->pSPIx->CR2 & ( 1 << SPI_CR2_ERRIE_BIT);
 
 	if(temp1 && temp2)
 	{
@@ -228,7 +228,7 @@ void SPI_IRQHandling(SPI_Handle_t *pHandle)
 
 static void spi_txe_interrupt_handle(SPI_Handle_t *pSPIHandle)
 {
-    if(pSPIHandle->pSPIx->CR1 & (1 << SPI_CR1_DFF))
+    if(pSPIHandle->pSPIx->CR1 & (1 << SPI_CR1_DFF_BIT))
     {
         pSPIHandle->pSPIx->DR = *((uint16_t*)pSPIHandle->pTxBuffer);
         pSPIHandle->TxLen--;
@@ -244,7 +244,7 @@ static void spi_txe_interrupt_handle(SPI_Handle_t *pSPIHandle)
 
     if(!pSPIHandle->TxLen)
     {
-        pSPIHandle->pSPIx->CR2 &= ~(1 << SPI_CR2_TXEIE);
+        pSPIHandle->pSPIx->CR2 &= ~(1 << SPI_CR2_TXEIE_BIT);
         pSPIHandle->pTxBuffer = NULL;
         pSPIHandle->TxLen = 0;
         pSPIHandle->TxState = SPI_READY;
@@ -293,14 +293,14 @@ static void spi_ovr_err_interrupt_handle(SPI_Handle_t *pSPIHandle)
 
 void SPI_CloseTransmission(SPI_Handle_t *pSPIHandle)
 {
-	pSPIHandle->pSPIx->CR2 &= ~(1 << SPI_CR2_TXEIE);
+	pSPIHandle->pSPIx->CR2 &= ~(1 << SPI_CR2_TXEIE_BIT);
 	pSPIHandle->pTxBuffer = NULL;
 	pSPIHandle->TxLen = 0;
 	pSPIHandle->TxState = SPI_READY;
 }
 void SPI_CloseReception(SPI_Handle_t *pSPIHandle)
 {
-	pSPIHandle->pSPIx->CR2 &= ~(1 << SPI_CR2_RXNEIE);
+	pSPIHandle->pSPIx->CR2 &= ~(1 << SPI_CR2_RXNEIE_BIT);
 	pSPIHandle->pRxBuffer = NULL;
 	pSPIHandle->RxLen = 0;
 	pSPIHandle->RxState = SPI_READY;
@@ -318,10 +318,10 @@ void SPI_PeripheralControl(SPI_RegDef_t *pSPIx, uint8_t EnorDi)
 {
 	if(EnorDi == ENABLE)
 	{
-		pSPIx->CR1 |= 1 << SPI_CR1_SPE;
+		pSPIx->CR1 |= 1 << SPI_CR1_SPE_BIT;
 	}else
 	{
-		pSPIx->CR1 &= ~(1 << SPI_CR1_SPE);
+		pSPIx->CR1 &= ~(1 << SPI_CR1_SPE_BIT);
 	}
 }
 
@@ -329,10 +329,10 @@ void SPI_SSIConfig(SPI_RegDef_t *pSPIx, uint8_t EnorDi)
 {
 	if(EnorDi == ENABLE)
 	{
-		pSPIx->CR1 |= 1 << SPI_CR1_SSI;
+		pSPIx->CR1 |= 1 << SPI_CR1_SSI_BIT;
 	}else
 	{
-		pSPIx->CR1 &= ~(1 << SPI_CR1_SSI);
+		pSPIx->CR1 &= ~(1 << SPI_CR1_SSI_BIT);
 	}
 }
 
@@ -340,10 +340,10 @@ void SPI_SSOEConfig(SPI_RegDef_t *pSPIx, uint8_t EnorDi)
 {
 	if(EnorDi == ENABLE)
 	{
-		pSPIx->CR2 |= 1 << SPI_CR2_SSOE;
+		pSPIx->CR2 |= 1 << SPI_CR2_SSOE_BIT;
 	}else
 	{
-		pSPIx->CR2 &= ~(1 << SPI_CR2_SSOE);
+		pSPIx->CR2 &= ~(1 << SPI_CR2_SSOE_BIT);
 	}
 }
 

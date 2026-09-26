@@ -41,7 +41,7 @@ void USART_Init(USART_Handle_t *pUSARTHandle)
     /*
      * Disable USART before configuration
      */
-    pUSARTHandle->pUSARTx->CR1 &= ~(1 << USART_CR1_UE);
+    pUSARTHandle->pUSARTx->CR1 &= ~(1 << UART_CR1_UE_BIT);
 
 
     /*
@@ -49,66 +49,66 @@ void USART_Init(USART_Handle_t *pUSARTHandle)
      */
     temp = pUSARTHandle->USART_Config.USART_WordLength;
 
-    pUSARTHandle->pUSARTx->CR1 &= ~(1 << USART_CR1_M);
+    pUSARTHandle->pUSARTx->CR1 &= ~(1 << UART_CR1_M_BIT);
 
     if(temp == USART_WORDLEN_9BITS)
     {
-        pUSARTHandle->pUSARTx->CR1 |=(1 << USART_CR1_M);
+        pUSARTHandle->pUSARTx->CR1 |=(1 << UART_CR1_M_BIT);
     }
 
 
     /*
      * Configure parity
      */
-    pUSARTHandle->pUSARTx->CR1 &= ~((1 << USART_CR1_PCE) | (1 << USART_CR1_PS)
+    pUSARTHandle->pUSARTx->CR1 &= ~((1 << UART_CR1_PCE_BIT) | (1 << UART_CR1_PS_BIT)
     );
 
     if(pUSARTHandle->USART_Config.USART_ParityControl == USART_PARITY_EN_EVEN)
     {
-        pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_PCE);
+        pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_PCE_BIT);
     }
     else if(pUSARTHandle->USART_Config.USART_ParityControl == USART_PARITY_EN_ODD)
     {
-        pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_PCE) | (1 << USART_CR1_PS);
+        pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_PCE_BIT) | (1 << UART_CR1_PS_BIT);
     }
 
 
     /*
      * Configure number of stop bits
      */
-    pUSARTHandle->pUSARTx->CR2 &= ~(0x3 << USART_CR2_STOP);
+    pUSARTHandle->pUSARTx->CR2 &= ~(0x3 << UART_CR2_STOP_BIT);
 
-    pUSARTHandle->pUSARTx->CR2 |= (pUSARTHandle->USART_Config.USART_NoOfStopBits << USART_CR2_STOP);
+    pUSARTHandle->pUSARTx->CR2 |= (pUSARTHandle->USART_Config.USART_NoOfStopBits << UART_CR2_STOP_BIT);
 
 
     /*
      * Configure hardware flow control
      */
-    pUSARTHandle->pUSARTx->CR3 &= ~((1 << USART_CR3_RTSE) | (1 << USART_CR3_CTSE)
+    pUSARTHandle->pUSARTx->CR3 &= ~((1 << UART_CR3_RTSE_BIT) | (1 << UART_CR3_CTSE_BIT)
     );
 
     if(pUSARTHandle->USART_Config.USART_HWFlowControl == USART_HW_FLOW_CTRL_CTS)
     {
-        pUSARTHandle->pUSARTx->CR3 |= (1 << USART_CR3_CTSE);
+        pUSARTHandle->pUSARTx->CR3 |= (1 << UART_CR3_CTSE_BIT);
     }
     else if(pUSARTHandle->USART_Config.USART_HWFlowControl == USART_HW_FLOW_CTRL_RTS)
     {
-        pUSARTHandle->pUSARTx->CR3 |= (1 << USART_CR3_RTSE);
+        pUSARTHandle->pUSARTx->CR3 |= (1 << UART_CR3_RTSE_BIT);
     }
     else if(pUSARTHandle->USART_Config.USART_HWFlowControl == USART_HW_FLOW_CTRL_CTSRTS)
     {
-        pUSARTHandle->pUSARTx->CR3 |= (1 << USART_CR3_RTSE) | (1 << USART_CR3_CTSE);
+        pUSARTHandle->pUSARTx->CR3 |= (1 << UART_CR3_RTSE_BIT) | (1 << UART_CR3_CTSE_BIT);
     }
 
 
     /*
      * Configure oversampling
      */
-    pUSARTHandle->pUSARTx->CR1 &= ~(1 << USART_CR1_OVER8);
+    pUSARTHandle->pUSARTx->CR1 &= ~(1 << UART_CR1_OVER8_BIT);
 
     if(pUSARTHandle->USART_Config.USART_OverSampling == USART_OVERSAMPLING_8)
     {
-        pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_OVER8);
+        pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_OVER8_BIT);
     }
 
 
@@ -121,27 +121,27 @@ void USART_Init(USART_Handle_t *pUSARTHandle)
     /*
      * Configure USART mode
      */
-    pUSARTHandle->pUSARTx->CR1 &= ~((1 << USART_CR1_TE) | (1 << USART_CR1_RE)
+    pUSARTHandle->pUSARTx->CR1 &= ~((1 << UART_CR1_TE_BIT) | (1 << UART_CR1_RE_BIT)
     );
 
     if(pUSARTHandle->USART_Config.USART_Mode == USART_MODE_ONLY_TX)
     {
-        pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_TE);
+        pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_TE_BIT);
     }
     else if(pUSARTHandle->USART_Config.USART_Mode == USART_MODE_ONLY_RX)
     {
-        pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_RE);
+        pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_RE_BIT);
     }
     else if(pUSARTHandle->USART_Config.USART_Mode == USART_MODE_TXRX)
     {
-        pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_TE) | (1 << USART_CR1_RE);
+        pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_TE_BIT) | (1 << UART_CR1_RE_BIT);
     }
 
 
     /*
      * Enable USART
      */
-    pUSARTHandle->pUSARTx->CR1 |= (1 << USART_CR1_UE);
+    pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_UE_BIT);
 }
 
 void USART_DeInit(USART_RegDef_t *pUSARTx)
@@ -619,7 +619,7 @@ void USART_SetBaudRate(USART_RegDef_t *pUSARTx,uint32_t BaudRate)
     /*
      * Oversampling by 16
      */
-    if(!(pUSARTx->CR1 & (1 << USART_CR1_OVER8)))
+    if(!(pUSARTx->CR1 & (1 << UART_CR1_OVER8_BIT)))
     {
         usartdiv = ((PCLKx * 25) / (4 * BaudRate));
 

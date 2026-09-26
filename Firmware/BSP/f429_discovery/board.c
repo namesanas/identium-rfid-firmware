@@ -208,14 +208,11 @@ void Board_F429_W5500_SPI_Init(SPI_Handle_t *pSPI)
 void Board_F429_Init(
     USART_Handle_t *pRFIDUart,
     USART_Handle_t *pHostUart,
-    SPI_Handle_t *pW5500Spi,
-    Silion_Handle_t *pSilion
+    SPI_Handle_t *pW5500Spi
 )
 {
     Board_F429_GPIO_Init();
     Board_F429_RFID_UART_Init(pRFIDUart);
     Board_F429_Host_UART_Init(pHostUart);
     Board_F429_W5500_SPI_Init(pW5500Spi);
-
-    SILION_Init(pSilion, pRFIDUart);
 }

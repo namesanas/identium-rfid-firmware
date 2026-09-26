@@ -34,4 +34,8 @@ void SILION_DelayMs(uint32_t delayMs);
 int SILION_WaitForResponse(uint32_t timeoutMs);
 int SILION_WaitForTxComplete(uint32_t timeoutMs);
 
+/* Host/application output hooks. */
+void HOST_SendString(const char *text);
+void VCP_SendTag(const SILION_Tag_t *tag);
+
 #endif /* RFID_CONTROLLER_SILLION_APPLICATION_PORT_H_ */

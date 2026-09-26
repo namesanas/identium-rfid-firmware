@@ -1,4 +1,5 @@
 #include "sillion_application_port.h"
+#include <stddef.h>
 
 static Silion_Handle_t *g_silion = NULL;
 static USART_Handle_t *g_usart = NULL;

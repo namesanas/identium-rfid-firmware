@@ -11,6 +11,50 @@
 #include <string.h>
 
 
+static uint8_t Identium_Protocol_FormatUint64(
+    char *buffer,
+    uint16_t bufferSize,
+    uint64_t value
+)
+{
+    char reversed[20];
+    uint8_t digitCount = 0U;
+    uint8_t i;
+
+    if(
+        (buffer == NULL) ||
+        (bufferSize < 2U)
+    )
+    {
+        return 0U;
+    }
+
+    do
+    {
+        reversed[digitCount++] = (char)('0' + (value % 10U));
+        value /= 10U;
+    } while(
+        (value != 0U) &&
+        (digitCount < sizeof(reversed))
+    );
+
+    if(
+        (value != 0U) ||
+        ((uint16_t)digitCount + 1U > bufferSize)
+    )
+    {
+        return 0U;
+    }
+
+    for(i = 0U; i < digitCount; i++)
+    {
+        buffer[i] = reversed[digitCount - 1U - i];
+    }
+
+    buffer[digitCount] = '\0';
+    return 1U;
+}
+
 static char identiumRxLine[IDENTIUM_PROTOCOL_RX_BUFFER_SIZE];
 static uint16_t identiumRxIndex = 0U;
 static uint8_t identiumRxDiscardLine = 0U;
@@ -266,9 +310,21 @@ void Identium_Protocol_ReportGpiChange(
 )
 {
     char buffer[320];
+    char timestamp[21];
     int written;
 
     if(states == NULL)
+    {
+        return;
+    }
+
+    if(
+        Identium_Protocol_FormatUint64(
+            timestamp,
+            sizeof(timestamp),
+            Time_GetEpochMs()
+        ) == 0U
+    )
     {
         return;
     }
@@ -278,13 +334,13 @@ void Identium_Protocol_ReportGpiChange(
         sizeof(buffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"gpi_changed\",\"event_data\":{"
         "\"gpi_states\":[{\"gpi\":1,\"state\":%u},{\"gpi\":2,\"state\":%u},"
-        "{\"gpi\":3,\"state\":%u},{\"gpi\":4,\"state\":%u}],\"timestamp\":%llu}}\n",
+        "{\"gpi\":3,\"state\":%u},{\"gpi\":4,\"state\":%u}],\"timestamp\":%s}}\n",
         PRODUCT_PROTOCOL_READER_NAME,
         (unsigned int)states[0],
         (unsigned int)states[1],
         (unsigned int)states[2],
         (unsigned int)states[3],
-        (unsigned long long)Time_GetEpochMs()
+        timestamp
     );
 
     if(

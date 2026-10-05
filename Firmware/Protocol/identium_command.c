@@ -187,12 +187,45 @@ static const char *Identium_Command_FindObjectKey(
         }
 
         if(
-            ((match == objectStart) || (match[-1] == '"')) &&
             ((match + keyLength) < objectEnd) &&
             (match[keyLength] == '"')
         )
         {
-            return match;
+            /*
+             * keyName already begins with a quote.  Verify that the quote
+             * starts an object member rather than appearing inside a JSON
+             * string value.  Whitespace before a member name is allowed.
+             */
+            const char *boundary = match;
+
+            while(boundary > objectStart)
+            {
+                if(
+                    (boundary[-1] == ' ') ||
+                    (boundary[-1] == '\t') ||
+                    (boundary[-1] == '\r') ||
+                    (boundary[-1] == '\n')
+                )
+                {
+                    boundary--;
+                    continue;
+                }
+
+                if(
+                    (boundary[-1] == '{') ||
+                    (boundary[-1] == ',')
+                )
+                {
+                    return match;
+                }
+
+                break;
+            }
+
+            if(boundary == objectStart)
+            {
+                return match;
+            }
         }
 
         cursor = match + 1;

@@ -26,6 +26,11 @@ void Identium_Protocol_PushTcpByte(uint8_t receivedByte);
 uint8_t Identium_Protocol_SendHeartbeat(void);
 uint8_t Identium_Protocol_ReportTag(const SILION_Tag_t *tag);
 
+/* Report the complete four-input state snapshot. */
+void Identium_Protocol_ReportGpiChange(
+    const uint8_t states[4]
+);
+
 /* Returns 1 when the protocol's TCP session is currently established. */
 uint8_t Identium_Protocol_IsConnected(void);
 

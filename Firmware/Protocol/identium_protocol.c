@@ -261,6 +261,43 @@ uint8_t Identium_Protocol_ReportTag(
     );
 }
 
+void Identium_Protocol_ReportGpiChange(
+    const uint8_t states[4]
+)
+{
+    char buffer[320];
+    int written;
+
+    if(states == NULL)
+    {
+        return;
+    }
+
+    written = snprintf(
+        buffer,
+        sizeof(buffer),
+        "{\"reader_name\":\"%s\",\"event_type\":\"gpi_changed\",\"event_data\":{"
+        "\"gpi_states\":[{\"gpi\":1,\"state\":%u},{\"gpi\":2,\"state\":%u},"
+        "{\"gpi\":3,\"state\":%u},{\"gpi\":4,\"state\":%u}],\"timestamp\":%llu}}\n",
+        PRODUCT_PROTOCOL_READER_NAME,
+        (unsigned int)states[0],
+        (unsigned int)states[1],
+        (unsigned int)states[2],
+        (unsigned int)states[3],
+        (unsigned long long)Time_GetEpochMs()
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= sizeof(buffer))
+    )
+    {
+        return;
+    }
+
+    (void)Identium_Protocol_SendJsonLine(buffer);
+}
+
 uint8_t Identium_Protocol_IsConnected(void)
 {
     return Ethernet_Service_IsConnected();

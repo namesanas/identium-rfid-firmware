@@ -29,6 +29,7 @@
 #include "../Firmware/Common/status.h"
 #include "../Firmware/Services/watchdog/watchdog.h"
 #include "../Firmware/Protocol/identium_protocol.h"
+#include "../Firmware/Services/GPIO/gpio_service.h"
   //#include "../Firmware/Services/cloud/cloud_service.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -120,6 +121,7 @@ int main(void)
       /* Company protocol Ethernet session is independent of legacy USB ASCII. */
       Ethernet_Service_Task();
       Identium_Protocol_Task();
+      GPIO_Service_Task();
 
       SILION_Application_Task();
 

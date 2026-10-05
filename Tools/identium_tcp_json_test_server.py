@@ -78,7 +78,7 @@ def main() -> None:
 
                 while not stop.is_set():
                     try:
-                        command = input("Command [resume/pause/sync/gpo/reboot/quit]: ").strip().lower()
+                        command = input("Command [resume/pause/sync/gpo/gpio2/gpio3/gpi/reboot/quit]: ").strip().lower()
                     except EOFError:
                         command = "quit"
 
@@ -94,6 +94,27 @@ def main() -> None:
                             conn,
                             "set_gpo",
                             [{"gpo": 1, "state": 1, "duration": 1}],
+                        )
+                    elif command == "gpio2":
+                        send_command(
+                            conn,
+                            "set_gpo",
+                            [{"gpo": 2, "state": 1, "duration": 3}],
+                        )
+                    elif command == "gpio3":
+                        send_command(
+                            conn,
+                            "set_gpo",
+                            [
+                                {"gpo": 1, "state": 1, "duration": 2},
+                                {"gpo": 2, "state": 1, "duration": 2},
+                            ],
+                        )
+                    elif command == "gpi":
+                        send_command(
+                            conn,
+                            "get_gpi",
+                            {},
                         )
                     elif command == "reboot":
                         send_command(conn, "reboot", {})

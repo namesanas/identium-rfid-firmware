@@ -22,6 +22,8 @@
 #include "../../Services/ethernet/ethernet_service.h"
 #include "../../Services/host/host_transport.h"
 #include "../../Protocol/identium_protocol.h"
+#include "../../BSP/industrial_io.h"
+#include "../../Services/GPIO/gpio_service.h"
 
 #include "../../Services/system/system_fault.h"
 
@@ -165,6 +167,16 @@ Status_t  Firmware_Configuration_Init(void)
         &usart3,
         &usart1,
         &w5500Spi
+    );
+
+    if(Industrial_IO_Init() == 0U)
+    {
+        System_Fault_Set(ERROR_GPIO_INIT);
+        return STATUS_ERROR;
+    }
+
+    GPIO_Service_Init(
+        Identium_Protocol_ReportGpiChange
     );
 
 

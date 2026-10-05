@@ -3,6 +3,7 @@
 #include "identium_protocol.h"
 #include "../Application/Silion/sillion_application.h"
 #include "../Services/Time/time_service.h"
+#include "../Services/GPIO/gpio_service.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -10,6 +11,21 @@
 
 static uint8_t identiumRebootPending = 0U;
 static uint32_t identiumRebootDeadlineMs = 0U;
+
+static void Identium_Command_SkipWhitespace(
+    const char **cursor
+)
+{
+    while(
+        (**cursor == ' ') ||
+        (**cursor == '\t') ||
+        (**cursor == '\r') ||
+        (**cursor == '\n')
+    )
+    {
+        (*cursor)++;
+    }
+}
 
 static uint8_t Identium_Command_ExtractCommandType(
     const char *json,
@@ -38,16 +54,7 @@ static uint8_t Identium_Command_ExtractCommandType(
     }
 
     cursor = key + strlen("\"command_type\"");
-
-    while(
-        (*cursor == ' ') ||
-        (*cursor == '\t') ||
-        (*cursor == '\r') ||
-        (*cursor == '\n')
-    )
-    {
-        cursor++;
-    }
+    Identium_Command_SkipWhitespace(&cursor);
 
     if(*cursor != ':')
     {
@@ -55,25 +62,16 @@ static uint8_t Identium_Command_ExtractCommandType(
     }
 
     cursor++;
+    Identium_Command_SkipWhitespace(&cursor);
 
-    while(
-        (*cursor == ' ') ||
-        (*cursor == '\t') ||
-        (*cursor == '\r') ||
-        (*cursor == '\n')
-    )
-    {
-        cursor++;
-    }
-
-    if(*cursor != '"')
+    if(*cursor != '\"')
     {
         return 0U;
     }
 
     cursor++;
 
-    while((*cursor != '\0') && (*cursor != '"'))
+    while((*cursor != '\0') && (*cursor != '\"'))
     {
         if(*cursor == '\\')
         {
@@ -88,7 +86,7 @@ static uint8_t Identium_Command_ExtractCommandType(
         command[index++] = *cursor++;
     }
 
-    if(*cursor != '"')
+    if(*cursor != '\"')
     {
         return 0U;
     }
@@ -121,16 +119,7 @@ static uint8_t Identium_Command_ExtractUnsigned64(
     }
 
     cursor = key + strlen("\"command_data\"");
-
-    while(
-        (*cursor == ' ') ||
-        (*cursor == '\t') ||
-        (*cursor == '\r') ||
-        (*cursor == '\n')
-    )
-    {
-        cursor++;
-    }
+    Identium_Command_SkipWhitespace(&cursor);
 
     if(*cursor != ':')
     {
@@ -138,16 +127,7 @@ static uint8_t Identium_Command_ExtractUnsigned64(
     }
 
     cursor++;
-
-    while(
-        (*cursor == ' ') ||
-        (*cursor == '\t') ||
-        (*cursor == '\r') ||
-        (*cursor == '\n')
-    )
-    {
-        cursor++;
-    }
+    Identium_Command_SkipWhitespace(&cursor);
 
     while((*cursor >= '0') && (*cursor <= '9'))
     {
@@ -170,6 +150,353 @@ static uint8_t Identium_Command_ExtractUnsigned64(
 
     *value = parsed;
 
+    return 1U;
+}
+
+static const char *Identium_Command_FindObjectKey(
+    const char *objectStart,
+    const char *objectEnd,
+    const char *keyName
+)
+{
+    const char *cursor = objectStart;
+    size_t keyLength;
+
+    if(
+        (objectStart == NULL) ||
+        (objectEnd == NULL) ||
+        (keyName == NULL) ||
+        (objectStart >= objectEnd)
+    )
+    {
+        return NULL;
+    }
+
+    keyLength = strlen(keyName);
+
+    while(cursor < objectEnd)
+    {
+        const char *match = strstr(cursor, keyName);
+
+        if(
+            (match == NULL) ||
+            (match >= objectEnd)
+        )
+        {
+            return NULL;
+        }
+
+        if(
+            ((match == objectStart) || (match[-1] == '"')) &&
+            ((match + keyLength) < objectEnd) &&
+            (match[keyLength] == '"')
+        )
+        {
+            return match;
+        }
+
+        cursor = match + 1;
+    }
+
+    return NULL;
+}
+
+static uint8_t Identium_Command_ParseObjectUnsigned(
+    const char *objectStart,
+    const char *objectEnd,
+    const char *key,
+    uint32_t *value,
+    uint8_t *missing
+)
+{
+    const char *keyStart;
+    const char *cursor;
+    uint32_t parsed = 0U;
+    uint8_t digits = 0U;
+
+    if(
+        (objectStart == NULL) ||
+        (objectEnd == NULL) ||
+        (key == NULL) ||
+        (value == NULL) ||
+        (missing == NULL)
+    )
+    {
+        return 0U;
+    }
+
+    *missing = 0U;
+    keyStart = Identium_Command_FindObjectKey(
+        objectStart,
+        objectEnd,
+        key
+    );
+
+    if(keyStart == NULL)
+    {
+        *missing = 1U;
+        return 1U;
+    }
+
+    cursor = keyStart + strlen(key);
+
+    if((cursor >= objectEnd) || (*cursor != '"'))
+    {
+        return 0U;
+    }
+
+    cursor++;
+    Identium_Command_SkipWhitespace(&cursor);
+
+    if(
+        (cursor >= objectEnd) ||
+        (*cursor != ':')
+    )
+    {
+        return 0U;
+    }
+
+    cursor++;
+    Identium_Command_SkipWhitespace(&cursor);
+
+    while(
+        (cursor < objectEnd) &&
+        (*cursor >= '0') &&
+        (*cursor <= '9')
+    )
+    {
+        uint32_t digit = (uint32_t)(*cursor - '0');
+
+        if(parsed > ((UINT32_MAX - digit) / 10U))
+        {
+            return 0U;
+        }
+
+        parsed = (parsed * 10U) + digit;
+        digits = 1U;
+        cursor++;
+    }
+
+    if(digits == 0U)
+    {
+        return 0U;
+    }
+
+    *value = parsed;
+    return 1U;
+}
+
+static uint8_t Identium_Command_ParseSetGpo(
+    const char *json,
+    uint8_t outputNumbers[],
+    uint8_t states[],
+    uint32_t durationsSeconds[],
+    uint8_t *count,
+    uint32_t *errorCode,
+    const char **errorString
+)
+{
+    const char *key;
+    const char *cursor;
+    uint8_t parsedCount = 0U;
+    uint8_t outputNumber;
+    uint8_t state;
+    uint32_t durationSeconds;
+    uint32_t value;
+    uint8_t missing;
+
+    if(
+        (json == NULL) ||
+        (outputNumbers == NULL) ||
+        (states == NULL) ||
+        (durationsSeconds == NULL) ||
+        (count == NULL) ||
+        (errorCode == NULL) ||
+        (errorString == NULL)
+    )
+    {
+        return 0U;
+    }
+
+    key = strstr(json, "\"command_data\"");
+    if(key == NULL)
+    {
+        *errorCode = 20004U;
+        *errorString = "set_gpo field missing";
+        return 0U;
+    }
+
+    cursor = key + strlen("\"command_data\"");
+    Identium_Command_SkipWhitespace(&cursor);
+
+    if(*cursor != ':')
+    {
+        *errorCode = 20004U;
+        *errorString = "set_gpo field missing";
+        return 0U;
+    }
+
+    cursor++;
+    Identium_Command_SkipWhitespace(&cursor);
+
+    if(*cursor != '[')
+    {
+        *errorCode = 20003U;
+        *errorString = "invalid set_gpo item";
+        return 0U;
+    }
+
+    cursor++;
+    Identium_Command_SkipWhitespace(&cursor);
+
+    while(*cursor != '\0')
+    {
+        const char *objectStart;
+        const char *objectEnd;
+
+        if(*cursor == ']')
+        {
+            break;
+        }
+
+        if(*cursor != '{')
+        {
+            *errorCode = 20003U;
+            *errorString = "invalid set_gpo item";
+            return 0U;
+        }
+
+        objectStart = cursor + 1;
+        objectEnd = strchr(objectStart, '}');
+
+        if(objectEnd == NULL)
+        {
+            *errorCode = 20003U;
+            *errorString = "invalid set_gpo item";
+            return 0U;
+        }
+
+        if(parsedCount >= 4U)
+        {
+            *errorCode = 20003U;
+            *errorString = "invalid set_gpo item";
+            return 0U;
+        }
+
+        if(
+            Identium_Command_ParseObjectUnsigned(
+                objectStart,
+                objectEnd,
+                "\"gpo",
+                &value,
+                &missing
+            ) == 0U
+        )
+        {
+            *errorCode = 20003U;
+            *errorString = "invalid set_gpo item";
+            return 0U;
+        }
+
+        if(missing != 0U)
+        {
+            *errorCode = 20004U;
+            *errorString = "set_gpo field missing";
+            return 0U;
+        }
+
+        outputNumber = (uint8_t)value;
+
+        if(
+            Identium_Command_ParseObjectUnsigned(
+                objectStart,
+                objectEnd,
+                "\"state",
+                &value,
+                &missing
+            ) == 0U
+        )
+        {
+            *errorCode = 20003U;
+            *errorString = "invalid set_gpo item";
+            return 0U;
+        }
+
+        if(missing != 0U)
+        {
+            *errorCode = 20004U;
+            *errorString = "set_gpo field missing";
+            return 0U;
+        }
+
+        state = (uint8_t)value;
+
+        if(
+            Identium_Command_ParseObjectUnsigned(
+                objectStart,
+                objectEnd,
+                "\"duration",
+                &value,
+                &missing
+            ) == 0U
+        )
+        {
+            *errorCode = 20003U;
+            *errorString = "invalid set_gpo item";
+            return 0U;
+        }
+
+        if(missing != 0U)
+        {
+            *errorCode = 20004U;
+            *errorString = "set_gpo field missing";
+            return 0U;
+        }
+
+        durationSeconds = value;
+
+        outputNumbers[parsedCount] = outputNumber;
+        states[parsedCount] = state;
+        durationsSeconds[parsedCount] = durationSeconds;
+        parsedCount++;
+
+        cursor = objectEnd + 1;
+        Identium_Command_SkipWhitespace(&cursor);
+
+        if(*cursor == ',')
+        {
+            cursor++;
+            Identium_Command_SkipWhitespace(&cursor);
+            continue;
+        }
+
+        if(*cursor == ']')
+        {
+            break;
+        }
+
+        *errorCode = 20003U;
+        *errorString = "invalid set_gpo item";
+        return 0U;
+    }
+
+    if(parsedCount == 0U)
+    {
+        *errorCode = 20003U;
+        *errorString = "invalid set_gpo item";
+        return 0U;
+    }
+
+    if(*cursor != ']')
+    {
+        *errorCode = 20003U;
+        *errorString = "invalid set_gpo item";
+        return 0U;
+    }
+
+    *count = parsedCount;
+    *errorCode = 0U;
+    *errorString = "ok";
     return 1U;
 }
 
@@ -263,7 +590,6 @@ void Identium_Command_ProcessJson(
     {
         if(SILION_Application_IsInventoryRunning() != 0U)
         {
-            /* Protocol: desired state is already reached, treat as success. */
             (void)Identium_Command_SendReply(
                 replyCallback,
                 commandType,
@@ -343,10 +669,82 @@ void Identium_Command_ProcessJson(
         return;
     }
 
-    /* GPO/GPI and configuration commands are migrated in later stages. */
+    if(strcmp(commandType, "set_gpo") == 0)
+    {
+        uint8_t outputNumbers[4];
+        uint8_t states[4];
+        uint32_t durationsSeconds[4];
+        uint8_t count;
+        uint32_t errorCode;
+        const char *errorString;
+
+        if(
+            Identium_Command_ParseSetGpo(
+                json,
+                outputNumbers,
+                states,
+                durationsSeconds,
+                &count,
+                &errorCode,
+                &errorString
+            ) == 0U
+        )
+        {
+            (void)Identium_Command_SendReply(
+                replyCallback,
+                commandType,
+                errorCode,
+                errorString
+            );
+            return;
+        }
+
+        if(
+            GPIO_Service_SetOutputs(
+                outputNumbers,
+                states,
+                durationsSeconds,
+                count,
+                &errorCode,
+                &errorString
+            ) != GPIO_SERVICE_OK
+        )
+        {
+            (void)Identium_Command_SendReply(
+                replyCallback,
+                commandType,
+                errorCode,
+                errorString
+            );
+            return;
+        }
+
+        (void)Identium_Command_SendReply(
+            replyCallback,
+            commandType,
+            0U,
+            "ok"
+        );
+        return;
+    }
+
+    if(strcmp(commandType, "get_gpi") == 0)
+    {
+        uint8_t states[INDUSTRIAL_IO_COUNT];
+
+        GPIO_Service_GetAllInputs(states);
+        Identium_Protocol_ReportGpiChange(states);
+
+        (void)Identium_Command_SendReply(
+            replyCallback,
+            commandType,
+            0U,
+            "ok"
+        );
+        return;
+    }
+
     if(
-        (strcmp(commandType, "set_gpo") == 0) ||
-        (strcmp(commandType, "get_gpi") == 0) ||
         (strcmp(commandType, "set_static_conf") == 0) ||
         (strcmp(commandType, "set_temp_static_conf") == 0) ||
         (strcmp(commandType, "set_runtime_conf") == 0) ||

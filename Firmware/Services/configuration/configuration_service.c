@@ -14,6 +14,7 @@
 extern SILION_ReaderConfig_t readerConfig;
 
 static uint8_t g_initialized = 0U;
+static char g_escapedReaderName[96];
 
 static int Configuration_Service_Append(
     char **cursor,
@@ -123,7 +124,6 @@ uint16_t Configuration_Service_BuildActiveJson(
     uint16_t bufferSize
 )
 {
-    char escapedName[96];
     char *cursor = buffer;
     size_t remaining = bufferSize;
 
@@ -137,8 +137,8 @@ uint16_t Configuration_Service_BuildActiveJson(
 
     if(Configuration_Service_JsonStringSafe(
            PRODUCT_PROTOCOL_READER_NAME,
-           escapedName,
-           sizeof(escapedName)) == 0U)
+           g_escapedReaderName,
+           sizeof(g_escapedReaderName)) == 0U)
     {
         return 0U;
     }
@@ -149,7 +149,7 @@ uint16_t Configuration_Service_BuildActiveJson(
         "\"thwdt_net_timeout\":0,\"thwdt_inv_timeout\":0,"
         "\"start_inv_atbeg\":0,\"remote_cmd_reply\":1,\"name\":\"%s\"},",
         (unsigned int)IDENTIUM_PROTOCOL_HEARTBEAT_SECONDS,
-        escapedName))
+        g_escapedReaderName))
     {
         return 0U;
     }

@@ -18,6 +18,8 @@
 #define CONFIGURATION_PORT_CMD_STATIC_JSON 0x1EU
 
 static uint8_t g_rxBuffer[CONFIGURATION_PORT_RX_BUFFER_SIZE];
+static uint8_t g_responseBuffer[CONFIGURATION_PORT_RESPONSE_SIZE];
+static uint8_t g_contentBuffer[CONFIGURATION_SERVICE_MAX_JSON + 16U];
 static uint16_t g_rxLength = 0U;
 static uint8_t g_started = 0U;
 static uint8_t g_responsePendingClose = 0U;
@@ -51,7 +53,7 @@ static uint8_t Configuration_Port_SendResponse(
     uint32_t status
 )
 {
-    uint8_t response[CONFIGURATION_PORT_RESPONSE_SIZE];
+    uint8_t *response = g_responseBuffer;
     uint16_t totalLength;
     uint16_t i;
 
@@ -63,7 +65,7 @@ static uint8_t Configuration_Port_SendResponse(
         return 0U;
     }
 
-    if((uint16_t)(10U + contentLength) > sizeof(response))
+    if((uint16_t)(10U + contentLength) > CONFIGURATION_PORT_RESPONSE_SIZE)
     {
         return 0U;
     }
@@ -116,7 +118,7 @@ void Configuration_Port_Task(void)
     uint16_t totalLength;
     uint16_t i;
     uint8_t commandId;
-    uint8_t content[CONFIGURATION_SERVICE_MAX_JSON + 16U];
+    uint8_t *content = g_contentBuffer;
     uint16_t contentLength;
 
     status = W5500_Socket1_GetStatus();

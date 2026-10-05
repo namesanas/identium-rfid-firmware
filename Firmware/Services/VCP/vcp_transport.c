@@ -2,7 +2,6 @@
 #include "../host/host_transport.h"
 #include "../../Services/USB/usb_cdc_transport.h"
 #include "../../Services/ethernet/ethernet_service.h"
-#include "../../Protocol/identium_protocol.h"
 #include "../../Common/critical_section.h"
 
 extern uint8_t HOST_IsTagTransportEthernet(void);
@@ -191,9 +190,6 @@ void VCP_SendTag(const SILION_Tag_t *tag)
     {
         return;
     }
-
-    /* New Identium protocol path is independent of legacy ASCII transport. */
-    (void)Identium_Protocol_ReportTag(tag);
 
     written = snprintf(
         &buffer[pos],

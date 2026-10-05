@@ -16,8 +16,8 @@
 #if (TARGET_BOARD == BOARD_F429_DISCOVERY)
 /*
  * F429 prototype-only test mapping.
- * These pins are brought out on the Discovery headers and are not used by
- * the existing RFID, W5500, USB or ST-LINK functions in this firmware.
+ * These pins are brought out on the Discovery headers. Avoid PE7 here because
+ * the F429I-DISCO connects PE7 to the onboard SDRAM data bus (FMC_D4).
  * Production F411 mapping is already defined in f411_custom/board_config.h.
  */
 #define BOARD_INPUT1_PORT GPIOE
@@ -26,8 +26,8 @@
 #define BOARD_INPUT2_PIN  5U
 #define BOARD_INPUT3_PORT GPIOE
 #define BOARD_INPUT3_PIN  6U
-#define BOARD_INPUT4_PORT GPIOE
-#define BOARD_INPUT4_PIN  7U
+#define BOARD_INPUT4_PORT GPIOD
+#define BOARD_INPUT4_PIN  2U
 
 #define BOARD_OUTPUT1_PORT GPIOE
 #define BOARD_OUTPUT1_PIN  0U

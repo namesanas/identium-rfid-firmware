@@ -234,14 +234,14 @@ void Configuration_Port_Task(void)
                     {
                         contentLength = Configuration_Service_BuildActiveJson(
                             (char *)content,
-                            sizeof(content)
+                            sizeof(g_contentBuffer)
                         );
                     }
                     else
                     {
                         contentLength = Configuration_Service_BuildStaticJson(
                             (char *)content,
-                            sizeof(content)
+                            sizeof(g_contentBuffer)
                         );
                     }
 
@@ -261,7 +261,7 @@ void Configuration_Port_Task(void)
                         contentLength = Configuration_Port_PadJson(
                             content,
                             contentLength,
-                            sizeof(content)
+                            sizeof(g_contentBuffer)
                         );
 
                         if(contentLength == 0U)

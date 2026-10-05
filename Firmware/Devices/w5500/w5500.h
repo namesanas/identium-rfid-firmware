@@ -59,6 +59,21 @@
 #define W5500_Sn_CR_CLOSE           0x10U
 #define W5500_Sn_CR_CONNECT         0x04U
 
+#define W5500_S1_MR                 0x0000U
+#define W5500_S1_CR                 0x0001U
+#define W5500_S1_SR                 0x0003U
+#define W5500_S1_PORT               0x0004U
+#define W5500_S1_IR                 0x0002U
+#define W5500_S1_RX_RSR             0x0026U
+#define W5500_S1_RX_RD              0x0028U
+#define W5500_S1_TX_FSR             0x0020U
+#define W5500_S1_TX_WR              0x0024U
+#define W5500_S1_RXBUF_SIZE         0x001EU
+#define W5500_S1_TXBUF_SIZE         0x001FU
+#define W5500_BSB_SOCKET1_REG       5U
+#define W5500_BSB_SOCKET1_TXBUF     6U
+#define W5500_BSB_SOCKET1_RXBUF     7U
+
 #define W5500_S0_RECV               0x40U
 #define W5500_S0_SEND               0x20U
 
@@ -127,6 +142,18 @@ uint8_t W5500_StartTCPClient(
 
 uint8_t W5500_Socket0_GetStatus(void);
 uint8_t W5500_Socket0_Close(void);
+
+/* ============================================================
+ * SOCKET 1 - LOCAL CONFIGURATION PORT
+ * ============================================================ */
+
+uint8_t W5500_StartTCPServer1(uint16_t port);
+uint8_t W5500_Socket1_GetStatus(void);
+uint8_t W5500_Socket1_Close(void);
+uint16_t W5500_Socket1_GetRxSize(void);
+uint16_t W5500_Socket1_Receive(uint8_t *buffer, uint16_t bufferSize);
+uint16_t W5500_Socket1_GetTxFreeSize(void);
+uint16_t W5500_Socket1_Send(const uint8_t *buffer, uint16_t length);
 
 /* ============================================================
  * SOCKET 0 RX

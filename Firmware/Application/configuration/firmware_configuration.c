@@ -20,6 +20,8 @@
 #include "../../Devices/w5500/w5500.h"
 
 #include "../../Services/ethernet/ethernet_service.h"
+#include "../../Services/configuration/configuration_service.h"
+#include "../../Services/configuration/configuration_port.h"
 #include "../../Services/host/host_transport.h"
 #include "../../Protocol/identium_protocol.h"
 #include "../../BSP/industrial_io.h"
@@ -154,6 +156,7 @@ Status_t  Firmware_Configuration_Init(void)
     System_Fault_Init();
     HOST_Transport_Init();
     Identium_Protocol_Init();
+    Configuration_Service_Init();
 
     /*
      * --------------------------------------------------------
@@ -312,6 +315,8 @@ Status_t  Firmware_Configuration_Init(void)
         return STATUS_ERROR;
     }
 
+
+    Configuration_Port_Init();
 
     if(
         Ethernet_Service_Init(

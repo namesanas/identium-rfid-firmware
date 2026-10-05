@@ -25,6 +25,7 @@
 #include "../Firmware/Application/Host/host_interface.h"
 
 #include "../Firmware/Services/ethernet/ethernet_service.h"
+#include "../Firmware/Services/configuration/configuration_port.h"
 #include "../Firmware/Services/host/host_transport.h"
 #include "../Firmware/Common/status.h"
 #include "../Firmware/Services/watchdog/watchdog.h"
@@ -120,6 +121,7 @@ int main(void)
 	//  Cloud_Service_Task();
       /* Company protocol Ethernet session is independent of legacy USB ASCII. */
       Ethernet_Service_Task();
+      Configuration_Port_Task();
       Identium_Protocol_Task();
       GPIO_Service_Task();
 

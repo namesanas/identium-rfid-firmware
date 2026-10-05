@@ -1041,3 +1041,368 @@ uint16_t W5500_Socket0_Send(
 
     return length;
 }
+
+/* ============================================================
+ * SOCKET 1 - LOCAL CONFIGURATION PORT
+ * ============================================================ */
+
+uint8_t W5500_Socket1_GetStatus(void)
+{
+    uint8_t status = W5500_Sn_SR_CLOSED;
+
+    (void)W5500_ReadRegisters(
+        W5500_S1_SR,
+        W5500_BSB_SOCKET1_REG,
+        &status,
+        1U
+    );
+
+    return status;
+}
+
+uint8_t W5500_Socket1_Close(void)
+{
+    uint8_t command = W5500_Sn_CR_CLOSE;
+    uint8_t interruptFlags = 0xFFU;
+    uint8_t status;
+    uint8_t attempt;
+
+    (void)W5500_WriteRegisters(
+        W5500_S1_IR,
+        W5500_BSB_SOCKET1_REG,
+        &interruptFlags,
+        1U
+    );
+
+    (void)W5500_WriteRegisters(
+        W5500_S1_CR,
+        W5500_BSB_SOCKET1_REG,
+        &command,
+        1U
+    );
+
+    for(attempt = 0U; attempt < 20U; attempt++)
+    {
+        Time_DelayMs(1U);
+        status = W5500_Socket1_GetStatus();
+
+        if(status == W5500_Sn_SR_CLOSED)
+        {
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+uint8_t W5500_StartTCPServer1(uint16_t port)
+{
+    uint8_t mode = 0x01U;
+    uint8_t bufferSize = 0x02U;
+    uint8_t portData[2];
+    uint8_t command;
+    uint8_t status = W5500_Sn_SR_CLOSED;
+    uint8_t attempt;
+
+    portData[0] = (uint8_t)(port >> 8U);
+    portData[1] = (uint8_t)(port & 0xFFU);
+
+    (void)W5500_WriteRegisters(
+        W5500_S1_RXBUF_SIZE,
+        W5500_BSB_SOCKET1_REG,
+        &bufferSize,
+        1U
+    );
+
+    (void)W5500_WriteRegisters(
+        W5500_S1_TXBUF_SIZE,
+        W5500_BSB_SOCKET1_REG,
+        &bufferSize,
+        1U
+    );
+
+    if(W5500_WriteRegisters(
+           W5500_S1_MR,
+           W5500_BSB_SOCKET1_REG,
+           &mode,
+           1U) == 0U)
+    {
+        return 0U;
+    }
+
+    if(W5500_WriteRegisters(
+           W5500_S1_PORT,
+           W5500_BSB_SOCKET1_REG,
+           portData,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    command = W5500_Sn_CR_OPEN;
+
+    if(W5500_WriteRegisters(
+           W5500_S1_CR,
+           W5500_BSB_SOCKET1_REG,
+           &command,
+           1U) == 0U)
+    {
+        return 0U;
+    }
+
+    for(attempt = 0U; attempt < 20U; attempt++)
+    {
+        Time_DelayMs(1U);
+        status = W5500_Socket1_GetStatus();
+
+        if(status == W5500_Sn_SR_INIT)
+        {
+            break;
+        }
+    }
+
+    if(status != W5500_Sn_SR_INIT)
+    {
+        return 0U;
+    }
+
+    command = W5500_Sn_CR_LISTEN;
+
+    if(W5500_WriteRegisters(
+           W5500_S1_CR,
+           W5500_BSB_SOCKET1_REG,
+           &command,
+           1U) == 0U)
+    {
+        return 0U;
+    }
+
+    for(attempt = 0U; attempt < 20U; attempt++)
+    {
+        Time_DelayMs(1U);
+        status = W5500_Socket1_GetStatus();
+
+        if(status == W5500_Sn_SR_LISTEN)
+        {
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+uint16_t W5500_Socket1_GetRxSize(void)
+{
+    uint8_t data[2];
+
+    if(W5500_ReadRegisters(
+           W5500_S1_RX_RSR,
+           W5500_BSB_SOCKET1_REG,
+           data,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    return (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+}
+
+uint16_t W5500_Socket1_Receive(
+    uint8_t *buffer,
+    uint16_t bufferSize
+)
+{
+    uint8_t pointerData[2];
+    uint16_t rxSize;
+    uint16_t rxReadPtr;
+    uint16_t firstPart;
+    uint16_t secondPart;
+    uint8_t command = W5500_S0_RECV;
+
+    if((buffer == NULL) || (bufferSize == 0U))
+    {
+        return 0U;
+    }
+
+    rxSize = W5500_Socket1_GetRxSize();
+    if(rxSize == 0U)
+    {
+        return 0U;
+    }
+
+    if(rxSize > bufferSize)
+    {
+        rxSize = bufferSize;
+    }
+
+    if(W5500_ReadRegisters(
+           W5500_S1_RX_RD,
+           W5500_BSB_SOCKET1_REG,
+           pointerData,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    rxReadPtr = (uint16_t)(((uint16_t)pointerData[0] << 8U) | pointerData[1]);
+
+    firstPart = (uint16_t)(0x0800U - (rxReadPtr & 0x07FFU));
+    if(firstPart > rxSize)
+    {
+        firstPart = rxSize;
+    }
+
+    secondPart = (uint16_t)(rxSize - firstPart);
+
+    if(W5500_ReadRegisters(
+           (uint16_t)(rxReadPtr & 0x07FFU),
+           W5500_BSB_SOCKET1_RXBUF,
+           buffer,
+           firstPart) == 0U)
+    {
+        return 0U;
+    }
+
+    if(secondPart > 0U)
+    {
+        if(W5500_ReadRegisters(
+               0U,
+               W5500_BSB_SOCKET1_RXBUF,
+               &buffer[firstPart],
+               secondPart) == 0U)
+        {
+            return 0U;
+        }
+    }
+
+    rxReadPtr = (uint16_t)(rxReadPtr + rxSize);
+    pointerData[0] = (uint8_t)(rxReadPtr >> 8U);
+    pointerData[1] = (uint8_t)(rxReadPtr & 0xFFU);
+
+    if(W5500_WriteRegisters(
+           W5500_S1_RX_RD,
+           W5500_BSB_SOCKET1_REG,
+           pointerData,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    command = W5500_S0_RECV;
+    (void)W5500_WriteRegisters(
+        W5500_S1_CR,
+        W5500_BSB_SOCKET1_REG,
+        &command,
+        1U
+    );
+
+    return rxSize;
+}
+
+uint16_t W5500_Socket1_GetTxFreeSize(void)
+{
+    uint8_t data[2];
+
+    if(W5500_ReadRegisters(
+           W5500_S1_TX_FSR,
+           W5500_BSB_SOCKET1_REG,
+           data,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    return (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+}
+
+uint16_t W5500_Socket1_Send(
+    const uint8_t *buffer,
+    uint16_t length
+)
+{
+    uint8_t pointerData[2];
+    uint16_t txFreeSize;
+    uint16_t txWritePtr;
+    uint16_t firstPart;
+    uint16_t secondPart;
+    uint8_t command = W5500_S0_SEND;
+
+    if((buffer == NULL) || (length == 0U))
+    {
+        return 0U;
+    }
+
+    txFreeSize = W5500_Socket1_GetTxFreeSize();
+    if(txFreeSize == 0U)
+    {
+        return 0U;
+    }
+
+    if(length > txFreeSize)
+    {
+        length = txFreeSize;
+    }
+
+    if(W5500_ReadRegisters(
+           W5500_S1_TX_WR,
+           W5500_BSB_SOCKET1_REG,
+           pointerData,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    txWritePtr = (uint16_t)(((uint16_t)pointerData[0] << 8U) | pointerData[1]);
+
+    firstPart = (uint16_t)(0x0800U - (txWritePtr & 0x07FFU));
+    if(firstPart > length)
+    {
+        firstPart = length;
+    }
+
+    secondPart = (uint16_t)(length - firstPart);
+
+    if(W5500_WriteRegisters(
+           (uint16_t)(txWritePtr & 0x07FFU),
+           W5500_BSB_SOCKET1_TXBUF,
+           buffer,
+           firstPart) == 0U)
+    {
+        return 0U;
+    }
+
+    if(secondPart > 0U)
+    {
+        if(W5500_WriteRegisters(
+               0U,
+               W5500_BSB_SOCKET1_TXBUF,
+               &buffer[firstPart],
+               secondPart) == 0U)
+        {
+            return 0U;
+        }
+    }
+
+    txWritePtr = (uint16_t)(txWritePtr + length);
+    pointerData[0] = (uint8_t)(txWritePtr >> 8U);
+    pointerData[1] = (uint8_t)(txWritePtr & 0xFFU);
+
+    if(W5500_WriteRegisters(
+           W5500_S1_TX_WR,
+           W5500_BSB_SOCKET1_REG,
+           pointerData,
+           2U) == 0U)
+    {
+        return 0U;
+    }
+
+    command = W5500_S0_SEND;
+    (void)W5500_WriteRegisters(
+        W5500_S1_CR,
+        W5500_BSB_SOCKET1_REG,
+        &command,
+        1U
+    );
+
+    return length;
+}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 
 HOST = "0.0.0.0"
 PORT = 9000
@@ -77,7 +78,7 @@ def main() -> None:
 
                 while not stop.is_set():
                     try:
-                        command = input("Command [resume/pause/gpo/reboot/quit]: ").strip().lower()
+                        command = input("Command [resume/pause/sync/gpo/reboot/quit]: ").strip().lower()
                     except EOFError:
                         command = "quit"
 
@@ -85,6 +86,9 @@ def main() -> None:
                         send_command(conn, "resume_inventory", {})
                     elif command == "pause":
                         send_command(conn, "pause_inventory", {})
+                    elif command == "sync":
+                        epoch_ms = int(time.time() * 1000)
+                        send_command(conn, "sync_time", epoch_ms)
                     elif command == "gpo":
                         send_command(
                             conn,

@@ -10,6 +10,8 @@
 #define TIME_SYST_CSR_CLKSOURCE (1UL << 2)
 
 static volatile uint32_t g_timeTickMs = 0U;
+static volatile uint64_t g_timeEpochBaseMs = 0U;
+static volatile uint32_t g_timeEpochBaseTickMs = 0U;
 
 void Time_Service_Init(void)
 {
@@ -23,6 +25,8 @@ void Time_Service_Init(void)
     }
 
     g_timeTickMs = 0U;
+    g_timeEpochBaseMs = 0U;
+    g_timeEpochBaseTickMs = 0U;
 
     TIME_SYST_RVR = (coreClockHz / 1000U) - 1U;
     TIME_SYST_CVR = 0U;
@@ -48,7 +52,22 @@ void Time_DelayMs(uint32_t delayMs)
     }
 }
 
+void Time_Service_SetEpochMs(uint64_t epochMs)
+{
+    g_timeEpochBaseMs = epochMs;
+    g_timeEpochBaseTickMs = g_timeTickMs;
+}
+
+uint64_t Time_GetEpochMs(void)
+{
+    uint32_t elapsedMs;
+
+    elapsedMs = g_timeTickMs - g_timeEpochBaseTickMs;
+
+    return g_timeEpochBaseMs + (uint64_t)elapsedMs;
+}
+
 void Time_Service_SysTick_Handler(void)
 {
-	g_timeTickMs++;
+    g_timeTickMs++;
 }

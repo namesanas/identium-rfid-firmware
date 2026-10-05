@@ -16,11 +16,6 @@
 #define IDENTIUM_PROTOCOL_READER_NAME_SIZE     64U
 #define IDENTIUM_PROTOCOL_HEARTBEAT_SECONDS    10U
 
-#define IDENTIUM_PROTOCOL_ERR_OK               0U
-#define IDENTIUM_PROTOCOL_ERR_INVALID_COMMAND  1U
-#define IDENTIUM_PROTOCOL_ERR_NOT_SUPPORTED    2U
-#define IDENTIUM_PROTOCOL_ERR_EXECUTION        3U
-
 void Identium_Protocol_Init(void);
 void Identium_Protocol_Task(void);
 

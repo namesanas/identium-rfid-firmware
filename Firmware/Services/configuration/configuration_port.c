@@ -10,7 +10,6 @@
 
 #define CONFIGURATION_PORT_RX_BUFFER_SIZE 64U
 #define CONFIGURATION_PORT_RESPONSE_SIZE  (CONFIGURATION_SERVICE_MAX_JSON + 16U)
-#define CONFIGURATION_PORT_CLOSE_DELAY_MS  20U
 #define CONFIGURATION_PORT_TCP_LISTEN_PORT 8080U
 
 #define CONFIGURATION_PORT_CMD_WORK_STATE  0x22U
@@ -22,8 +21,7 @@ static uint8_t g_responseBuffer[CONFIGURATION_PORT_RESPONSE_SIZE];
 static uint8_t g_contentBuffer[CONFIGURATION_SERVICE_MAX_JSON + 16U];
 static uint16_t g_rxLength = 0U;
 static uint8_t g_started = 0U;
-static uint8_t g_responsePendingClose = 0U;
-static uint32_t g_closeDeadlineMs = 0U;
+static uint8_t g_waitingForClientClose = 0U;
 
 static uint16_t Configuration_Port_PadJson(
     uint8_t *buffer,
@@ -100,8 +98,7 @@ static void Configuration_Port_ResetConnectionState(void)
 {
     g_rxLength = 0U;
     memset(g_rxBuffer, 0, sizeof(g_rxBuffer));
-    g_responsePendingClose = 0U;
-    g_closeDeadlineMs = 0U;
+    g_waitingForClientClose = 0U;
 }
 
 void Configuration_Port_Init(void)
@@ -116,15 +113,12 @@ void Configuration_Port_Task(void)
     uint16_t received;
     uint16_t dataLength;
     uint16_t totalLength;
-    uint16_t i;
     uint8_t commandId;
     uint8_t *content = g_contentBuffer;
     uint16_t contentLength;
 
     status = W5500_Socket1_GetStatus();
     {
-        uint32_t now = Time_GetTickMs();
-
         if(status == W5500_Sn_SR_LISTEN)
         {
             g_started = 1U;
@@ -133,6 +127,15 @@ void Configuration_Port_Task(void)
 
         if(status == W5500_Sn_SR_ESTABLISHED)
         {
+            /* The protocol is one request per connection. After sending the
+             * response, let the client close the connection cleanly instead
+             * of forcing a fixed-time local close. This avoids a race with
+             * the next configuration-port connection. */
+            if(g_waitingForClientClose != 0U)
+            {
+                return;
+            }
+
             received = W5500_Socket1_Receive(
                 &g_rxBuffer[g_rxLength],
                 (uint16_t)(sizeof(g_rxBuffer) - g_rxLength)
@@ -141,16 +144,6 @@ void Configuration_Port_Task(void)
             if(received > 0U)
             {
                 g_rxLength = (uint16_t)(g_rxLength + received);
-            }
-
-            if(g_responsePendingClose != 0U)
-            {
-                if((int32_t)(now - g_closeDeadlineMs) >= 0)
-                {
-                    (void)W5500_Socket1_Close();
-                    Configuration_Port_ResetConnectionState();
-                }
-                return;
             }
 
             if(g_rxLength < 6U)
@@ -290,23 +283,31 @@ void Configuration_Port_Task(void)
                 );
             }
 
-            g_responsePendingClose = 1U;
-            g_closeDeadlineMs = now + CONFIGURATION_PORT_CLOSE_DELAY_MS;
+            g_waitingForClientClose = 1U;
             g_rxLength = 0U;
             return;
         }
 
-        if(
-            (status == W5500_Sn_SR_CLOSE_WAIT) ||
-            (status == W5500_Sn_SR_CLOSED)
-        )
+        if(status == W5500_Sn_SR_CLOSE_WAIT)
         {
-            g_rxLength = 0U;
+            /* Peer has closed its side after receiving the response. Now it is
+             * safe to close our side and immediately reopen the listening
+             * socket for the next one-request connection. */
+            (void)W5500_Socket1_Close();
+            Configuration_Port_ResetConnectionState();
 
-            if(status == W5500_Sn_SR_CLOSE_WAIT)
+            if(
+                W5500_StartTCPServer1(
+                    CONFIGURATION_PORT_TCP_LISTEN_PORT
+                ) != 0U
+            )
             {
-                (void)W5500_Socket1_Close();
+                g_started = 1U;
             }
+        }
+        else if(status == W5500_Sn_SR_CLOSED)
+        {
+            Configuration_Port_ResetConnectionState();
 
             if(
                 W5500_StartTCPServer1(

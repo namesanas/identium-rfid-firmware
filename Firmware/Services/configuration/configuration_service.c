@@ -14,7 +14,6 @@
 extern SILION_ReaderConfig_t readerConfig;
 
 static uint8_t g_initialized = 0U;
-static char g_escapedReaderName[96];
 
 static int Configuration_Service_Append(
     char **cursor,
@@ -52,60 +51,6 @@ static int Configuration_Service_Append(
     *cursor += written;
     *remaining -= (size_t)written;
     return 1;
-}
-
-static uint8_t Configuration_Service_JsonStringSafe(
-    const char *source,
-    char *destination,
-    uint16_t destinationSize
-)
-{
-    uint16_t inIndex = 0U;
-    uint16_t outIndex = 0U;
-
-    if(
-        (source == NULL) ||
-        (destination == NULL) ||
-        (destinationSize < 2U)
-    )
-    {
-        return 0U;
-    }
-
-    while(source[inIndex] != '\0')
-    {
-        char c = source[inIndex++];
-
-        if(
-            (c == '"') ||
-            (c == '\\')
-        )
-        {
-            if((outIndex + 2U) >= destinationSize)
-            {
-                return 0U;
-            }
-
-            destination[outIndex++] = '\\';
-            destination[outIndex++] = c;
-        }
-        else if((unsigned char)c < 0x20U)
-        {
-            return 0U;
-        }
-        else
-        {
-            if((outIndex + 1U) >= destinationSize)
-            {
-                return 0U;
-            }
-
-            destination[outIndex++] = c;
-        }
-    }
-
-    destination[outIndex] = '\0';
-    return 1U;
 }
 
 void Configuration_Service_Init(void)

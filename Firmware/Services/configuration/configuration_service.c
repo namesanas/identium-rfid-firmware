@@ -119,6 +119,137 @@ uint8_t Configuration_Service_GetWorkState(void)
     return 3U;
 }
 
+static uint8_t Configuration_Service_AppendLiteral(
+    char **cursor,
+    size_t *remaining,
+    const char *text
+)
+{
+    size_t length;
+
+    if(
+        (cursor == NULL) ||
+        (*cursor == NULL) ||
+        (remaining == NULL) ||
+        (text == NULL)
+    )
+    {
+        return 0U;
+    }
+
+    length = strlen(text);
+
+    if(length >= *remaining)
+    {
+        return 0U;
+    }
+
+    memcpy(*cursor, text, length);
+    *cursor += length;
+    *remaining -= length;
+    **cursor = '\0';
+
+    return 1U;
+}
+
+static uint8_t Configuration_Service_AppendUnsigned(
+    char **cursor,
+    size_t *remaining,
+    uint32_t value
+)
+{
+    char digits[11];
+    uint8_t index = 0U;
+    uint8_t outIndex;
+
+    if(
+        (cursor == NULL) ||
+        (*cursor == NULL) ||
+        (remaining == NULL)
+    )
+    {
+        return 0U;
+    }
+
+    do
+    {
+        digits[index++] = (char)('0' + (value % 10U));
+        value /= 10U;
+    } while(value != 0U);
+
+    if((size_t)index >= *remaining)
+    {
+        return 0U;
+    }
+
+    for(outIndex = 0U; outIndex < index; outIndex++)
+    {
+        (*cursor)[outIndex] = digits[(uint8_t)(index - 1U - outIndex)];
+    }
+
+    *cursor += index;
+    *remaining -= index;
+    **cursor = '\0';
+
+    return 1U;
+}
+
+static uint8_t Configuration_Service_AppendEscapedName(
+    char **cursor,
+    size_t *remaining,
+    const char *source
+)
+{
+    uint16_t index = 0U;
+
+    if(
+        (cursor == NULL) ||
+        (*cursor == NULL) ||
+        (remaining == NULL) ||
+        (source == NULL)
+    )
+    {
+        return 0U;
+    }
+
+    while(source[index] != '\0')
+    {
+        char c = source[index++];
+
+        if(
+            (c == '"') ||
+            (c == '\\')
+        )
+        {
+            if(*remaining <= 2U)
+            {
+                return 0U;
+            }
+
+            *(*cursor)++ = '\\';
+            *(*cursor)++ = c;
+            *remaining -= 2U;
+        }
+        else if((unsigned char)c < 0x20U)
+        {
+            return 0U;
+        }
+        else
+        {
+            if(*remaining <= 1U)
+            {
+                return 0U;
+            }
+
+            *(*cursor)++ = c;
+            *remaining -= 1U;
+        }
+    }
+
+    **cursor = '\0';
+    return 1U;
+}
+
 uint16_t Configuration_Service_BuildActiveJson(
     char *buffer,
     uint16_t bufferSize
@@ -135,47 +266,67 @@ uint16_t Configuration_Service_BuildActiveJson(
         return 0U;
     }
 
-    if(Configuration_Service_JsonStringSafe(
-           PRODUCT_PROTOCOL_READER_NAME,
-           g_escapedReaderName,
-           sizeof(g_escapedReaderName)) == 0U)
+    *buffer = '\0';
+
+    if(!Configuration_Service_AppendLiteral(
+           &cursor, &remaining,
+           "{\"glob_params\":{\"hb_cylce\":"))
     {
         return 0U;
     }
 
-    if(!Configuration_Service_Append(
-        &cursor, &remaining,
-        "{\"glob_params\":{\"hb_cylce\":%u,\"s_buf_size\":1580,"
-        "\"thwdt_net_timeout\":0,\"thwdt_inv_timeout\":0,"
-        "\"start_inv_atbeg\":0,\"remote_cmd_reply\":1,\"name\":\"%s\"},",
-        (unsigned int)IDENTIUM_PROTOCOL_HEARTBEAT_SECONDS,
-        g_escapedReaderName))
+    if(!Configuration_Service_AppendUnsigned(
+           &cursor, &remaining,
+           IDENTIUM_PROTOCOL_HEARTBEAT_SECONDS))
     {
         return 0U;
     }
 
-    if(!Configuration_Service_Append(
-        &cursor, &remaining,
-        "\"upload\":{\"client_ack\":0,\"crc_enable\":0,"
-        "\"recv_timeout\":10,\"clr_r_buf_time\":8,\"hw_inf\":1,"
-        "\"tcp\":{\"ser_ip\":\"%u.%u.%u.%u\",\"ser_port\":\"%u\"},"
-        "\"data_aggr\":{\"mode\":0,\"timeval\":1000}},",
-        PRODUCT_PROTOCOL_TCP_SERVER_IP_0,
-        PRODUCT_PROTOCOL_TCP_SERVER_IP_1,
-        PRODUCT_PROTOCOL_TCP_SERVER_IP_2,
-        PRODUCT_PROTOCOL_TCP_SERVER_IP_3,
-        PRODUCT_PROTOCOL_TCP_SERVER_PORT))
+    if(!Configuration_Service_AppendLiteral(
+           &cursor, &remaining,
+           ",\"s_buf_size\":1580,\"thwdt_net_timeout\":0,\"thwdt_inv_timeout\":0,\"start_inv_atbeg\":0,\"remote_cmd_reply\":1,\"name\":\""))
     {
         return 0U;
     }
 
-    if(!Configuration_Service_Append(
-        &cursor, &remaining,
-        "\"gpo_act\":[],\"events\":[1,2,3],"
-        "\"tag_json_format\":[1,2,5,8],"
-        "\"gpi_trigger\":{\"mode\":0,\"timeval\":0,\"cond_order\":0,"
-        "\"cond_1\":[],\"cond_2\":[]},\"cus_param\":\"\"}"
-    ))
+    if(!Configuration_Service_AppendEscapedName(
+           &cursor, &remaining,
+           PRODUCT_PROTOCOL_READER_NAME))
+    {
+        return 0U;
+    }
+
+    if(!Configuration_Service_AppendLiteral(
+           &cursor, &remaining,
+           "\"},\"upload\":{\"client_ack\":0,\"crc_enable\":0,\"recv_timeout\":10,\"clr_r_buf_time\":8,\"hw_inf\":1,\"tcp\":{\"ser_ip\":\""))
+    {
+        return 0U;
+    }
+
+    if(!Configuration_Service_AppendUnsigned(
+           &cursor, &remaining,
+           PRODUCT_PROTOCOL_TCP_SERVER_IP_0) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_1) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_2) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_3) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "\",\"ser_port\":\""))
+    {
+        return 0U;
+    }
+
+    if(!Configuration_Service_AppendUnsigned(
+           &cursor, &remaining,
+           PRODUCT_PROTOCOL_TCP_SERVER_PORT))
+    {
+        return 0U;
+    }
+
+    if(!Configuration_Service_AppendLiteral(
+           &cursor, &remaining,
+           "\"},\"data_aggr\":{\"mode\":0,\"timeval\":1000}},\"gpo_act\":[],\"events\":[1,2,3],\"tag_json_format\":[1,2,5,8],\"gpi_trigger\":{\"mode\":0,\"timeval\":0,\"cond_order\":0,\"cond_1\":[],\"cond_2\":[]},\"cus_param\":\"\"}"))
     {
         return 0U;
     }

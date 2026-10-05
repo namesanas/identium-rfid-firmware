@@ -45,4 +45,6 @@
 #define BOARD_W5500_INT_PORT          NULL
 #define BOARD_W5500_INT_PIN           0xFFU
 
+#define BOARD_HOST_USART_IRQ          37U
+#define BOARD_RFID_USART_IRQ          39U
 #endif /* RFID_CONTROLLER_BSP_F429_DISCOVERY_CONFIG_H */

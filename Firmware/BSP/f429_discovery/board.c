@@ -9,8 +9,8 @@ static void GPIO_ConfigOutput(
 {
     pGPIOHandle->pGPIOx = pGPIOx;
     pGPIOHandle->GPIO_PinConfig.GPIO_PinNumber = pin;
-    pGPIOHandle->GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_OUT;
-    pGPIOHandle->GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
+    pGPIOHandle->GPIO_PinConfig.GPIO_PinMode = GPIO_DRV_MODE_OUT;
+    pGPIOHandle->GPIO_PinConfig.GPIO_PinSpeed = GPIO_DRV_SPEED_FAST;
     pGPIOHandle->GPIO_PinConfig.GPIO_PuPdControl = GPIO_NO_PUPD;
     pGPIOHandle->GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
 
@@ -27,8 +27,8 @@ static void GPIO_ConfigAlternate(
 {
     pGPIOHandle->pGPIOx = pGPIOx;
     pGPIOHandle->GPIO_PinConfig.GPIO_PinNumber = pin;
-    pGPIOHandle->GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
-    pGPIOHandle->GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
+    pGPIOHandle->GPIO_PinConfig.GPIO_PinMode = GPIO_DRV_MODE_ALTFN;
+    pGPIOHandle->GPIO_PinConfig.GPIO_PinSpeed = GPIO_DRV_SPEED_FAST;
     pGPIOHandle->GPIO_PinConfig.GPIO_PuPdControl = pull;
     pGPIOHandle->GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
     pGPIOHandle->GPIO_PinConfig.GPIO_PinAltFunMode = alternateFunction;

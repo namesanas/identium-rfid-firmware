@@ -1,6 +1,8 @@
 #ifndef RFID_CONTROLLER_BSP_F429_DISCOVERY_H
 #define RFID_CONTROLLER_BSP_F429_DISCOVERY_H
 
+#include "board_config.h"
+
 #include "../../Drivers/gpio/gpio.h"
 #include "../../Drivers/uart/uart.h"
 #include "../../Drivers/spi/spi.h"

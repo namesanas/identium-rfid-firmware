@@ -1,10 +1,18 @@
 #include "host_interface.h"
 #include "sillion_application.h"
-#include "host_transport_port.h"
+#include "../../Services/host/host_transport.h"
+#include "../../Services/USB/usb_cdc_transport.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "../../Services/ethernet/ethernet_service.h"
+
+#include "../../Services/system/system_fault.h"
+
+
+
 
 static uint8_t HOST_HexNibble(
     char c
@@ -24,22 +32,22 @@ static uint8_t HOST_HexNibble(
 
 #define HOST_RX_BUFFER_SIZE 128U
 
-static uint8_t hostCurrentTransport = HOST_TRANSPORT_USB;
-static uint8_t hostTagTransport = HOST_TRANSPORT_USB;
-static uint8_t hostReleasedTransport = HOST_TRANSPORT_NONE;
 
 static char hostRxBuffer[HOST_RX_BUFFER_SIZE];
 static uint16_t hostRxIndex = 0U;
 
+static uint32_t hostRxOverflowReported = 0U;
+
 void HOST_Interface_Init(void)
 {
-    HOST_Transport_Reset();
-    hostRxIndex = 0U;
-    memset(
-        hostRxBuffer,
-        0,
-        sizeof(hostRxBuffer)
-    );
+	hostRxIndex = 0U;
+	hostRxOverflowReported = 0U;
+
+	memset(
+	    hostRxBuffer,
+	    0,
+	    sizeof(hostRxBuffer)
+	);
 }
 
 
@@ -146,89 +154,67 @@ static uint8_t HOST_ParseHexBytes(
     return 1U;
 }
 
- void HOST_SendString(const char *text)
+void HOST_SendString(const char *text)
 {
-    uint16_t length;
-
-    if(text == NULL)
-    {
-        return;
-    }
-
-    length = (uint16_t)strlen(text);
-
-    if(hostCurrentTransport == HOST_TRANSPORT_ETHERNET)
-    {
-        W5500_Socket0_Send(
-            (const uint8_t *)text,
-            length
-        );
-    }
-    else
-    {
-        VCP_SendString(text);
-    }
+    HOST_Transport_SendString(
+        HOST_Transport_GetActive(),
+        text
+    );
 }
 
 
 uint8_t HOST_IsTagTransportEthernet(void)
 {
     return (
-        hostTagTransport
+        HOST_Transport_GetTagTransport()
         == HOST_TRANSPORT_ETHERNET
     );
 }
 
+
 void HOST_Interface_Task(void)
-{
-    while(hostRxHead != hostRxTail)
-    {
-        uint8_t byte;
+	{
+	    USB_CDC_Transport_Task();
+	    uint8_t byte;
+	    uint8_t transport;
 
-        /*
-         * ----------------------------------------------------
-         * Get one byte from host RX queue.
-         * ----------------------------------------------------
-         */
-        byte = hostRxQueue[hostRxTail];
+	    /*
+	     * --------------------------------------------------------
+	     * Report host RX queue overflow.
+	     *
+	     * Overflow is counted by the transport service.
+	     * Fault reporting is performed here in task context,
+	     * never from the RX interrupt.
+	     * --------------------------------------------------------
+	     */
+	    if(
+	        HOST_Transport_GetRxOverflowCount()
+	        !=
+	        hostRxOverflowReported
+	    )
+	    {
+	        System_Fault_Set(
+	            ERROR_HOST_RX_OVERFLOW
+	        );
 
-        hostCurrentTransport =
-            hostRxSourceQueue[hostRxTail];
+	        hostRxOverflowReported =
+	            HOST_Transport_GetRxOverflowCount();
+	    }
 
-        /*
-         * ----------------------------------------------------
-         * No transport currently owns the host interface.
-         *
-         * The transport that issued RELEASE is not allowed
-         * to immediately reclaim the interface.
-         * A different transport may claim ownership.
-         * ----------------------------------------------------
-         */
-        if(hostActiveTransport == HOST_TRANSPORT_NONE)
-        {
-            if(hostCurrentTransport == hostReleasedTransport)
-            {
-                hostRxTail++;
+	    while(
+	        HOST_Transport_ReadByte(
+	            &transport,
+	            &byte
+	        )
+	    )
 
-                if(hostRxTail >= HOST_RX_QUEUE_SIZE)
-                {
-                    hostRxTail = 0U;
-                }
 
-                continue;
-            }
-
-            hostActiveTransport = hostCurrentTransport;
-            hostReleasedTransport = HOST_TRANSPORT_NONE;
-        }
-
-        hostRxTail++;
-
-        if(hostRxTail >= HOST_RX_QUEUE_SIZE)
-        {
-            hostRxTail = 0U;
-        }
-
+	    {
+	        /*
+	         * ----------------------------------------------------
+	         * Transport selected by the manager.
+	         * ----------------------------------------------------
+	         */
 
         /*
          * ----------------------------------------------------
@@ -298,25 +284,20 @@ void HOST_Interface_Task(void)
                  * This prevents bytes from the old transport from
                  * becoming part of the next command.
                  */
-                hostRxHead = 0U;
-                hostRxTail = 0U;
-                hostRxCount = 0U;
-
                 /*
-                 * Reset the command parser.
-                 */
-                hostRxIndex = 0U;
-                hostRxBuffer[0] = '\0';
+                  * Reset the command parser.
+                  */
+                 hostRxIndex = 0U;
+                 hostRxBuffer[0] = '\0';
 
-                /*
-                 * Remember which transport issued RELEASE
-                 * before clearing the current transport.
-                 */
-                hostReleasedTransport = hostCurrentTransport;
-
-                hostTagTransport = HOST_TRANSPORT_NONE;
-                hostCurrentTransport = HOST_TRANSPORT_NONE;
-                hostActiveTransport = HOST_TRANSPORT_NONE;
+                 /*
+                  * Release the host transport.
+                  *
+                  * The transport manager flushes stale RX
+                  * bytes and prevents the released transport
+                  * from immediately reclaiming ownership.
+                  */
+                 HOST_Transport_Release();
             }
             else
 
@@ -328,7 +309,9 @@ void HOST_Interface_Task(void)
              */
             if(strcmp(hostRxBuffer, "START") == 0)
             {
-            	hostTagTransport = hostCurrentTransport;
+            	HOST_Transport_SetTagTransport(
+            	    transport
+            	);
                 if(SILION_Application_StartInventory() == 1U)
                 {
                     HOST_SendString(
@@ -386,10 +369,12 @@ void HOST_Interface_Task(void)
                             "ERROR,SINGLE_POLL\r\n"
                         );
 
-                        return;
+                        goto host_command_done;
                     }
                 }
-                hostTagTransport = hostCurrentTransport;
+                HOST_Transport_SetTagTransport(
+                    transport
+                );
 
 
                 if(
@@ -492,7 +477,7 @@ void HOST_Interface_Task(void)
                             "ERROR,SYNC_POLL\r\n"
                         );
 
-                        return;
+                        goto host_command_done;
                     }
 
                     timeoutMs =
@@ -504,10 +489,12 @@ void HOST_Interface_Task(void)
                         "ERROR,SYNC_POLL\r\n"
                     );
 
-                    return;
+                    goto host_command_done;
                 }
 
-                hostTagTransport = hostCurrentTransport;
+                HOST_Transport_SetTagTransport(
+                    transport
+                );
 
                 if(
                     SILION_Application_SynchronousInventory(
@@ -1545,7 +1532,7 @@ void HOST_Interface_Task(void)
                 );
             }
 
-
+            host_command_done:
             /*
              * ------------------------------------------------
              * Reset command buffer.

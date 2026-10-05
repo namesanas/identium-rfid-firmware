@@ -51,7 +51,7 @@ void GPIO_Init(GPIO_Handle_t *pGPIOHandle)
 
     GPIO_PeriClockControl(gpio, ENABLE);
 
-    if (mode <= GPIO_MODE_ANALOG)
+    if (mode <= GPIO_DRV_MODE_ANALOG)
     {
         gpio->MODER &= ~(3UL << (2U * pin));
         gpio->MODER |= ((uint32_t)mode << (2U * pin));
@@ -62,17 +62,17 @@ void GPIO_Init(GPIO_Handle_t *pGPIOHandle)
         uint8_t exticrSection;
         uint8_t portCode = 0U;
 
-        if (mode == GPIO_MODE_IT_FT)
+        if (mode == GPIO_DRV_MODE_IT_FT)
         {
             EXTI->FTSR |= (1UL << pin);
             EXTI->RTSR &= ~(1UL << pin);
         }
-        else if (mode == GPIO_MODE_IT_RT)
+        else if (mode == GPIO_DRV_MODE_IT_RT)
         {
             EXTI->RTSR |= (1UL << pin);
             EXTI->FTSR &= ~(1UL << pin);
         }
-        else if (mode == GPIO_MODE_IT_RFT)
+        else if (mode == GPIO_DRV_MODE_IT_RFT)
         {
             EXTI->RTSR |= (1UL << pin);
             EXTI->FTSR |= (1UL << pin);
@@ -112,7 +112,7 @@ void GPIO_Init(GPIO_Handle_t *pGPIOHandle)
     gpio->PUPDR &= ~(3UL << (2U * pin));
     gpio->PUPDR |= ((uint32_t)pGPIOHandle->GPIO_PinConfig.GPIO_PuPdControl << (2U * pin));
 
-    if (mode == GPIO_MODE_ALTFN)
+    if (mode == GPIO_DRV_MODE_ALTFN)
     {
         uint8_t afrIndex = pin / 8U;
         uint8_t afrSection = pin % 8U;

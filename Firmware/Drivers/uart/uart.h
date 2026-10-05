@@ -1,5 +1,13 @@
-#ifndef RFID_CONTROLLER_DRIVER_UART_H
-#define RFID_CONTROLLER_DRIVER_UART_H
+/*
+ * uart.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef UART_UART_H_
+#define UART_UART_H_
+
 
 #include <stdint.h>
 #include "../../Config/firmware_config.h"
@@ -142,4 +150,7 @@ void USART_IRQHandling(USART_Handle_t *pUSARTHandle);
 void USART_SetBaudRate(USART_RegDef_t *pUSARTx, uint32_t BaudRate);
 void USART_ApplicationEventCallback(USART_Handle_t *pUSARTHandle, uint8_t AppEvent, uint8_t receivedByte);
 
-#endif /* RFID_CONTROLLER_DRIVER_UART_H */
+
+
+
+#endif /* UART_UART_H_ */

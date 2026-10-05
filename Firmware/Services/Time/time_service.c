@@ -48,7 +48,7 @@ void Time_DelayMs(uint32_t delayMs)
     }
 }
 
-void SysTick_Handler(void)
+void Time_Service_SysTick_Handler(void)
 {
-    g_timeTickMs++;
+	g_timeTickMs++;
 }

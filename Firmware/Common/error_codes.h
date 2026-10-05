@@ -1,5 +1,13 @@
-#ifndef RFID_CONTROLLER_ERROR_CODES_H
-#define RFID_CONTROLLER_ERROR_CODES_H
+/*
+ * error_codes.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef ERROR_CODES_H_
+#define ERROR_CODES_H_
+
 
 #include <stdint.h>
 
@@ -28,7 +36,16 @@ typedef enum
 
     /* Host */
     ERROR_HOST_RX_OVERFLOW,
-    ERROR_HOST_INVALID_COMMAND
+    ERROR_HOST_INVALID_COMMAND,
+
+	/* System initialization */
+	ERROR_SYSTEM_INIT,
+	ERROR_RFID_INIT,
+	ERROR_ETHERNET_INIT,
+	ERROR_WATCHDOG_INIT
 } ErrorCode_t;
 
-#endif /* RFID_CONTROLLER_ERROR_CODES_H */
+
+
+
+#endif /* ERROR_CODES_H_ */

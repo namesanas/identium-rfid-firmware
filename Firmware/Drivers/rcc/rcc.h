@@ -1,5 +1,14 @@
-#ifndef RFID_CONTROLLER_DRIVER_RCC_H
-#define RFID_CONTROLLER_DRIVER_RCC_H
+/*
+ * rcc.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef RCC_RCC_H_
+#define RCC_RCC_H_
+
+
 
 #include <stdint.h>
 #include "../../Config/firmware_config.h"
@@ -21,4 +30,5 @@ uint32_t RCC_GetSystemClockValue(void);
 uint32_t RCC_GetPCLK1Value(void);
 uint32_t RCC_GetPCLK2Value(void);
 
-#endif /* RFID_CONTROLLER_DRIVER_RCC_H */
+
+#endif /* RCC_RCC_H_ */

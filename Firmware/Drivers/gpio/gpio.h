@@ -1,5 +1,15 @@
-#ifndef RFID_CONTROLLER_DRIVER_GPIO_H
-#define RFID_CONTROLLER_DRIVER_GPIO_H
+/*
+ * gpio.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef GPIO_GPIO_H_
+#define GPIO_GPIO_H_
+
+
+
 
 #include <stdint.h>
 #include "../../Config/firmware_config.h"
@@ -36,21 +46,21 @@ typedef enum
 
 typedef enum
 {
-    GPIO_MODE_IN = 0U,
-    GPIO_MODE_OUT = 1U,
-    GPIO_MODE_ALTFN = 2U,
-    GPIO_MODE_ANALOG = 3U,
-    GPIO_MODE_IT_FT = 4U,
-    GPIO_MODE_IT_RT = 5U,
-    GPIO_MODE_IT_RFT = 6U
+    GPIO_DRV_MODE_IN = 0U,
+    GPIO_DRV_MODE_OUT = 1U,
+    GPIO_DRV_MODE_ALTFN = 2U,
+    GPIO_DRV_MODE_ANALOG = 3U,
+    GPIO_DRV_MODE_IT_FT = 4U,
+    GPIO_DRV_MODE_IT_RT = 5U,
+    GPIO_DRV_MODE_IT_RFT = 6U
 } GPIO_PinMode_t;
 
 typedef enum
 {
-    GPIO_SPEED_LOW = 0U,
-    GPIO_SPEED_MEDIUM = 1U,
-    GPIO_SPEED_FAST = 2U,
-    GPIO_SPEED_HIGH = 3U
+    GPIO_DRV_SPEED_LOW = 0U,
+    GPIO_DRV_SPEED_MEDIUM = 1U,
+    GPIO_DRV_SPEED_FAST = 2U,
+    GPIO_DRV_SPEED_HIGH = 3U
 } GPIO_PinSpeed_t;
 
 typedef enum
@@ -121,4 +131,8 @@ void GPIO_IRQInterruptConfig(uint8_t IRQNumber, uint8_t EnorDi);
 void GPIO_IRQPriorityConfig(uint8_t IRQNumber, uint32_t IRQPriority);
 void GPIO_IRQHandling(uint8_t PinNumber);
 
-#endif /* RFID_CONTROLLER_DRIVER_GPIO_H */
+
+
+
+
+#endif /* GPIO_GPIO_H_ */

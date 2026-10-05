@@ -1,5 +1,14 @@
-#ifndef RFID_CONTROLLER_DRIVER_SPI_H
-#define RFID_CONTROLLER_DRIVER_SPI_H
+/*
+ * spi.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef SPI_SPI_H_
+#define SPI_SPI_H_
+
+
 
 #include <stdint.h>
 #include "../../Config/firmware_config.h"
@@ -119,4 +128,7 @@ void SPI_SSIConfig(SPI_RegDef_t *pSPIx, uint8_t EnorDi);
 void SPI_SSOEConfig(SPI_RegDef_t *pSPIx, uint8_t EnorDi);
 void SPI_ApplicationEventCallback(SPI_Handle_t *pSPIHandle, uint8_t AppEv);
 
-#endif /* RFID_CONTROLLER_DRIVER_SPI_H */
+
+
+
+#endif /* SPI_SPI_H_ */

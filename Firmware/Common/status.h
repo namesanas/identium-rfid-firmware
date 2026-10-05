@@ -1,5 +1,13 @@
-#ifndef RFID_CONTROLLER_STATUS_H
-#define RFID_CONTROLLER_STATUS_H
+/*
+ * status.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef STATUS_H_
+#define STATUS_H_
+
 
 #include <stdint.h>
 
@@ -16,4 +24,7 @@ typedef enum
     STATUS_UNSUPPORTED
 } Status_t;
 
-#endif /* RFID_CONTROLLER_STATUS_H */
+
+
+
+#endif /* STATUS_H_ */

@@ -84,10 +84,10 @@
 
 #define SILION_CMD_SET_REGION       0x97U
 #define SILION_REGION_FULL_BAND     0xFFU
-#define SILION_REGION_EU			0x08U
+#define SILION_REGION_INDIA			0x08U
 #define SILION_REGION_NORTH_AMERICA 0x01U
 #define SILION_REGION_CHINA_1		0x06U
-#define SILION_REGION_CHINS_2		0x0AU
+#define SILION_REGION_CHINA_2		0x0AU
 
 #define SILION_CMD_SET_ANTENNA_PORTS   0x91U
 
@@ -114,9 +114,7 @@
 #define SILION_CMD_SINGLE_TAG_INVENTORY   0x21U
 
 #define SILION_INVENTORY_OPTION_NONE      0x00U
-#define SILION_CMD_SYNC_INVENTORY    	  0x22U
 
-#define SILION_CMD_GET_TAG_BUFFER     0x29U
 
 #define SILION_TAG_BUFFER_OPTION_NEW  0x00U
 #define SILION_TAG_BUFFER_OPTION_REFETCH 0x01U
@@ -175,7 +173,7 @@ typedef enum
 
 /*
  * ============================================================
- * APPLICATION EVENTS how can i create a shortcut on windows desktop of a gui written in python whick contains a main file
+ * APPLICATION EVENTS
  * ============================================================
  */
 
@@ -525,7 +523,7 @@ uint8_t SILION_ParseAsyncTag(
         Silion_Handle_t *pSilionHandle,
         SILION_Tag_t *tag);
 
-uint8_t HOST_IsTagTransportEthernet(void);
+
 
 /*
  * ============================================================

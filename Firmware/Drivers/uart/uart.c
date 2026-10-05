@@ -142,6 +142,9 @@ void USART_Init(USART_Handle_t *pUSARTHandle)
      * Enable USART
      */
     pUSARTHandle->pUSARTx->CR1 |= (1 << UART_CR1_UE_BIT);
+
+    pUSARTHandle->TxBusyState = USART_READY;
+    pUSARTHandle->RxBusyState = USART_READY;
 }
 
 void USART_DeInit(USART_RegDef_t *pUSARTx)

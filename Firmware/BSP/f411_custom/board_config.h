@@ -1,5 +1,13 @@
-#ifndef RFID_CONTROLLER_BSP_F411_CUSTOM_CONFIG_H
-#define RFID_CONTROLLER_BSP_F411_CUSTOM_CONFIG_H
+/*
+ * board_config.h
+ *
+ *  Created on: 26-Sept-2026
+ *      Author: Identium
+ */
+
+#ifndef F411_CUSTOM_BOARD_CONFIG_H_
+#define F411_CUSTOM_BOARD_CONFIG_H_
+
 
 #include <stddef.h>
 #include "stm32f411xe.h"
@@ -92,4 +100,5 @@
 #define BOARD_BUZZER_PORT             NULL
 #define BOARD_BUZZER_PIN              0xFFU
 
-#endif /* RFID_CONTROLLER_BSP_F411_CUSTOM_CONFIG_H */
+
+#endif /* F411_CUSTOM_BOARD_CONFIG_H_ */

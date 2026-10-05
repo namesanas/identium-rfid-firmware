@@ -1206,7 +1206,7 @@ uint8_t SILION_ParseSingleTagInventory(
      *     Tag CRC     2 bytes
      */
     epcLengthBytes =
-        (uint16_t)pSilionHandle->expectedLength - 3U;
+        (uint16_t)((uint16_t)pSilionHandle->expectedLength - 3U);
 
     if(epcLengthBytes > sizeof(tag->epc))
     {
@@ -2107,12 +2107,47 @@ uint8_t SILION_ParseReadTagData(
 {
     uint16_t bytesAvailable;
     uint16_t i;
+    uint16_t totalFrameLength;
 
     if(
         pSilionHandle == NULL ||
         data == NULL ||
         dataLength == NULL
     )
+    {
+        return 0U;
+    }
+
+    /*
+     * A SILION reply is:
+     *
+     *     FF + LEN + CMD + STATUS(2) + DATA + CRC(2)
+     *
+     * Total reply length = LEN + 7.
+     * Keep this helper safe even if called with a malformed handle.
+     */
+    if(
+        ((uint16_t)pSilionHandle->expectedLength + 7U) >
+        SILION_MAX_FRAME_SIZE
+    )
+    {
+        return 0U;
+    }
+
+    totalFrameLength =
+        (uint16_t)pSilionHandle->expectedLength + 7U;
+
+    if(pSilionHandle->rxIndex < totalFrameLength)
+    {
+        return 0U;
+    }
+
+    /*
+     * At minimum we need:
+     *
+     * OPTION + at least one DATA byte
+     */
+    if(pSilionHandle->expectedLength < 2U)
     {
         return 0U;
     }
@@ -2137,16 +2172,6 @@ uint8_t SILION_ParseReadTagData(
      */
 
     /*
-     * At minimum we need:
-     *
-     * OPTION + at least one DATA byte
-     */
-    if(pSilionHandle->expectedLength < 2U)
-    {
-        return 0U;
-    }
-
-    /*
      * ----------------------------------------------------------
      * DATA begins at rxBuffer[6]
      *
@@ -2162,7 +2187,7 @@ uint8_t SILION_ParseReadTagData(
      * ----------------------------------------------------------
      */
     bytesAvailable =
-        (uint16_t)pSilionHandle->expectedLength - 1U;
+        (uint16_t)((uint16_t)pSilionHandle->expectedLength - 1U);
 
     if(bytesAvailable > dataSize)
     {
@@ -2253,10 +2278,12 @@ uint8_t SILION_ParseAsyncTag(
 {
     uint16_t index;
     uint16_t tagDataLength;
+    uint16_t tagDataBytes;
     uint8_t epcTotalBytes;
     uint16_t epcBytes;
     uint16_t metadataFlags;
-
+    uint16_t dataEnd;
+    uint16_t totalFrameLength;
 
     if(
         pSilionHandle == NULL ||
@@ -2266,21 +2293,69 @@ uint8_t SILION_ParseAsyncTag(
         return 0U;
     }
 
-
     /*
-     * --------------------------------------------------------
-     * Minimum async data:
-     *
-     * Metadata Flags = 2 bytes
-     * --------------------------------------------------------
+     * Reply total length = LEN + 7.
+     * Reject malformed lengths before touching the RX buffer.
      */
     if(
-        pSilionHandle->expectedLength < 2U
+        ((uint16_t)pSilionHandle->expectedLength + 7U) >
+        SILION_MAX_FRAME_SIZE
     )
     {
         return 0U;
     }
 
+    totalFrameLength =
+        (uint16_t)pSilionHandle->expectedLength + 7U;
+
+    /*
+     * The parser must have received the complete frame before
+     * this function is allowed to inspect the payload.
+     */
+    if(pSilionHandle->rxIndex < totalFrameLength)
+    {
+        return 0U;
+    }
+
+    /*
+     * --------------------------------------------------------
+     * Minimum async data needed by the current 0x00BF format:
+     *
+     * Metadata Flags  2
+     * Read Count      1
+     * RSSI            1
+     * Antenna         1
+     * Frequency       3
+     * Timestamp       4
+     * RFU             2
+     * Tag Data Length 2
+     * EPC Length      1
+     * PC              2
+     * Tag CRC         2
+     *
+     * Total = 21 data bytes, even when EPC is zero bytes.
+     * --------------------------------------------------------
+     */
+    if(pSilionHandle->expectedLength < 21U)
+    {
+        return 0U;
+    }
+
+    dataEnd =
+        5U +
+        (uint16_t)pSilionHandle->expectedLength;
+
+    /*
+     * rxBuffer[dataEnd] and rxBuffer[dataEnd + 1] are CRC.
+     * The data payload occupies [5, dataEnd).
+     */
+    if(
+        (dataEnd + 2U) >
+        pSilionHandle->rxIndex
+    )
+    {
+        return 0U;
+    }
 
     /*
      * --------------------------------------------------------
@@ -2293,7 +2368,6 @@ uint8_t SILION_ParseAsyncTag(
         ((uint16_t)pSilionHandle->rxBuffer[5] << 8)
         |
         pSilionHandle->rxBuffer[6];
-
 
     /*
      * For Stage 2 we expect exactly the metadata requested
@@ -2316,12 +2390,15 @@ uint8_t SILION_ParseAsyncTag(
         return 0U;
     }
 
-
     /*
      * Tag information starts after the metadata flags.
      */
     index = 7U;
 
+    /*
+     * The minimum-length check above guarantees all fixed fields
+     * below through Tag Data Length are inside the data payload.
+     */
 
     /*
      * --------------------------------------------------------
@@ -2331,7 +2408,6 @@ uint8_t SILION_ParseAsyncTag(
     tag->readCount =
         pSilionHandle->rxBuffer[index++];
 
-
     /*
      * --------------------------------------------------------
      * RSSI
@@ -2340,7 +2416,6 @@ uint8_t SILION_ParseAsyncTag(
     tag->rssi =
         (int8_t)pSilionHandle->rxBuffer[index++];
 
-
     /*
      * --------------------------------------------------------
      * ANTENNA
@@ -2348,7 +2423,6 @@ uint8_t SILION_ParseAsyncTag(
      */
     tag->antenna =
         pSilionHandle->rxBuffer[index++];
-
 
     /*
      * --------------------------------------------------------
@@ -2365,7 +2439,6 @@ uint8_t SILION_ParseAsyncTag(
         pSilionHandle->rxBuffer[index + 2U];
 
     index += 3U;
-
 
     /*
      * --------------------------------------------------------
@@ -2385,7 +2458,6 @@ uint8_t SILION_ParseAsyncTag(
 
     index += 4U;
 
-
     /*
      * --------------------------------------------------------
      * RFU
@@ -2394,7 +2466,6 @@ uint8_t SILION_ParseAsyncTag(
      * --------------------------------------------------------
      */
     index += 2U;
-
 
     /*
      * --------------------------------------------------------
@@ -2412,7 +2483,6 @@ uint8_t SILION_ParseAsyncTag(
 
     index += 2U;
 
-
     /*
      * Tag-data length must be byte aligned.
      */
@@ -2423,13 +2493,36 @@ uint8_t SILION_ParseAsyncTag(
         return 0U;
     }
 
+    tagDataBytes =
+        (uint16_t)(tagDataLength / 8U);
+
+    /*
+     * After the embedded tag data we still need:
+     *
+     *     EPC Length  1 byte
+     *     PC          2 bytes
+     *     EPC         N bytes
+     *     Tag CRC     2 bytes
+     *
+     * The EPC length field is checked separately below because
+     * it determines N.
+     */
+    if(
+        ((uint32_t)index +
+         tagDataBytes +
+         1U +
+         2U +
+         2U) >
+        dataEnd
+    )
+    {
+        return 0U;
+    }
 
     /*
      * Skip embedded tag data if present.
      */
-    index +=
-        (uint16_t)(tagDataLength / 8U);
-
+    index += tagDataBytes;
 
     /*
      * --------------------------------------------------------
@@ -2448,35 +2541,42 @@ uint8_t SILION_ParseAsyncTag(
      *     EPC bytes = length - 4
      * --------------------------------------------------------
      */
+    if(index >= dataEnd)
+    {
+        return 0U;
+    }
+
     epcTotalBytes =
         pSilionHandle->rxBuffer[index++];
-
 
     if(epcTotalBytes < 4U)
     {
         return 0U;
     }
 
-
     epcBytes =
-        (uint16_t)epcTotalBytes - 4U;
+        (uint16_t)(epcTotalBytes - 4U);
 
-
-    if(
-        epcBytes > sizeof(tag->epc)
-    )
+    if(epcBytes > sizeof(tag->epc))
     {
         return 0U;
     }
 
-
-    tag->epcLengthBits =
-        (uint16_t)epcTotalBytes * 8U;
-
-
-    tag->epcLengthBytes =
-        epcBytes;
-
+    /*
+     * --------------------------------------------------------
+     * PC + EPC + Tag CRC must fit entirely inside the data area.
+     * --------------------------------------------------------
+     */
+    if(
+        ((uint32_t)index +
+         2U +
+         epcBytes +
+         2U) >
+        dataEnd
+    )
+    {
+        return 0U;
+    }
 
     /*
      * --------------------------------------------------------
@@ -2489,22 +2589,6 @@ uint8_t SILION_ParseAsyncTag(
         pSilionHandle->rxBuffer[index + 1U];
 
     index += 2U;
-
-
-    /*
-     * --------------------------------------------------------
-     * Make sure EPC + CRC actually fit.
-     * --------------------------------------------------------
-     */
-    if(
-        (index + epcBytes + 2U)
-        >
-        pSilionHandle->rxIndex
-    )
-    {
-        return 0U;
-    }
-
 
     /*
      * --------------------------------------------------------
@@ -2521,7 +2605,6 @@ uint8_t SILION_ParseAsyncTag(
             pSilionHandle->rxBuffer[index++];
     }
 
-
     /*
      * --------------------------------------------------------
      * TAG CRC
@@ -2532,9 +2615,15 @@ uint8_t SILION_ParseAsyncTag(
         |
         pSilionHandle->rxBuffer[index + 1U];
 
+    tag->epcLengthBits =
+        (uint16_t)epcTotalBytes * 8U;
+
+    tag->epcLengthBytes =
+        epcBytes;
 
     return 1U;
 }
+
 
 uint8_t SILION_StartAsyncInventory(
         Silion_Handle_t *pSilionHandle)
@@ -2737,7 +2826,6 @@ uint8_t SILION_AsyncTagQueuePush(
 {
     SILION_AsyncTagQueue_t *queue;
 
-
     if(
         pSilionHandle == NULL ||
         tag == NULL
@@ -2746,10 +2834,24 @@ uint8_t SILION_AsyncTagQueuePush(
         return 0U;
     }
 
-
     queue =
         &pSilionHandle->asyncTagQueue;
 
+    /*
+     * Protect against corrupted queue state before indexing the
+     * fixed-size tag array.
+     */
+    if(
+        queue->head >= SILION_ASYNC_TAG_QUEUE_SIZE ||
+        queue->tail >= SILION_ASYNC_TAG_QUEUE_SIZE ||
+        queue->count > SILION_ASYNC_TAG_QUEUE_SIZE
+    )
+    {
+        queue->head = 0U;
+        queue->tail = 0U;
+        queue->count = 0U;
+        return 0U;
+    }
 
     /*
      * Queue full.
@@ -2760,17 +2862,14 @@ uint8_t SILION_AsyncTagQueuePush(
     )
     {
         queue->overflow++;
-
         return 0U;
     }
-
 
     /*
      * Copy complete tag into queue.
      */
     queue->tags[queue->head] =
         *tag;
-
 
     /*
      * Advance head.
@@ -2785,19 +2884,17 @@ uint8_t SILION_AsyncTagQueuePush(
         queue->head = 0U;
     }
 
-
     queue->count++;
-
 
     return 1U;
 }
+
 
 uint8_t SILION_AsyncTagQueuePop(
         Silion_Handle_t *pSilionHandle,
         SILION_Tag_t *tag)
 {
     SILION_AsyncTagQueue_t *queue;
-
 
     if(
         pSilionHandle == NULL ||
@@ -2807,10 +2904,24 @@ uint8_t SILION_AsyncTagQueuePop(
         return 0U;
     }
 
-
     queue =
         &pSilionHandle->asyncTagQueue;
 
+    /*
+     * Protect against corrupted queue state before indexing the
+     * fixed-size tag array.
+     */
+    if(
+        queue->head >= SILION_ASYNC_TAG_QUEUE_SIZE ||
+        queue->tail >= SILION_ASYNC_TAG_QUEUE_SIZE ||
+        queue->count > SILION_ASYNC_TAG_QUEUE_SIZE
+    )
+    {
+        queue->head = 0U;
+        queue->tail = 0U;
+        queue->count = 0U;
+        return 0U;
+    }
 
     /*
      * Nothing available.
@@ -2820,13 +2931,11 @@ uint8_t SILION_AsyncTagQueuePop(
         return 0U;
     }
 
-
     /*
      * Copy tag out of queue.
      */
     *tag =
         queue->tags[queue->tail];
-
 
     /*
      * Advance tail.
@@ -2841,12 +2950,11 @@ uint8_t SILION_AsyncTagQueuePop(
         queue->tail = 0U;
     }
 
-
     queue->count--;
-
 
     return 1U;
 }
+
 
 uint8_t SILION_ParseTagBuffer(
         Silion_Handle_t *pSilionHandle,
@@ -2857,6 +2965,32 @@ uint8_t SILION_ParseTagBuffer(
     uint16_t index;
     uint8_t count;
     uint8_t i;
+    uint16_t totalFrameLength;
+
+    if(
+        pSilionHandle == NULL ||
+        tags == NULL ||
+        tagCount == NULL
+    )
+    {
+        return 0U;
+    }
+
+    if(
+        ((uint16_t)pSilionHandle->expectedLength + 7U) >
+        SILION_MAX_FRAME_SIZE
+    )
+    {
+        return 0U;
+    }
+
+    totalFrameLength =
+        (uint16_t)pSilionHandle->expectedLength + 7U;
+
+    if(pSilionHandle->rxIndex < totalFrameLength)
+    {
+        return 0U;
+    }
 
     /*
      * Minimum response data:
@@ -3152,7 +3286,7 @@ uint8_t SILION_ParseTagBuffer(
 
 
         epcBytes =
-            epcTotalBytes - 4U;
+            (uint16_t)(epcTotalBytes - 4U);
 
 
         if(epcBytes > sizeof(tags[i].epc))
@@ -3239,7 +3373,12 @@ void SILION_ProcessByte(
         Silion_Handle_t *pSilionHandle,
         uint8_t receivedByte)
 {
-	SILION_Tag_t asyncTag;
+    SILION_Tag_t asyncTag;
+
+    if(pSilionHandle == NULL)
+    {
+        return;
+    }
 
     switch(pSilionHandle->rxState)
     {
@@ -3257,21 +3396,17 @@ void SILION_ProcessByte(
                 pSilionHandle->rxBuffer[0] =
                     receivedByte;
 
-
                 pSilionHandle->rxIndex =
-                    1;
-
+                    1U;
 
                 pSilionHandle->frameError =
-                    0;
-
+                    0U;
 
                 pSilionHandle->rxState =
                     SILION_RX_WAIT_LENGTH;
             }
 
             break;
-
 
         /*
          * ----------------------------------------------------
@@ -3281,21 +3416,47 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_LENGTH:
 
+            /*
+             * Reply total length = LEN + 7.
+             *
+             * The RX buffer is 255 bytes, so the largest legal
+             * LEN is 248 bytes.
+             */
+            if(
+                ((uint16_t)receivedByte + 7U) >
+                SILION_MAX_FRAME_SIZE
+            )
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
 
-
             pSilionHandle->expectedLength =
                 receivedByte;
-
 
             pSilionHandle->rxState =
                 SILION_RX_WAIT_COMMAND;
 
             break;
-
 
         /*
          * ----------------------------------------------------
@@ -3305,21 +3466,28 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_COMMAND:
 
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
 
-
             pSilionHandle->command =
                 receivedByte;
-
 
             pSilionHandle->rxState =
                 SILION_RX_WAIT_STATUS_MSB;
 
             break;
-
 
         /*
          * ----------------------------------------------------
@@ -3329,21 +3497,28 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_STATUS_MSB:
 
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
 
-
             pSilionHandle->status =
                 ((uint16_t)receivedByte << 8);
-
 
             pSilionHandle->rxState =
                 SILION_RX_WAIT_STATUS_LSB;
 
             break;
-
 
         /*
          * ----------------------------------------------------
@@ -3353,23 +3528,30 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_STATUS_LSB:
 
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
 
-
             pSilionHandle->status |=
                 receivedByte;
-
 
             /*
              * No data?
              *
              * Go directly to CRC.
              */
-
-            if(pSilionHandle->expectedLength == 0)
+            if(pSilionHandle->expectedLength == 0U)
             {
                 pSilionHandle->rxState =
                     SILION_RX_WAIT_CRC_MSB;
@@ -3382,7 +3564,6 @@ void SILION_ProcessByte(
 
             break;
 
-
         /*
          * ----------------------------------------------------
          * DATA
@@ -3391,11 +3572,20 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_DATA:
 
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
-
 
             /*
              * Data begins at index 5.
@@ -3406,7 +3596,6 @@ void SILION_ProcessByte(
              *
              * means all data bytes received.
              */
-
             if(pSilionHandle->rxIndex >=
                (5U +
                 pSilionHandle->expectedLength))
@@ -3417,7 +3606,6 @@ void SILION_ProcessByte(
 
             break;
 
-
         /*
          * ----------------------------------------------------
          * CRC MSB
@@ -3426,17 +3614,25 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_CRC_MSB:
 
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
 
-
             pSilionHandle->rxState =
                 SILION_RX_WAIT_CRC_LSB;
 
             break;
-
 
         /*
          * ----------------------------------------------------
@@ -3446,25 +3642,30 @@ void SILION_ProcessByte(
 
         case SILION_RX_WAIT_CRC_LSB:
 
+            if(pSilionHandle->rxIndex >= SILION_MAX_FRAME_SIZE)
+            {
+                pSilionHandle->frameError = 1U;
+                pSilionHandle->rxIndex = 0U;
+                pSilionHandle->expectedLength = 0U;
+                pSilionHandle->rxState =
+                    SILION_RX_WAIT_HEADER;
+                break;
+            }
+
             pSilionHandle->rxBuffer[
                 pSilionHandle->rxIndex++
             ] =
                 receivedByte;
 
-
             /*
              * Full frame received.
              */
-
             if(
                 SILION_ValidateFrame(
                     pSilionHandle
                 )
             )
             {
-
-
-
                 /*
                  * --------------------------------------------------------
                  * ASYNCHRONOUS INVENTORY FRAME
@@ -3475,67 +3676,67 @@ void SILION_ProcessByte(
                  * Handle them immediately instead of treating them like
                  * a normal request/reply transaction.
                  */
-            	if(
-            	    pSilionHandle->command
-            	    ==
-            	    SILION_CMD_ASYNC_INVENTORY
-            	)
-            	{
-            	    /*
-            	     * --------------------------------------------------------
-            	     * 0xAA is used for both:
-            	     *
-            	     * 1. unsolicited async tag packets
-            	     * 2. normal response to async STOP (0xAA49)
-            	     *
-            	     * STOP response starts with:
-            	     *
-            	     *     "Moduletech" + 0xAA49
-            	     *
-            	     * Treat the STOP response as a normal transaction
-            	     * response so SILION_WaitForResponse() can see it.
-            	     * --------------------------------------------------------
-            	     */
-            	    if(
-            	        pSilionHandle->expectedLength >= 12U &&
-            	        pSilionHandle->rxBuffer[5U]  == 'M' &&
-            	        pSilionHandle->rxBuffer[6U]  == 'o' &&
-            	        pSilionHandle->rxBuffer[7U]  == 'd' &&
-            	        pSilionHandle->rxBuffer[8U]  == 'u' &&
-            	        pSilionHandle->rxBuffer[9U]  == 'l' &&
-            	        pSilionHandle->rxBuffer[10U] == 'e' &&
-            	        pSilionHandle->rxBuffer[11U] == 't' &&
-            	        pSilionHandle->rxBuffer[12U] == 'e' &&
-            	        pSilionHandle->rxBuffer[13U] == 'c' &&
-            	        pSilionHandle->rxBuffer[14U] == 'h' &&
-            	        pSilionHandle->rxBuffer[15U] == SILION_CMD_ASYNC_INVENTORY &&
-            	        pSilionHandle->rxBuffer[16U] == SILION_ASYNC_STOP
-            	    )
-            	    {
-            	        /*
-            	         * This is the response to STOP (0xAA49).
-            	         */
-            	        pSilionHandle->frameReady = 1U;
-            	    }
-            	    else
-            	    {
-            	        /*
-            	         * Normal unsolicited async packet.
-            	         */
-            	        SILION_ProcessAsyncFrame(
-            	            pSilionHandle,
-            	            &asyncTag
-            	        );
-            	    }
-            	}
-            	else
-            	{
-            	    pSilionHandle->frameReady = 1U;
-            	}
+                if(
+                    pSilionHandle->command
+                    ==
+                    SILION_CMD_ASYNC_INVENTORY
+                )
+                {
+                    /*
+                     * --------------------------------------------------------
+                     * 0xAA is used for both:
+                     *
+                     * 1. unsolicited async tag packets
+                     * 2. normal response to async STOP (0xAA49)
+                     *
+                     * STOP response starts with:
+                     *
+                     *     "Moduletech" + 0xAA49
+                     *
+                     * Treat the STOP response as a normal transaction
+                     * response so SILION_WaitForResponse() can see it.
+                     * --------------------------------------------------------
+                     */
+                    if(
+                        pSilionHandle->expectedLength >= 12U &&
+                        pSilionHandle->rxBuffer[5U]  == 'M' &&
+                        pSilionHandle->rxBuffer[6U]  == 'o' &&
+                        pSilionHandle->rxBuffer[7U]  == 'd' &&
+                        pSilionHandle->rxBuffer[8U]  == 'u' &&
+                        pSilionHandle->rxBuffer[9U]  == 'l' &&
+                        pSilionHandle->rxBuffer[10U] == 'e' &&
+                        pSilionHandle->rxBuffer[11U] == 't' &&
+                        pSilionHandle->rxBuffer[12U] == 'e' &&
+                        pSilionHandle->rxBuffer[13U] == 'c' &&
+                        pSilionHandle->rxBuffer[14U] == 'h' &&
+                        pSilionHandle->rxBuffer[15U] == SILION_CMD_ASYNC_INVENTORY &&
+                        pSilionHandle->rxBuffer[16U] == SILION_ASYNC_STOP
+                    )
+                    {
+                        /*
+                         * This is the response to STOP (0xAA49).
+                         */
+                        pSilionHandle->frameReady = 1U;
+                    }
+                    else
+                    {
+                        /*
+                         * Normal unsolicited async packet.
+                         */
+                        SILION_ProcessAsyncFrame(
+                            pSilionHandle,
+                            &asyncTag
+                        );
+                    }
+                }
+                else
+                {
+                    pSilionHandle->frameReady = 1U;
+                }
             }
             else
             {
-                pSilionHandle->frameError = 1;
+                pSilionHandle->frameError = 1U;
 
                 /*
                  * If this was an async packet, count it.
@@ -3550,16 +3751,13 @@ void SILION_ProcessByte(
                 }
             }
 
-
             /*
              * Prepare to search for the next frame.
              */
-
             pSilionHandle->rxState =
                 SILION_RX_WAIT_HEADER;
 
             break;
-
 
         default:
 
@@ -3567,13 +3765,11 @@ void SILION_ProcessByte(
                 SILION_RX_WAIT_HEADER;
 
             pSilionHandle->rxIndex =
-                0;
+                0U;
 
             break;
     }
 }
-
-
 
 
 /*
@@ -3610,27 +3806,51 @@ uint8_t SILION_ValidateFrame(
         Silion_Handle_t *pSilionHandle)
 {
     uint16_t calculatedCRC;
-
     uint16_t receivedCRC;
-
     uint16_t crcLength;
+    uint16_t crcIndex;
+    uint16_t totalFrameLength;
 
+    if(pSilionHandle == NULL)
+    {
+        return 0U;
+    }
+
+    /*
+     * Reply total length = LEN + 7.
+     */
+    if(
+        ((uint16_t)pSilionHandle->expectedLength + 7U) >
+        SILION_MAX_FRAME_SIZE
+    )
+    {
+        return 0U;
+    }
+
+    totalFrameLength =
+        (uint16_t)pSilionHandle->expectedLength + 7U;
+
+    /*
+     * A frame must contain the complete payload and CRC before
+     * the CRC calculation is attempted.
+     */
+    if(pSilionHandle->rxIndex < totalFrameLength)
+    {
+        return 0U;
+    }
 
     /*
      * LEN + CMD + STATUS + DATA
      */
-
     crcLength =
         4U +
         pSilionHandle->expectedLength;
-
 
     calculatedCRC =
         SILION_CalculateCRC(
             &pSilionHandle->rxBuffer[1],
             crcLength
         );
-
 
     /*
      * CRC starts after:
@@ -3641,22 +3861,18 @@ uint8_t SILION_ValidateFrame(
      * STATUS
      * DATA
      */
-
-    uint16_t crcIndex =
+    crcIndex =
         5U +
         pSilionHandle->expectedLength;
-
 
     receivedCRC =
         ((uint16_t)pSilionHandle->rxBuffer[crcIndex]
          << 8);
 
-
     receivedCRC |=
         pSilionHandle->rxBuffer[
-            crcIndex + 1
+            crcIndex + 1U
         ];
-
 
     return
         (calculatedCRC == receivedCRC);

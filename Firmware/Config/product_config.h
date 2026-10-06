@@ -21,6 +21,19 @@
 #define PRODUCT_PROTOCOL_TCP_SERVER_IP_3 100U
 #define PRODUCT_PROTOCOL_READER_NAME     "RFID-F429-DEV"
 
+/* Current F429 ActiveMode upload/recovery profile.  These fields are
+ * intentionally compile-time constants until their configuration-write
+ * handlers are expanded in a later step. */
+#define PRODUCT_PROTOCOL_UPLOAD_S_BUF_SIZE       1580U
+#define PRODUCT_PROTOCOL_UPLOAD_CLIENT_ACK       0U
+#define PRODUCT_PROTOCOL_UPLOAD_RECV_TIMEOUT_S   10U
+#define PRODUCT_PROTOCOL_UPLOAD_CLR_R_BUF_TIME_S  8U
+#define PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_MODE    0U
+#define PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_TIME_MS 1000U
+#define PRODUCT_PROTOCOL_THDWT_NET_TIMEOUT_MIN    0U
+#define PRODUCT_PROTOCOL_THDWT_INV_TIMEOUT_MIN    0U
+#define PRODUCT_PROTOCOL_REMOTE_CMD_REPLY         1U
+
 #define PRODUCT_RFID_BAUDRATE           115200U
 #define PRODUCT_HOST_BAUDRATE           115200U
 

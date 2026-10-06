@@ -1,6 +1,8 @@
 #include "identium_protocol.h"
 #include "identium_command.h"
 
+#include "stm32f429xx.h"
+
 #include "../Config/product_config.h"
 #include "../Application/Silion/sillion_application.h"
 #include "../Services/ethernet/ethernet_service.h"
@@ -8,9 +10,64 @@
 #include "../Services/configuration/configuration_service.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * ------------------------------------------------------------
+ * JSON-over-TCP RX framing
+ * ------------------------------------------------------------
+ *
+ * The active Identium connection is a byte stream.  A TCP receive
+ * boundary is not a JSON message boundary, so the accumulator below
+ * persists across calls and only dispatches on LF.
+ */
+static char identiumRxLine[IDENTIUM_PROTOCOL_RX_BUFFER_SIZE];
+static uint16_t identiumRxIndex = 0U;
+static uint8_t identiumRxDiscardLine = 0U;
+static uint8_t identiumRxSeekingObject = 1U;
+
+/*
+ * ------------------------------------------------------------
+ * Outbound tag buffering
+ * ------------------------------------------------------------
+ *
+ * The protocol specification defines s_buf_size as the largest single
+ * upload.  We therefore queue raw tag records, not pre-built JSON, and
+ * serialize only the batch that is actually going to be transmitted.
+ * This keeps the queue bounded and prevents stale network outages from
+ * consuming unbounded RAM.
+ */
+typedef struct
+{
+    SILION_Tag_t tag;
+    uint32_t queuedAtMs;
+} Identium_TagQueueEntry_t;
+
+#define IDENTIUM_TAG_QUEUE_SIZE        256U
+#define IDENTIUM_TAG_BATCH_MAX_TAGS    32U
+#define IDENTIUM_TAG_FLUSH_LIMIT       4U
+
+static Identium_TagQueueEntry_t identiumTagQueue[IDENTIUM_TAG_QUEUE_SIZE];
+static uint16_t identiumTagQueueHead = 0U;
+static uint16_t identiumTagQueueTail = 0U;
+static uint16_t identiumTagQueueCount = 0U;
+static uint32_t identiumTagAggregationStartMs = 0U;
+static uint8_t identiumTagAggregationActive = 0U;
+
+static char identiumTagBatchBuffer[PRODUCT_PROTOCOL_UPLOAD_S_BUF_SIZE + 1U];
+static char identiumTagObjectBuffer[256U];
+
+static uint32_t identiumHeartbeatCounter = 0U;
+static uint32_t identiumLastHeartbeatMs = 0U;
+static uint8_t identiumWasConnected = 0U;
+
+/* Recovery timers.  Both are disabled by the current product profile (0). */
+static uint8_t identiumNetworkTimerActive = 0U;
+static uint32_t identiumDisconnectedSinceMs = 0U;
+static uint8_t identiumInventoryTimerActive = 0U;
+static uint32_t identiumInventoryQuietSinceMs = 0U;
 
 static uint8_t Identium_Protocol_FormatUint64(
     char *buffer,
@@ -56,15 +113,6 @@ static uint8_t Identium_Protocol_FormatUint64(
     return 1U;
 }
 
-static char identiumRxLine[IDENTIUM_PROTOCOL_RX_BUFFER_SIZE];
-static uint16_t identiumRxIndex = 0U;
-static uint8_t identiumRxDiscardLine = 0U;
-static uint8_t identiumRxGarbagePrefix = 0U;
-
-static uint32_t identiumHeartbeatCounter = 0U;
-static uint32_t identiumLastHeartbeatMs = 0U;
-static uint8_t identiumWasConnected = 0U;
-
 static uint8_t Identium_Protocol_AppendByte(
     uint8_t byte
 )
@@ -74,6 +122,7 @@ static uint8_t Identium_Protocol_AppendByte(
         identiumRxIndex = 0U;
         identiumRxLine[0] = '\0';
         identiumRxDiscardLine = 1U;
+        identiumRxSeekingObject = 1U;
         return 0U;
     }
 
@@ -107,7 +156,7 @@ static uint8_t Identium_Protocol_SendJsonLine(
         return 0U;
     }
 
-    sent = Ethernet_Service_Send(
+    sent = Ethernet_Service_SendComplete(
         (const uint8_t *)json,
         length
     );
@@ -121,7 +170,7 @@ static uint8_t Identium_Protocol_SendCommandReply(
     const char *errString
 )
 {
-    char buffer[384];
+    static char buffer[384U];
     int written;
 
     if(
@@ -154,16 +203,470 @@ static uint8_t Identium_Protocol_SendCommandReply(
     return Identium_Protocol_SendJsonLine(buffer);
 }
 
+static uint16_t Identium_Protocol_TagQueueIndex(
+    uint16_t offset
+)
+{
+    return (uint16_t)(
+        (identiumTagQueueTail + offset) %
+        IDENTIUM_TAG_QUEUE_SIZE
+    );
+}
+
+static void Identium_Protocol_TagQueuePop(
+    uint16_t count
+)
+{
+    while(
+        (count > 0U) &&
+        (identiumTagQueueCount > 0U)
+    )
+    {
+        identiumTagQueueTail =
+            (uint16_t)((identiumTagQueueTail + 1U) % IDENTIUM_TAG_QUEUE_SIZE);
+
+        identiumTagQueueCount--;
+        count--;
+    }
+
+    if(identiumTagQueueCount == 0U)
+    {
+        identiumTagAggregationStartMs = 0U;
+        identiumTagAggregationActive = 0U;
+    }
+    else
+    {
+        identiumTagAggregationStartMs =
+            identiumTagQueue[identiumTagQueueTail].queuedAtMs;
+        identiumTagAggregationActive = 1U;
+    }
+}
+
+static void Identium_Protocol_DiscardStaleTags(
+    uint32_t nowMs
+)
+{
+    while(identiumTagQueueCount > 0U)
+    {
+        uint32_t ageMs =
+            nowMs - identiumTagQueue[identiumTagQueueTail].queuedAtMs;
+
+        if(ageMs < (PRODUCT_PROTOCOL_UPLOAD_CLR_R_BUF_TIME_S * 1000U))
+        {
+            break;
+        }
+
+        Identium_Protocol_TagQueuePop(1U);
+    }
+}
+
+static uint8_t Identium_Protocol_QueueTag(
+    const SILION_Tag_t *tag,
+    uint32_t nowMs
+)
+{
+    if(tag == NULL)
+    {
+        return 0U;
+    }
+
+    if(
+        (tag->epcLengthBytes == 0U) ||
+        (tag->epcLengthBytes > sizeof(tag->epc))
+    )
+    {
+        return 0U;
+    }
+
+    /* Keep the newest information when the bounded queue is full. */
+    if(identiumTagQueueCount >= IDENTIUM_TAG_QUEUE_SIZE)
+    {
+        Identium_Protocol_TagQueuePop(1U);
+    }
+
+    if(identiumTagQueueCount == 0U)
+    {
+        identiumTagAggregationStartMs = nowMs;
+        identiumTagAggregationActive = 1U;
+    }
+
+    identiumTagQueue[identiumTagQueueHead].tag = *tag;
+    identiumTagQueue[identiumTagQueueHead].queuedAtMs = nowMs;
+
+    identiumTagQueueHead =
+        (uint16_t)((identiumTagQueueHead + 1U) % IDENTIUM_TAG_QUEUE_SIZE);
+
+    identiumTagQueueCount++;
+    return 1U;
+}
+
+static uint8_t Identium_Protocol_BuildTagObject(
+    const SILION_Tag_t *tag,
+    char *buffer,
+    uint16_t bufferSize
+)
+{
+    uint16_t pos = 0U;
+    uint16_t i;
+    int written;
+
+    if(
+        (tag == NULL) ||
+        (buffer == NULL) ||
+        (bufferSize == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    written = snprintf(
+        &buffer[pos],
+        bufferSize - pos,
+        "{\"ep\":\""
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= (size_t)(bufferSize - pos))
+    )
+    {
+        return 0U;
+    }
+
+    pos = (uint16_t)(pos + written);
+
+    for(i = 0U; i < tag->epcLengthBytes; i++)
+    {
+        written = snprintf(
+            &buffer[pos],
+            bufferSize - pos,
+            "%02X",
+            tag->epc[i]
+        );
+
+        if(
+            (written < 0) ||
+            ((size_t)written >= (size_t)(bufferSize - pos))
+        )
+        {
+            return 0U;
+        }
+
+        pos = (uint16_t)(pos + written);
+    }
+
+    written = snprintf(
+        &buffer[pos],
+        bufferSize - pos,
+        "\",\"at\":%u,\"rc\":%u,\"ri\":%d,\"fq\":%lu}",
+        (unsigned int)tag->antenna,
+        (unsigned int)tag->readCount,
+        (int)tag->rssi,
+        (unsigned long)tag->frequencyKHz
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= (size_t)(bufferSize - pos))
+    )
+    {
+        return 0U;
+    }
+
+    pos = (uint16_t)(pos + written);
+    (void)pos;
+    return 1U;
+}
+
+static uint8_t Identium_Protocol_BuildTagBatch(
+    uint16_t maximumTags,
+    uint16_t *tagCount,
+    uint16_t *messageLength
+)
+{
+    uint16_t pos = 0U;
+    uint16_t count = 0U;
+    uint16_t i;
+    int written;
+    const uint16_t reserveForClosing = 3U; /* ]}\n */
+
+    if(
+        (tagCount == NULL) ||
+        (messageLength == NULL) ||
+        (maximumTags == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    written = snprintf(
+        identiumTagBatchBuffer,
+        sizeof(identiumTagBatchBuffer),
+        "{\"reader_name\":\"%s\",\"event_type\":\"tag_read\",\"event_data\":[",
+        PRODUCT_PROTOCOL_READER_NAME
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= sizeof(identiumTagBatchBuffer))
+    )
+    {
+        return 0U;
+    }
+
+    pos = (uint16_t)written;
+
+    if(maximumTags > IDENTIUM_TAG_QUEUE_SIZE)
+    {
+        maximumTags = IDENTIUM_TAG_QUEUE_SIZE;
+    }
+
+    for(i = 0U; (i < maximumTags) && (i < identiumTagQueueCount); i++)
+    {
+        uint16_t queueIndex = Identium_Protocol_TagQueueIndex(i);
+        uint16_t objectLength;
+
+        if(
+            Identium_Protocol_BuildTagObject(
+                &identiumTagQueue[queueIndex].tag,
+                identiumTagObjectBuffer,
+                sizeof(identiumTagObjectBuffer)
+            ) == 0U
+        )
+        {
+            return 0U;
+        }
+
+        objectLength = (uint16_t)strlen(identiumTagObjectBuffer);
+
+        /* Leave space for the closing ]}\n.  A batch may stop before the
+         * next tag; the tag itself remains queued for the next upload. */
+        if(
+            ((uint32_t)pos +
+             (count > 0U ? 1U : 0U) +
+             objectLength +
+             reserveForClosing) >
+            PRODUCT_PROTOCOL_UPLOAD_S_BUF_SIZE
+        )
+        {
+            break;
+        }
+
+        if(count > 0U)
+        {
+            identiumTagBatchBuffer[pos++] = ',';
+        }
+
+        memcpy(
+            &identiumTagBatchBuffer[pos],
+            identiumTagObjectBuffer,
+            objectLength
+        );
+        pos = (uint16_t)(pos + objectLength);
+        count++;
+    }
+
+    if(count == 0U)
+    {
+        return 0U;
+    }
+
+    written = snprintf(
+        &identiumTagBatchBuffer[pos],
+        sizeof(identiumTagBatchBuffer) - pos,
+        "]}\n"
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= (sizeof(identiumTagBatchBuffer) - pos))
+    )
+    {
+        return 0U;
+    }
+
+    pos = (uint16_t)(pos + written);
+
+    *tagCount = count;
+    *messageLength = pos;
+    return 1U;
+}
+
+static void Identium_Protocol_FlushTags(
+    uint32_t nowMs
+)
+{
+    uint16_t flushBudget;
+
+    if(
+        (identiumTagQueueCount == 0U) ||
+        (Identium_Protocol_IsConnected() == 0U)
+    )
+    {
+        return;
+    }
+
+    if(PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_MODE == 0U)
+    {
+        flushBudget = IDENTIUM_TAG_FLUSH_LIMIT;
+    }
+    else
+    {
+        if(
+            (identiumTagAggregationActive == 0U) ||
+            ((nowMs - identiumTagAggregationStartMs) <
+             PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_TIME_MS)
+        )
+        {
+            return;
+        }
+
+        flushBudget = IDENTIUM_TAG_BATCH_MAX_TAGS;
+    }
+
+    while(
+        (flushBudget > 0U) &&
+        (identiumTagQueueCount > 0U)
+    )
+    {
+        uint16_t batchCount;
+        uint16_t messageLength;
+
+        if(
+            Identium_Protocol_BuildTagBatch(
+                flushBudget,
+                &batchCount,
+                &messageLength
+            ) == 0U
+        )
+        {
+            return;
+        }
+
+        if(
+            Ethernet_Service_SendComplete(
+                (const uint8_t *)identiumTagBatchBuffer,
+                messageLength
+            ) != messageLength
+        )
+        {
+            /* Keep the complete batch intact and retry later. */
+            return;
+        }
+
+        Identium_Protocol_TagQueuePop(batchCount);
+
+        if(PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_MODE != 0U)
+        {
+            /* One aggregation window per cycle.  Do not start the next
+             * window from the age of the oldest queued tag, otherwise a
+             * backlog would be transmitted continuously in a tight loop. */
+            if(identiumTagQueueCount > 0U)
+            {
+                identiumTagAggregationStartMs = nowMs;
+                identiumTagAggregationActive = 1U;
+            }
+            break;
+        }
+
+        flushBudget--;
+    }
+}
+
+static void Identium_Protocol_UpdateNetworkRecovery(
+    uint32_t nowMs,
+    uint8_t connected
+)
+{
+    uint32_t timeoutMs;
+
+    if(connected != 0U)
+    {
+        identiumNetworkTimerActive = 0U;
+        return;
+    }
+
+    if(PRODUCT_PROTOCOL_THDWT_NET_TIMEOUT_MIN == 0U)
+    {
+        return;
+    }
+
+    if(identiumNetworkTimerActive == 0U)
+    {
+        identiumNetworkTimerActive = 1U;
+        identiumDisconnectedSinceMs = nowMs;
+        return;
+    }
+
+    timeoutMs =
+        PRODUCT_PROTOCOL_THDWT_NET_TIMEOUT_MIN * 60000U;
+
+    if((nowMs - identiumDisconnectedSinceMs) >= timeoutMs)
+    {
+        NVIC_SystemReset();
+    }
+}
+
+static void Identium_Protocol_UpdateInventoryRecovery(
+    uint32_t nowMs
+)
+{
+    uint8_t inventoryRunning;
+    uint32_t timeoutMs;
+
+    if(PRODUCT_PROTOCOL_THDWT_INV_TIMEOUT_MIN == 0U)
+    {
+        identiumInventoryTimerActive = 0U;
+        return;
+    }
+
+    inventoryRunning =
+        SILION_Application_IsInventoryRunning();
+
+    if(inventoryRunning == 0U)
+    {
+        identiumInventoryTimerActive = 0U;
+        return;
+    }
+
+    if(identiumInventoryTimerActive == 0U)
+    {
+        identiumInventoryTimerActive = 1U;
+        identiumInventoryQuietSinceMs = nowMs;
+        return;
+    }
+
+    timeoutMs =
+        PRODUCT_PROTOCOL_THDWT_INV_TIMEOUT_MIN * 60000U;
+
+    if((nowMs - identiumInventoryQuietSinceMs) >= timeoutMs)
+    {
+        NVIC_SystemReset();
+    }
+}
+
 void Identium_Protocol_Init(void)
 {
     identiumRxIndex = 0U;
     identiumRxLine[0] = '\0';
     identiumRxDiscardLine = 0U;
-    identiumRxGarbagePrefix = 0U;
+    identiumRxSeekingObject = 1U;
 
     identiumHeartbeatCounter = 0U;
     identiumLastHeartbeatMs = 0U;
     identiumWasConnected = 0U;
+
+    identiumTagQueueHead = 0U;
+    identiumTagQueueTail = 0U;
+    identiumTagQueueCount = 0U;
+    identiumTagAggregationStartMs = 0U;
+    identiumTagAggregationActive = 0U;
+
+    identiumNetworkTimerActive = 0U;
+    identiumDisconnectedSinceMs = 0U;
+    identiumInventoryTimerActive = 0U;
+    identiumInventoryQuietSinceMs = 0U;
+
     Identium_Command_Init();
 }
 
@@ -193,7 +696,7 @@ void Identium_Protocol_PushTcpByte(
         identiumRxIndex = 0U;
         identiumRxLine[0] = '\0';
         identiumRxDiscardLine = 0U;
-        identiumRxGarbagePrefix = 0U;
+        identiumRxSeekingObject = 1U;
         return;
     }
 
@@ -202,15 +705,11 @@ void Identium_Protocol_PushTcpByte(
         return;
     }
 
-    /*
-     * JSON-over-TCP is line delimited, but a malformed client can put
-     * arbitrary bytes in front of an otherwise valid object.  Do not let
-     * that garbage poison the complete line.  Resynchronise at the next
-     * opening brace while keeping the receive buffer bounded.
-     *
-     * Leading whitespace is harmless and is ignored here.
-     */
-    if(identiumRxIndex == 0U)
+    /* ReaderSense accepts whitespace before JSON and the protocol
+     * conformance test deliberately includes garbage before a valid frame.
+     * Keep seeking until the first object marker rather than poisoning the
+     * whole line with the garbage prefix. */
+    if(identiumRxSeekingObject != 0U)
     {
         if(
             (receivedByte == ' ') ||
@@ -222,22 +721,10 @@ void Identium_Protocol_PushTcpByte(
 
         if(receivedByte != '{')
         {
-            identiumRxGarbagePrefix = 1U;
             return;
         }
 
-        identiumRxGarbagePrefix = 0U;
-    }
-    else if(identiumRxGarbagePrefix != 0U)
-    {
-        if(receivedByte != '{')
-        {
-            return;
-        }
-
-        identiumRxIndex = 0U;
-        identiumRxLine[0] = '\0';
-        identiumRxGarbagePrefix = 0U;
+        identiumRxSeekingObject = 0U;
     }
 
     (void)Identium_Protocol_AppendByte(
@@ -247,17 +734,18 @@ void Identium_Protocol_PushTcpByte(
 
 uint8_t Identium_Protocol_SendHeartbeat(void)
 {
-    char buffer[192];
+    char buffer[192U];
+    uint32_t nextCounter;
     int written;
 
-    identiumHeartbeatCounter++;
+    nextCounter = identiumHeartbeatCounter + 1U;
 
     written = snprintf(
         buffer,
         sizeof(buffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"heart_beat\",\"event_data\":%lu}\n",
         PRODUCT_PROTOCOL_READER_NAME,
-        (unsigned long)identiumHeartbeatCounter
+        (unsigned long)nextCounter
     );
 
     if(
@@ -268,91 +756,46 @@ uint8_t Identium_Protocol_SendHeartbeat(void)
         return 0U;
     }
 
-    return Identium_Protocol_SendJsonLine(buffer);
+    if(Identium_Protocol_SendJsonLine(buffer) == 0U)
+    {
+        return 0U;
+    }
+
+    identiumHeartbeatCounter = nextCounter;
+    return 1U;
 }
 
 uint8_t Identium_Protocol_ReportTag(
     const SILION_Tag_t *tag
 )
 {
-    char buffer[320];
-    uint16_t pos = 0U;
-    uint16_t i;
-    int written;
+    uint32_t nowMs;
 
     if(tag == NULL)
     {
         return 0U;
     }
 
-    written = snprintf(
-        &buffer[pos],
-        sizeof(buffer) - pos,
-        "{\"reader_name\":\"%s\",\"event_type\":\"tag_read\",\"event_data\":[{\"ep\":\"",
-        PRODUCT_PROTOCOL_READER_NAME
-    );
+    nowMs = Time_GetTickMs();
 
-    if(
-        (written < 0) ||
-        ((size_t)written >= (sizeof(buffer) - pos))
-    )
+    if(Identium_Protocol_QueueTag(tag, nowMs) == 0U)
     {
         return 0U;
     }
 
-    pos = (uint16_t)(pos + written);
+    /* A real tag read resets the inventory inactivity timer. */
+    identiumInventoryQuietSinceMs = nowMs;
+    identiumInventoryTimerActive = 1U;
 
-    for(i = 0U; i < tag->epcLengthBytes; i++)
-    {
-        written = snprintf(
-            &buffer[pos],
-            sizeof(buffer) - pos,
-            "%02X",
-            tag->epc[i]
-        );
-
-        if(
-            (written < 0) ||
-            ((size_t)written >= (sizeof(buffer) - pos))
-        )
-        {
-            return 0U;
-        }
-
-        pos = (uint16_t)(pos + written);
-    }
-
-    written = snprintf(
-        &buffer[pos],
-        sizeof(buffer) - pos,
-        "\",\"at\":%u,\"rc\":%u,\"ri\":%d,\"fq\":%lu}]}\n",
-        (unsigned int)tag->antenna,
-        (unsigned int)tag->readCount,
-        (int)tag->rssi,
-        (unsigned long)tag->frequencyKHz
-    );
-
-    if(
-        (written < 0) ||
-        ((size_t)written >= (sizeof(buffer) - pos))
-    )
-    {
-        return 0U;
-    }
-
-    pos = (uint16_t)(pos + written);
-
-    return Identium_Protocol_SendJsonLine(
-        buffer
-    );
+    return 1U;
 }
 
 void Identium_Protocol_ReportGpiChange(
     const uint8_t states[4]
 )
 {
-    char buffer[320];
-    char timestamp[21];
+    static char buffer[320U];
+    char timestamp[21U];
     int written;
 
     if(states == NULL)
@@ -407,14 +850,23 @@ void Identium_Protocol_Task(void)
     uint32_t heartbeatPeriodMs;
     uint8_t connected;
 
-    connected = Identium_Protocol_IsConnected();
     now = Time_GetTickMs();
+    connected = Identium_Protocol_IsConnected();
+
     heartbeatPeriodMs =
         Configuration_Service_GetHeartbeatSeconds() * 1000U;
 
     /* Delayed operations such as the mandated configuration reboot must
      * continue even if the TCP socket closes immediately after the reply. */
     Identium_Command_Task(now);
+
+    Identium_Protocol_UpdateNetworkRecovery(
+        now,
+        connected
+    );
+
+    Identium_Protocol_UpdateInventoryRecovery(now);
+    Identium_Protocol_DiscardStaleTags(now);
 
     if(connected == 0U)
     {
@@ -439,4 +891,7 @@ void Identium_Protocol_Task(void)
         }
     }
 
+    /* Heartbeat has priority after connect; tag traffic is drained after
+     * the reader has announced that the session is alive. */
+    Identium_Protocol_FlushTags(now);
 }

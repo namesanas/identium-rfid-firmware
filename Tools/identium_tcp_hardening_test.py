@@ -1,14 +1,27 @@
 #!/usr/bin/env python3
 """
-Step 7A JSON-over-TCP hardening test for the STM32F429 Identium reader.
+Step 7 JSON-over-TCP hardening test for the STM32F429 Identium reader.
 
-The reader is expected to dial this PC on TCP port 9000.
-The tests exercise the framing/resynchronisation cases explicitly called out
-in the protocol specification, without changing reader configuration.
+The reader must dial this PC on TCP port 9000.
+
+Required framing checks:
+  1. Fragmented JSON across multiple TCP writes.
+  2. Multiple newline-delimited JSON commands in one write.
+  3. Garbage before a valid JSON object.
+  4. Oversized line followed by a valid frame.
+  5. Leading whitespace / CRLF handling.
+  6. Clean reconnect after the server closes the socket.
+
+Optional tag-buffer check:
+  --require-tags makes the test resume inventory, wait for at least one
+  tag_read event, deliberately break the connection, and verify that a
+  valid tag_read event is seen after reconnection.  Use this only with real
+  tags in the RF field.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import socket
 import threading
@@ -27,6 +40,7 @@ class ReaderSession:
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.events: list[dict] = []
+        self.invalid_lines = 0
         self.thread = threading.Thread(target=self._receiver, daemon=True)
         self.thread.start()
 
@@ -36,6 +50,8 @@ class ReaderSession:
         while not self.stop.is_set():
             try:
                 data = self.conn.recv(4096)
+            except socket.timeout:
+                continue
             except OSError:
                 break
 
@@ -53,6 +69,7 @@ class ReaderSession:
                 try:
                     obj = json.loads(line.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    self.invalid_lines += 1
                     print(f"[TEST] RX invalid JSON: {line!r} ({exc})")
                     continue
 
@@ -67,17 +84,17 @@ class ReaderSession:
         self.conn.sendall(payload)
         print(f"[TEST] TX raw: {payload!r}")
 
-    def send_get_gpi(self) -> None:
+    def send_command(self, command_type: str, command_data) -> None:
         payload = (
             json.dumps(
-                {"command_type": "get_gpi", "command_data": {}},
+                {"command_type": command_type, "command_data": command_data},
                 separators=(",", ":"),
             )
             + "\n"
         ).encode("utf-8")
         self.send_bytes(payload)
 
-    def wait_for_reply(self, timeout: float = COMMAND_TIMEOUT) -> bool:
+    def wait_for_reply(self, command_type: str, timeout: float = COMMAND_TIMEOUT) -> dict:
         deadline = time.monotonic() + timeout
 
         while time.monotonic() < deadline:
@@ -88,19 +105,32 @@ class ReaderSession:
                     data = event.get("event_data")
                     if not isinstance(data, dict):
                         continue
-                    if data.get("command_type") != "get_gpi":
+                    if data.get("command_type") != command_type:
                         continue
-                    if data.get("err_code") != 0:
-                        raise RuntimeError(f"get_gpi failed: {data}")
-                    return True
+                    return data
 
             time.sleep(0.01)
 
-        return False
+        raise RuntimeError(f"no command_reply for {command_type}")
+
+    def count_replies(self, command_type: str) -> int:
+        with self.lock:
+            return sum(
+                1
+                for event in self.events
+                if event.get("event_type") == "command_reply"
+                and isinstance(event.get("event_data"), dict)
+                and event["event_data"].get("command_type") == command_type
+            )
+
+    def has_tag_event(self) -> bool:
+        with self.lock:
+            return any(event.get("event_type") == "tag_read" for event in self.events)
 
     def clear_events(self) -> None:
         with self.lock:
             self.events.clear()
+        self.invalid_lines = 0
 
     def close(self) -> None:
         self.stop.set()
@@ -119,7 +149,7 @@ def wait_for_connection(server: socket.socket, timeout: float) -> ReaderSession:
     server.settimeout(timeout)
     conn, addr = server.accept()
     print(f"[TEST] Reader connected from {addr[0]}:{addr[1]}")
-    conn.settimeout(2.0)
+    conn.settimeout(0.25)
     return ReaderSession(conn, addr)
 
 
@@ -127,7 +157,37 @@ def valid_get_gpi() -> bytes:
     return b'{"command_type":"get_gpi","command_data":{}}\n'
 
 
+def wait_until(predicate, timeout: float, description: str) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    raise RuntimeError(description)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--require-tags",
+        action="store_true",
+        help="Require real tag traffic during the short outage check",
+    )
+    parser.add_argument(
+        "--outage-seconds",
+        type=float,
+        default=3.0,
+        help="Server-side outage duration for the optional tag/reconnect check",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
+
+    if args.outage_seconds < 0.5:
+        raise SystemExit("--outage-seconds must be at least 0.5 seconds")
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((HOST, PORT))
@@ -138,86 +198,104 @@ def main() -> int:
         session = wait_for_connection(server, RECONNECT_TIMEOUT)
 
         try:
+            payload = valid_get_gpi()
+
             # 1. Fragmented JSON frame.
             session.clear_events()
-            payload = valid_get_gpi()
             split = 17
             session.send_bytes(payload[:split])
             time.sleep(0.25)
             session.send_bytes(payload[split:])
-            if not session.wait_for_reply():
-                raise RuntimeError("fragmented frame was not decoded")
+            reply = session.wait_for_reply("get_gpi")
+            if reply.get("err_code") != 0:
+                raise RuntimeError(f"fragmented get_gpi failed: {reply}")
             print("[TEST] PASS: fragmented JSON frame")
 
-            # 2. Two complete frames in one TCP write.
+            # 2. Many complete frames in one TCP write.
             session.clear_events()
-            session.send_bytes(payload + payload)
-            deadline = time.monotonic() + COMMAND_TIMEOUT
-            replies = 0
-            while time.monotonic() < deadline:
-                with session.lock:
-                    replies = sum(
-                        1
-                        for event in session.events
-                        if event.get("event_type") == "command_reply"
-                        and isinstance(event.get("event_data"), dict)
-                        and event["event_data"].get("command_type") == "get_gpi"
-                        and event["event_data"].get("err_code") == 0
-                    )
-                if replies >= 2:
-                    break
-                time.sleep(0.01)
-            if replies < 2:
-                raise RuntimeError(f"expected two command replies, got {replies}")
-            print("[TEST] PASS: two JSON frames in one TCP write")
+            session.send_bytes(payload * 12)
+            wait_until(
+                lambda: session.count_replies("get_gpi") >= 12,
+                COMMAND_TIMEOUT,
+                "expected 12 command replies from one TCP write",
+            )
+            print("[TEST] PASS: 12 JSON frames in one TCP write")
 
-            # 3. Garbage directly before a valid JSON object on the same line.
+            # 3. Garbage before a valid JSON object on the same line.
             session.clear_events()
             session.send_bytes(b"garbage-prefix !! \t" + payload)
-            if not session.wait_for_reply():
-                raise RuntimeError("parser did not resynchronise at opening brace")
+            reply = session.wait_for_reply("get_gpi")
+            if reply.get("err_code") != 0:
+                raise RuntimeError(f"garbage-prefix get_gpi failed: {reply}")
             print("[TEST] PASS: garbage prefix resynchronised")
 
-            # 4. Oversized line must be discarded, but the next valid frame must work.
+            # 4. Oversized line must be discarded, but the next valid frame
+            # must remain decodable.
             session.clear_events()
             oversized = b"{" + (b"A" * 2200) + b"}\n"
             session.send_bytes(oversized + payload)
-            if not session.wait_for_reply():
-                raise RuntimeError("valid frame after oversized line was not decoded")
+            reply = session.wait_for_reply("get_gpi")
+            if reply.get("err_code") != 0:
+                raise RuntimeError(f"post-oversize get_gpi failed: {reply}")
             print("[TEST] PASS: oversized line discarded, next valid frame decoded")
 
-            # 5. Leading whitespace before a valid object.
+            # 5. Leading whitespace plus CRLF.
             session.clear_events()
-            session.send_bytes(b" \t" + payload)
-            if not session.wait_for_reply():
-                raise RuntimeError("leading-whitespace frame was not decoded")
-            print("[TEST] PASS: leading whitespace accepted")
+            session.send_bytes(b" \t" + payload.replace(b"\n", b"\r\n"))
+            reply = session.wait_for_reply("get_gpi")
+            if reply.get("err_code") != 0:
+                raise RuntimeError(f"whitespace get_gpi failed: {reply}")
+            print("[TEST] PASS: leading whitespace / CRLF accepted")
 
-            # 6. Close the server side and require the reader to reconnect.
+            if session.invalid_lines != 0:
+                raise RuntimeError(f"reader emitted {session.invalid_lines} malformed JSON lines")
+
+            # Optional tag-buffer check with real RF tags.
+            if args.require_tags:
+                session.clear_events()
+                session.send_command("resume_inventory", {})
+                reply = session.wait_for_reply("resume_inventory")
+                if reply.get("err_code") != 0:
+                    raise RuntimeError(f"resume_inventory failed: {reply}")
+
+                wait_until(
+                    session.has_tag_event,
+                    10.0,
+                    "no tag_read event observed before the outage; use --require-tags only with tags present",
+                )
+                print("[TEST] PASS: tag traffic observed before outage")
+
+            # 6. Close server side and require the reader to reconnect.
             old_addr = session.addr
             session.close()
-            print("[TEST] Closed TCP session; waiting for reader reconnect...")
+            print(
+                f"[TEST] Closed TCP session; waiting {args.outage_seconds:.1f}s before accepting reconnect..."
+            )
+            time.sleep(args.outage_seconds)
+
             new_session = wait_for_connection(server, RECONNECT_TIMEOUT)
             try:
                 if new_session.addr[0] != old_addr[0]:
                     raise RuntimeError("reader reconnect came from unexpected host")
 
-                new_session.clear_events()
-                deadline = time.monotonic() + RECONNECT_TIMEOUT
-                heartbeat_seen = False
-                while time.monotonic() < deadline:
-                    with new_session.lock:
-                        heartbeat_seen = any(
-                            event.get("event_type") == "heart_beat"
-                            for event in new_session.events
-                        )
-                    if heartbeat_seen:
-                        break
-                    time.sleep(0.05)
-
-                if not heartbeat_seen:
-                    raise RuntimeError("reader reconnected but no heartbeat was received")
+                wait_until(
+                    lambda: any(
+                        event.get("event_type") == "heart_beat"
+                        for event in new_session.events
+                    ),
+                    5.0,
+                    "reader reconnected but no heartbeat was received",
+                )
                 print("[TEST] PASS: reconnect after server-side close")
+
+                if args.require_tags:
+                    wait_until(
+                        new_session.has_tag_event,
+                        5.0,
+                        "no tag_read event observed after reconnect",
+                    )
+                    print("[TEST] PASS: valid tag traffic resumed after reconnect")
+
             finally:
                 new_session.close()
 
@@ -225,7 +303,7 @@ def main() -> int:
             if not session.stop.is_set():
                 session.close()
 
-    print("\nSTEP 7A TCP HARDENING TEST: PASS")
+    print("\nSTEP 7 TCP HARDENING TEST: PASS")
     return 0
 
 

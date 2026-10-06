@@ -18,10 +18,9 @@
 
 static Ethernet_RxByteCallback_t g_rxCallback = NULL;
 
-#define ETHERNET_RX_BUFFER_SIZE      512U
-#define ETHERNET_RX_DRAIN_LIMIT      4U
-#define ETHERNET_RECONNECT_MIN_MS    1000U
-#define ETHERNET_RECONNECT_MAX_MS    30000U
+#define ETHERNET_RX_BUFFER_SIZE     512U
+#define ETHERNET_RECONNECT_MIN_MS   1000U
+#define ETHERNET_RECONNECT_MAX_MS   30000U
 
 static uint8_t ethernetRxBuffer[ETHERNET_RX_BUFFER_SIZE];
 static uint8_t ethernetClientConnected = 0U;
@@ -54,7 +53,6 @@ void Ethernet_Service_Task(void)
     uint8_t socketStatus;
     uint16_t received;
     uint16_t i;
-    uint8_t drainCount;
     uint32_t now;
 
     socketStatus = W5500_Socket0_GetStatus();
@@ -68,41 +66,21 @@ void Ethernet_Service_Task(void)
             ethernetReconnectDelayMs = ETHERNET_RECONNECT_MIN_MS;
         }
 
-        /*
-         * Drain a bounded number of receive chunks in one foreground pass.
-         * This keeps the protocol parser responsive when several TCP frames
-         * arrive back-to-back, without allowing an unbounded receive loop to
-         * starve RFID, GPIO, configuration-port and watchdog tasks.
-         */
-        for(
-            drainCount = 0U;
-            drainCount < ETHERNET_RX_DRAIN_LIMIT;
-            drainCount++
+        received = W5500_Socket0_Receive(
+            ethernetRxBuffer,
+            sizeof(ethernetRxBuffer)
+        );
+
+        if(
+            (received > 0U) &&
+            (g_rxCallback != NULL)
         )
         {
-            received = W5500_Socket0_Receive(
-                ethernetRxBuffer,
-                sizeof(ethernetRxBuffer)
-            );
-
-            if(received == 0U)
+            for(i = 0U; i < received; i++)
             {
-                break;
-            }
-
-            if(g_rxCallback != NULL)
-            {
-                for(i = 0U; i < received; i++)
-                {
-                    g_rxCallback(
-                        ethernetRxBuffer[i]
-                    );
-                }
-            }
-
-            if(received < sizeof(ethernetRxBuffer))
-            {
-                break;
+                g_rxCallback(
+                    ethernetRxBuffer[i]
+                );
             }
         }
 
@@ -193,6 +171,41 @@ uint16_t Ethernet_Service_Send(
         buffer,
         length
     );
+}
+
+uint16_t Ethernet_Service_SendComplete(
+    const uint8_t *buffer,
+    uint16_t length
+)
+{
+    uint16_t txFreeSize;
+    uint16_t sent;
+
+    if(
+        (buffer == NULL) ||
+        (length == 0U) ||
+        (ethernetClientConnected == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    /* W5500_Socket0_Send() historically accepted a shorter write when TX
+     * space was insufficient.  For application-level JSON that would create
+     * a truncated message.  Check the complete length first and retry later. */
+    txFreeSize = W5500_Socket0_GetTxFreeSize();
+
+    if(txFreeSize < length)
+    {
+        return 0U;
+    }
+
+    sent = W5500_Socket0_Send(
+        buffer,
+        length
+    );
+
+    return (sent == length) ? sent : 0U;
 }
 
 uint8_t Ethernet_Service_IsConnected(void)

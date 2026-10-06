@@ -39,6 +39,16 @@ uint16_t Ethernet_Service_Send(
 /*
  * Returns 1 when Socket 0 is connected.
  */
+
+/*
+ * Send one complete application message without allowing the W5500 to
+ * truncate it when TX space is temporarily insufficient.
+ */
+uint16_t Ethernet_Service_SendComplete(
+    const uint8_t *buffer,
+    uint16_t length
+);
+
 uint8_t Ethernet_Service_IsConnected(void);
 
 #endif /* RFID_CONTROLLER_ETHERNET_SERVICE_H */

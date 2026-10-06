@@ -254,10 +254,14 @@ Status_t  Firmware_Configuration_Init(void)
 
     /*
      * --------------------------------------------------------
-     * READER DEFAULTS
+     * READER DEFAULTS + PERSISTENT IDENTIUM CONFIGURATION
      * --------------------------------------------------------
+     * Defaults establish a safe baseline first. A valid stored
+     * configuration then overrides only the fields implemented by
+     * the current configuration service.
      */
     Firmware_Configuration_ReaderDefaults();
+    (void)Configuration_Service_LoadPersistent();
 
 
     /*
@@ -351,6 +355,37 @@ Status_t  Firmware_Configuration_Init(void)
         );
 
         return STATUS_ERROR;
+    }
+
+
+    /*
+     * The existing ConfigureReader sequence deliberately keeps the
+     * Gen2 session command disabled. Apply the persisted session here
+     * after the module is known to be alive and in application phase.
+     */
+    if(
+        SILION_Application_SetSession(readerConfig.session)
+        == 0U
+    )
+    {
+        System_Fault_Set(
+            ERROR_RFID_INIT
+        );
+
+        return STATUS_ERROR;
+    }
+
+
+    if(Configuration_Service_GetStartInventoryAtBoot() != 0U)
+    {
+        if(SILION_Application_StartInventory() == 0U)
+        {
+            System_Fault_Set(
+                ERROR_RFID_INIT
+            );
+
+            return STATUS_ERROR;
+        }
     }
 
 

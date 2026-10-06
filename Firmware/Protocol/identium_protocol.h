@@ -14,7 +14,6 @@
 
 #define IDENTIUM_PROTOCOL_RX_BUFFER_SIZE       2048U
 #define IDENTIUM_PROTOCOL_READER_NAME_SIZE     64U
-#define IDENTIUM_PROTOCOL_HEARTBEAT_SECONDS    10U
 
 void Identium_Protocol_Init(void);
 void Identium_Protocol_Task(void);

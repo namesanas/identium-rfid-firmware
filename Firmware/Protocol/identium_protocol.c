@@ -5,6 +5,7 @@
 #include "../Application/Silion/sillion_application.h"
 #include "../Services/ethernet/ethernet_service.h"
 #include "../Services/Time/time_service.h"
+#include "../Services/configuration/configuration_service.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -368,7 +369,11 @@ void Identium_Protocol_Task(void)
     connected = Identium_Protocol_IsConnected();
     now = Time_GetTickMs();
     heartbeatPeriodMs =
-        IDENTIUM_PROTOCOL_HEARTBEAT_SECONDS * 1000U;
+        Configuration_Service_GetHeartbeatSeconds() * 1000U;
+
+    /* Delayed operations such as the mandated configuration reboot must
+     * continue even if the TCP socket closes immediately after the reply. */
+    Identium_Command_Task(now);
 
     if(connected == 0U)
     {
@@ -393,5 +398,4 @@ void Identium_Protocol_Task(void)
         }
     }
 
-    Identium_Command_Task(now);
 }

@@ -4,6 +4,7 @@
 #include "../Application/Silion/sillion_application.h"
 #include "../Services/Time/time_service.h"
 #include "../Services/GPIO/gpio_service.h"
+#include "../Services/configuration/configuration_service.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -777,12 +778,113 @@ void Identium_Command_ProcessJson(
         return;
     }
 
-    if(
-        (strcmp(commandType, "set_static_conf") == 0) ||
-        (strcmp(commandType, "set_temp_static_conf") == 0) ||
-        (strcmp(commandType, "set_runtime_conf") == 0) ||
-        (strcmp(commandType, "update_fw_by_http") == 0)
-    )
+    if(strcmp(commandType, "set_runtime_conf") == 0)
+    {
+        uint32_t errorCode;
+        const char *errorString;
+
+        if(
+            Configuration_Service_ApplyRuntimeConfig(
+                json,
+                &errorCode,
+                &errorString
+            ) == 0U
+        )
+        {
+            (void)Identium_Command_SendReply(
+                replyCallback,
+                commandType,
+                errorCode,
+                errorString
+            );
+            return;
+        }
+
+        /* Protocol requires set_runtime_conf to restart the reader.
+         * Reply first, then allow Identium_Command_Task() to perform the reset. */
+        (void)Identium_Command_SendReply(
+            replyCallback,
+            commandType,
+            errorCode,
+            errorString
+        );
+
+        identiumRebootPending = 1U;
+        identiumRebootDeadlineMs = Time_GetTickMs() + 100U;
+        return;
+    }
+
+    if(strcmp(commandType, "set_static_conf") == 0)
+    {
+        uint32_t errorCode;
+        const char *errorString;
+        uint8_t rebootRequested = 0U;
+
+        if(
+            Configuration_Service_ApplyStaticConfig(
+                json,
+                &errorCode,
+                &errorString,
+                &rebootRequested
+            ) == 0U
+        )
+        {
+            (void)Identium_Command_SendReply(
+                replyCallback,
+                commandType,
+                errorCode,
+                errorString
+            );
+            return;
+        }
+
+        (void)Identium_Command_SendReply(
+            replyCallback,
+            commandType,
+            errorCode,
+            errorString
+        );
+
+        if(rebootRequested != 0U)
+        {
+            identiumRebootPending = 1U;
+            identiumRebootDeadlineMs = Time_GetTickMs() + 100U;
+        }
+        return;
+    }
+
+    if(strcmp(commandType, "set_temp_static_conf") == 0)
+    {
+        uint32_t errorCode;
+        const char *errorString;
+
+        if(
+            Configuration_Service_ApplyTempStaticConfig(
+                json,
+                &errorCode,
+                &errorString
+            ) == 0U
+        )
+        {
+            (void)Identium_Command_SendReply(
+                replyCallback,
+                commandType,
+                errorCode,
+                errorString
+            );
+            return;
+        }
+
+        (void)Identium_Command_SendReply(
+            replyCallback,
+            commandType,
+            errorCode,
+            errorString
+        );
+        return;
+    }
+
+    if(strcmp(commandType, "update_fw_by_http") == 0)
     {
         (void)Identium_Command_SendReply(
             replyCallback,

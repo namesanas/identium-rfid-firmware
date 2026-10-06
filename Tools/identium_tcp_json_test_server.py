@@ -78,7 +78,7 @@ def main() -> None:
 
                 while not stop.is_set():
                     try:
-                        command = input("Command [resume/pause/sync/gpo/gpio2/gpio3/gpi/reboot/quit]: ").strip().lower()
+                        command = input("Command [resume/pause/sync/gpo/gpio2/gpio3/gpi/setrt/setstatic/settemp/reset/quit]: ").strip().lower()
                     except EOFError:
                         command = "quit"
 
@@ -118,6 +118,35 @@ def main() -> None:
                         )
                     elif command == "reboot":
                         send_command(conn, "reboot", {})
+                    elif command == "setrt":
+                        send_command(
+                            conn,
+                            "set_runtime_conf",
+                            {"glob_params": {"hb_cylce": 12}},
+                        )
+                    elif command == "setstatic":
+                        send_command(
+                            conn,
+                            "set_static_conf",
+                            {"protocol": {"gen2": {"session": 2}}},
+                        )
+                    elif command == "settemp":
+                        send_command(
+                            conn,
+                            "set_temp_static_conf",
+                            {"protocol": {"gen2": {"session": 1}}},
+                        )
+                    elif command == "reset":
+                        # reset/reboot are top-level controls for set_static_conf.
+                        payload = {
+                            "command_type": "set_static_conf",
+                            "command_data": {},
+                            "reset": 1,
+                            "reboot": 1,
+                        }
+                        raw = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+                        conn.sendall(raw)
+                        print(f"TX command: {raw.decode().rstrip()}")
                     elif command == "quit":
                         stop.set()
                         break

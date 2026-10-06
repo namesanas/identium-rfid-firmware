@@ -59,6 +59,7 @@ static uint8_t Identium_Protocol_FormatUint64(
 static char identiumRxLine[IDENTIUM_PROTOCOL_RX_BUFFER_SIZE];
 static uint16_t identiumRxIndex = 0U;
 static uint8_t identiumRxDiscardLine = 0U;
+static uint8_t identiumRxGarbagePrefix = 0U;
 
 static uint32_t identiumHeartbeatCounter = 0U;
 static uint32_t identiumLastHeartbeatMs = 0U;
@@ -158,6 +159,7 @@ void Identium_Protocol_Init(void)
     identiumRxIndex = 0U;
     identiumRxLine[0] = '\0';
     identiumRxDiscardLine = 0U;
+    identiumRxGarbagePrefix = 0U;
 
     identiumHeartbeatCounter = 0U;
     identiumLastHeartbeatMs = 0U;
@@ -191,12 +193,51 @@ void Identium_Protocol_PushTcpByte(
         identiumRxIndex = 0U;
         identiumRxLine[0] = '\0';
         identiumRxDiscardLine = 0U;
+        identiumRxGarbagePrefix = 0U;
         return;
     }
 
     if(identiumRxDiscardLine != 0U)
     {
         return;
+    }
+
+    /*
+     * JSON-over-TCP is line delimited, but a malformed client can put
+     * arbitrary bytes in front of an otherwise valid object.  Do not let
+     * that garbage poison the complete line.  Resynchronise at the next
+     * opening brace while keeping the receive buffer bounded.
+     *
+     * Leading whitespace is harmless and is ignored here.
+     */
+    if(identiumRxIndex == 0U)
+    {
+        if(
+            (receivedByte == ' ') ||
+            (receivedByte == '\t')
+        )
+        {
+            return;
+        }
+
+        if(receivedByte != '{')
+        {
+            identiumRxGarbagePrefix = 1U;
+            return;
+        }
+
+        identiumRxGarbagePrefix = 0U;
+    }
+    else if(identiumRxGarbagePrefix != 0U)
+    {
+        if(receivedByte != '{')
+        {
+            return;
+        }
+
+        identiumRxIndex = 0U;
+        identiumRxLine[0] = '\0';
+        identiumRxGarbagePrefix = 0U;
     }
 
     (void)Identium_Protocol_AppendByte(

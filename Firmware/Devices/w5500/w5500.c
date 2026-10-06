@@ -939,9 +939,14 @@ uint16_t W5500_Socket0_Send(
         return 0U;
     }
 
+    /*
+     * Never silently truncate an application message.  A partial JSON
+     * object would corrupt the protocol stream and cannot be recovered by
+     * the peer.  The caller must retry the complete message instead.
+     */
     if(length > txFreeSize)
     {
-        length = txFreeSize;
+        return 0U;
     }
 
     /* Read current TX write pointer */

@@ -46,8 +46,9 @@ typedef struct
 } Identium_TagQueueEntry_t;
 
 #define IDENTIUM_TAG_QUEUE_SIZE        256U
-#define IDENTIUM_TAG_BATCH_MAX_TAGS    32U
+#define IDENTIUM_TAG_BATCH_MAX_TAGS    64U
 #define IDENTIUM_TAG_FLUSH_LIMIT       4U
+#define IDENTIUM_TAG_BATCH_BUFFER_SIZE  8193U
 
 static Identium_TagQueueEntry_t identiumTagQueue[IDENTIUM_TAG_QUEUE_SIZE];
 static uint16_t identiumTagQueueHead = 0U;
@@ -56,12 +57,13 @@ static uint16_t identiumTagQueueCount = 0U;
 static uint32_t identiumTagAggregationStartMs = 0U;
 static uint8_t identiumTagAggregationActive = 0U;
 
-static char identiumTagBatchBuffer[PRODUCT_PROTOCOL_UPLOAD_S_BUF_SIZE + 1U];
+static char identiumTagBatchBuffer[IDENTIUM_TAG_BATCH_BUFFER_SIZE];
 static char identiumTagObjectBuffer[256U];
 
 static uint32_t identiumHeartbeatCounter = 0U;
 static uint32_t identiumLastHeartbeatMs = 0U;
 static uint8_t identiumWasConnected = 0U;
+static uint8_t identiumSyncTimeRequested = 0U;
 
 /* Recovery timers.  Both are disabled by the current product profile (0). */
 static uint8_t identiumNetworkTimerActive = 0U;
@@ -164,6 +166,77 @@ static uint8_t Identium_Protocol_SendJsonLine(
     return (sent == length) ? 1U : 0U;
 }
 
+static uint8_t Identium_Protocol_EventEnabled(
+    uint8_t eventCode
+)
+{
+    return Configuration_Service_IsEventEnabled(eventCode);
+}
+
+static uint8_t Identium_Protocol_SendSyncTimeRequest(void)
+{
+    static char buffer[192U];
+    int written;
+
+    if(
+        Identium_Protocol_IsConnected() == 0U ||
+        Identium_Protocol_EventEnabled(6U) == 0U
+    )
+    {
+        return 1U;
+    }
+
+    written = snprintf(
+        buffer,
+        sizeof(buffer),
+        "{\"reader_name\":\"%s\",\"event_type\":\"sync_time_req\"}\n",
+        PRODUCT_PROTOCOL_READER_NAME
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= sizeof(buffer))
+    )
+    {
+        return 0U;
+    }
+
+    return Identium_Protocol_SendJsonLine(buffer);
+}
+
+static uint8_t Identium_Protocol_SendReaderException(
+    uint32_t errorCode,
+    const char *errorString
+)
+{
+    static char buffer[320U];
+    int written;
+
+    if(errorString == NULL)
+    {
+        return 0U;
+    }
+
+    written = snprintf(
+        buffer,
+        sizeof(buffer),
+        "{\"reader_name\":\"%s\",\"event_type\":\"reader_exception\",\"event_data\":{\"err_code\":%lu,\"err_string\":\"%s\"}}\n",
+        PRODUCT_PROTOCOL_READER_NAME,
+        (unsigned long)errorCode,
+        errorString
+    );
+
+    if(
+        (written < 0) ||
+        ((size_t)written >= sizeof(buffer))
+    )
+    {
+        return 0U;
+    }
+
+    return Identium_Protocol_SendJsonLine(buffer);
+}
+
 static uint8_t Identium_Protocol_SendCommandReply(
     const char *commandType,
     uint32_t errCode,
@@ -179,6 +252,11 @@ static uint8_t Identium_Protocol_SendCommandReply(
     )
     {
         return 0U;
+    }
+
+    if(Configuration_Service_GetRemoteCmdReply() == 0U)
+    {
+        return 1U;
     }
 
     written = snprintf(
@@ -251,7 +329,13 @@ static void Identium_Protocol_DiscardStaleTags(
         uint32_t ageMs =
             nowMs - identiumTagQueue[identiumTagQueueTail].queuedAtMs;
 
-        if(ageMs < (PRODUCT_PROTOCOL_UPLOAD_CLR_R_BUF_TIME_S * 1000U))
+        uint32_t clearSeconds = Configuration_Service_GetClearBufferTimeSeconds();
+
+        if(
+            (clearSeconds == 0U) ||
+            (clearSeconds > 4294967UL) ||
+            (ageMs < (clearSeconds * 1000U))
+        )
         {
             break;
         }
@@ -446,7 +530,7 @@ static uint8_t Identium_Protocol_BuildTagBatch(
              (count > 0U ? 1U : 0U) +
              objectLength +
              reserveForClosing) >
-            PRODUCT_PROTOCOL_UPLOAD_S_BUF_SIZE
+            Configuration_Service_GetSBufSize()
         )
         {
             break;
@@ -506,7 +590,7 @@ static void Identium_Protocol_FlushTags(
         return;
     }
 
-    if(PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_MODE == 0U)
+    if(Configuration_Service_GetDataAggregationMode() == 0U)
     {
         flushBudget = IDENTIUM_TAG_FLUSH_LIMIT;
     }
@@ -515,7 +599,7 @@ static void Identium_Protocol_FlushTags(
         if(
             (identiumTagAggregationActive == 0U) ||
             ((nowMs - identiumTagAggregationStartMs) <
-             PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_TIME_MS)
+             Configuration_Service_GetDataAggregationTimeMs())
         )
         {
             return;
@@ -556,7 +640,7 @@ static void Identium_Protocol_FlushTags(
 
         Identium_Protocol_TagQueuePop(batchCount);
 
-        if(PRODUCT_PROTOCOL_UPLOAD_DATA_AGGR_MODE != 0U)
+        if(Configuration_Service_GetDataAggregationMode() != 0U)
         {
             /* One aggregation window per cycle.  Do not start the next
              * window from the age of the oldest queued tag, otherwise a
@@ -586,7 +670,7 @@ static void Identium_Protocol_UpdateNetworkRecovery(
         return;
     }
 
-    if(PRODUCT_PROTOCOL_THDWT_NET_TIMEOUT_MIN == 0U)
+    if(Configuration_Service_GetNetworkWatchdogMinutes() == 0U)
     {
         return;
     }
@@ -598,8 +682,13 @@ static void Identium_Protocol_UpdateNetworkRecovery(
         return;
     }
 
+    if(Configuration_Service_GetNetworkWatchdogMinutes() > (UINT32_MAX / 60000U))
+    {
+        return;
+    }
+
     timeoutMs =
-        PRODUCT_PROTOCOL_THDWT_NET_TIMEOUT_MIN * 60000U;
+        Configuration_Service_GetNetworkWatchdogMinutes() * 60000U;
 
     if((nowMs - identiumDisconnectedSinceMs) >= timeoutMs)
     {
@@ -614,7 +703,7 @@ static void Identium_Protocol_UpdateInventoryRecovery(
     uint8_t inventoryRunning;
     uint32_t timeoutMs;
 
-    if(PRODUCT_PROTOCOL_THDWT_INV_TIMEOUT_MIN == 0U)
+    if(Configuration_Service_GetInventoryWatchdogMinutes() == 0U)
     {
         identiumInventoryTimerActive = 0U;
         return;
@@ -636,8 +725,13 @@ static void Identium_Protocol_UpdateInventoryRecovery(
         return;
     }
 
+    if(Configuration_Service_GetInventoryWatchdogMinutes() > (UINT32_MAX / 60000U))
+    {
+        return;
+    }
+
     timeoutMs =
-        PRODUCT_PROTOCOL_THDWT_INV_TIMEOUT_MIN * 60000U;
+        Configuration_Service_GetInventoryWatchdogMinutes() * 60000U;
 
     if((nowMs - identiumInventoryQuietSinceMs) >= timeoutMs)
     {
@@ -655,6 +749,7 @@ void Identium_Protocol_Init(void)
     identiumHeartbeatCounter = 0U;
     identiumLastHeartbeatMs = 0U;
     identiumWasConnected = 0U;
+    identiumSyncTimeRequested = 0U;
 
     identiumTagQueueHead = 0U;
     identiumTagQueueTail = 0U;
@@ -756,6 +851,11 @@ uint8_t Identium_Protocol_SendHeartbeat(void)
         return 0U;
     }
 
+    if(Identium_Protocol_EventEnabled(2U) == 0U)
+    {
+        return 1U;
+    }
+
     if(Identium_Protocol_SendJsonLine(buffer) == 0U)
     {
         return 0U;
@@ -778,6 +878,11 @@ uint8_t Identium_Protocol_ReportTag(
 
     nowMs = Time_GetTickMs();
 
+    if(Identium_Protocol_EventEnabled(1U) == 0U)
+    {
+        return 1U;
+    }
+
     if(Identium_Protocol_QueueTag(tag, nowMs) == 0U)
     {
         return 0U;
@@ -799,6 +904,11 @@ void Identium_Protocol_ReportGpiChange(
     int written;
 
     if(states == NULL)
+    {
+        return;
+    }
+
+    if(Identium_Protocol_EventEnabled(3U) == 0U)
     {
         return;
     }
@@ -844,6 +954,14 @@ uint8_t Identium_Protocol_IsConnected(void)
     return Ethernet_Service_IsConnected();
 }
 
+uint8_t Identium_Protocol_ReportReaderException(
+    uint32_t errorCode,
+    const char *errorString
+)
+{
+    return Identium_Protocol_SendReaderException(errorCode, errorString);
+}
+
 void Identium_Protocol_Task(void)
 {
     uint32_t now;
@@ -877,6 +995,17 @@ void Identium_Protocol_Task(void)
     if(identiumWasConnected == 0U)
     {
         identiumWasConnected = 1U;
+
+        /* The protocol requests time synchronisation at boot.  A TCP
+         * connection is the first opportunity to deliver that event.  Do it
+         * once per boot rather than once per reconnect. */
+        if(identiumSyncTimeRequested == 0U)
+        {
+            if(Identium_Protocol_SendSyncTimeRequest() != 0U)
+            {
+                identiumSyncTimeRequested = 1U;
+            }
+        }
 
         /* First heartbeat immediately after a connection is established. */
         identiumLastHeartbeatMs =

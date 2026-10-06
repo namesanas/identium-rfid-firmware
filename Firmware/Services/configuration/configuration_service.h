@@ -18,6 +18,17 @@ uint8_t Configuration_Service_LoadPersistent(void);
 /* Runtime values currently owned by the Identium configuration service. */
 uint32_t Configuration_Service_GetHeartbeatSeconds(void);
 uint8_t Configuration_Service_GetStartInventoryAtBoot(void);
+uint8_t Configuration_Service_GetRemoteCmdReply(void);
+uint32_t Configuration_Service_GetSBufSize(void);
+uint32_t Configuration_Service_GetRecvTimeoutSeconds(void);
+uint32_t Configuration_Service_GetClearBufferTimeSeconds(void);
+uint8_t Configuration_Service_GetDataAggregationMode(void);
+uint32_t Configuration_Service_GetDataAggregationTimeMs(void);
+uint32_t Configuration_Service_GetNetworkWatchdogMinutes(void);
+uint32_t Configuration_Service_GetInventoryWatchdogMinutes(void);
+uint8_t Configuration_Service_IsEventEnabled(uint8_t eventCode);
+const char *Configuration_Service_GetCusParam(void);
+const uint8_t *Configuration_Service_GetTagJsonFormat(uint8_t *count);
 
 /* Build the live ActiveModeJson document. */
 uint16_t Configuration_Service_BuildActiveJson(

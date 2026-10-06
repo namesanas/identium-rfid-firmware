@@ -33,4 +33,10 @@ void Identium_Protocol_ReportGpiChange(
 /* Returns 1 when the protocol's TCP session is currently established. */
 uint8_t Identium_Protocol_IsConnected(void);
 
+/* Report an internal reader fault using the company event envelope. */
+uint8_t Identium_Protocol_ReportReaderException(
+    uint32_t errorCode,
+    const char *errorString
+);
+
 #endif /* RFID_CONTROLLER_IDENTIUM_PROTOCOL_H_ */

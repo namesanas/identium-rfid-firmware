@@ -21,9 +21,8 @@
 #define PRODUCT_PROTOCOL_TCP_SERVER_IP_3 100U
 #define PRODUCT_PROTOCOL_READER_NAME     "RFID-F429-DEV"
 
-/* Current F429 ActiveMode upload/recovery profile.  These fields are
- * intentionally compile-time constants until their configuration-write
- * handlers are expanded in a later step. */
+/* Current F429 ActiveMode defaults.  Step 8 now owns the runtime copies
+ * of these values in the persistent Identium configuration service. */
 #define PRODUCT_PROTOCOL_UPLOAD_S_BUF_SIZE       1580U
 #define PRODUCT_PROTOCOL_UPLOAD_CLIENT_ACK       0U
 #define PRODUCT_PROTOCOL_UPLOAD_RECV_TIMEOUT_S   10U

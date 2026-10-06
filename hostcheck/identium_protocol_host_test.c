@@ -35,6 +35,23 @@ uint32_t Time_GetTickMs(void) { return g_tick; }
 uint64_t Time_GetEpochMs(void) { return 1789981401488ULL + g_tick; }
 
 uint32_t Configuration_Service_GetHeartbeatSeconds(void) { return g_heartbeatSeconds; }
+uint8_t Configuration_Service_GetRemoteCmdReply(void) { return 1U; }
+uint32_t Configuration_Service_GetSBufSize(void) { return 1580U; }
+uint32_t Configuration_Service_GetRecvTimeoutSeconds(void) { return 10U; }
+uint32_t Configuration_Service_GetClearBufferTimeSeconds(void) { return 8U; }
+uint8_t Configuration_Service_GetDataAggregationMode(void) { return 0U; }
+uint32_t Configuration_Service_GetDataAggregationTimeMs(void) { return 1000U; }
+uint32_t Configuration_Service_GetNetworkWatchdogMinutes(void) { return 0U; }
+uint32_t Configuration_Service_GetInventoryWatchdogMinutes(void) { return 0U; }
+uint8_t Configuration_Service_IsEventEnabled(uint8_t eventCode) {
+    return ((eventCode == 1U) || (eventCode == 2U) || (eventCode == 3U)) ? 1U : 0U;
+}
+const char *Configuration_Service_GetCusParam(void) { return ""; }
+const uint8_t *Configuration_Service_GetTagJsonFormat(uint8_t *count) {
+    static const uint8_t format[] = {1U, 2U, 5U, 8U};
+    if(count != NULL) *count = (uint8_t)sizeof(format);
+    return format;
+}
 uint8_t SILION_Application_IsInventoryRunning(void) { return g_inventoryRunning; }
 
 uint8_t Ethernet_Service_IsConnected(void) { return g_connected; }

@@ -19,6 +19,8 @@ static Configuration_StorageData_t g_persistentConfiguration;
 static Configuration_StorageData_t g_liveConfiguration;
 static uint8_t g_initialized = 0U;
 
+static const uint8_t g_defaultTagJsonFormat[] = {1U, 2U, 5U, 8U};
+
 /* ----------------------------- JSON parser ----------------------------- */
 
 typedef struct
@@ -466,6 +468,76 @@ uint8_t Configuration_Service_GetStartInventoryAtBoot(void)
     return g_liveConfiguration.startInventoryAtBoot;
 }
 
+uint8_t Configuration_Service_GetRemoteCmdReply(void)
+{
+    return g_liveConfiguration.remoteCmdReply;
+}
+
+uint32_t Configuration_Service_GetSBufSize(void)
+{
+    return g_liveConfiguration.sBufSize;
+}
+
+uint32_t Configuration_Service_GetRecvTimeoutSeconds(void)
+{
+    return g_liveConfiguration.recvTimeoutSeconds;
+}
+
+uint32_t Configuration_Service_GetClearBufferTimeSeconds(void)
+{
+    return g_liveConfiguration.clearBufferTimeSeconds;
+}
+
+uint8_t Configuration_Service_GetDataAggregationMode(void)
+{
+    return g_liveConfiguration.dataAggregationMode;
+}
+
+uint32_t Configuration_Service_GetDataAggregationTimeMs(void)
+{
+    return g_liveConfiguration.dataAggregationTimeMs;
+}
+
+uint32_t Configuration_Service_GetNetworkWatchdogMinutes(void)
+{
+    return g_liveConfiguration.networkWatchdogMinutes;
+}
+
+uint32_t Configuration_Service_GetInventoryWatchdogMinutes(void)
+{
+    return g_liveConfiguration.inventoryWatchdogMinutes;
+}
+
+uint8_t Configuration_Service_IsEventEnabled(uint8_t eventCode)
+{
+    uint8_t i;
+
+    for(i = 0U; i < g_liveConfiguration.eventCount; i++)
+    {
+        if(g_liveConfiguration.events[i] == eventCode)
+        {
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+const char *Configuration_Service_GetCusParam(void)
+{
+    return g_liveConfiguration.cusParam;
+}
+
+const uint8_t *Configuration_Service_GetTagJsonFormat(uint8_t *count)
+{
+    if(count != NULL)
+    {
+        *count = (uint8_t)sizeof(g_defaultTagJsonFormat);
+    }
+
+    return g_defaultTagJsonFormat;
+}
+
 uint8_t Configuration_Service_GetWorkState(void)
 {
     (void)g_initialized;
@@ -586,7 +658,7 @@ static uint8_t Configuration_Service_AppendUnsigned(
     return 1U;
 }
 
-static uint8_t Configuration_Service_AppendEscapedName(
+static uint8_t Configuration_Service_AppendEscapedString(
     char **cursor,
     size_t *remaining,
     const char *source
@@ -639,6 +711,15 @@ static uint8_t Configuration_Service_AppendEscapedName(
     return 1U;
 }
 
+static uint8_t Configuration_Service_AppendEscapedName(
+    char **cursor,
+    size_t *remaining,
+    const char *source
+)
+{
+    return Configuration_Service_AppendEscapedString(cursor, remaining, source);
+}
+
 uint16_t Configuration_Service_BuildActiveJson(
     char *buffer,
     uint16_t bufferSize
@@ -646,6 +727,7 @@ uint16_t Configuration_Service_BuildActiveJson(
 {
     char *cursor = buffer;
     size_t remaining = bufferSize;
+    uint8_t i;
 
     if((buffer == NULL) || (bufferSize == 0U))
     {
@@ -657,83 +739,203 @@ uint16_t Configuration_Service_BuildActiveJson(
     if(!Configuration_Service_AppendLiteral(
            &cursor,
            &remaining,
-           "{\"glob_params\":{\"hb_cylce\":"))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendUnsigned(
+           "{\"glob_params\":{\"hb_cylce\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
            &cursor,
            &remaining,
-           g_liveConfiguration.heartbeatSeconds))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendLiteral(
+           g_liveConfiguration.heartbeatSeconds
+       ) ||
+       !Configuration_Service_AppendLiteral(
            &cursor,
            &remaining,
-           ",\"s_buf_size\":1580,\"thwdt_net_timeout\":0,\"thwdt_inv_timeout\":0,\"start_inv_atbeg\":"))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendUnsigned(
+           ",\"s_buf_size\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
            &cursor,
            &remaining,
-           g_liveConfiguration.startInventoryAtBoot))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendLiteral(
+           g_liveConfiguration.sBufSize
+       ) ||
+       !Configuration_Service_AppendLiteral(
            &cursor,
            &remaining,
-           ",\"remote_cmd_reply\":1,\"name\":\""))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendEscapedName(
+           ",\"thwdt_net_timeout\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
            &cursor,
            &remaining,
-           PRODUCT_PROTOCOL_READER_NAME))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendLiteral(
+           g_liveConfiguration.networkWatchdogMinutes
+       ) ||
+       !Configuration_Service_AppendLiteral(
            &cursor,
            &remaining,
-           "\"},\"upload\":{\"client_ack\":0,\"crc_enable\":0,\"recv_timeout\":10,\"clr_r_buf_time\":8,\"hw_inf\":1,\"tcp\":{\"ser_ip\":\""))
-    {
-        return 0U;
-    }
-
-    if(!Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_0) ||
+           ",\"thwdt_inv_timeout\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.inventoryWatchdogMinutes
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"start_inv_atbeg\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.startInventoryAtBoot
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"remote_cmd_reply\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.remoteCmdReply
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"name\":\""
+       ) ||
+       !Configuration_Service_AppendEscapedName(
+           &cursor,
+           &remaining,
+           PRODUCT_PROTOCOL_READER_NAME
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           "\"},\"upload\":{\"client_ack\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.clientAck
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"crc_enable\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.crcEnable
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"bin_msg_fmt_ver\":0,\"tagcom_raw_mode\":0,\"recv_timeout\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.recvTimeoutSeconds
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"clr_r_buf_time\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.clearBufferTimeSeconds
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"hw_inf\":"
+       ) ||
+       !Configuration_Service_AppendUnsigned(
+           &cursor,
+           &remaining,
+           g_liveConfiguration.hwInf
+       ) ||
+       !Configuration_Service_AppendLiteral(
+           &cursor,
+           &remaining,
+           ",\"tcp\":{\"ser_ip\":\""
+       ) ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_0) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_1) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_2) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_3) ||
-       !Configuration_Service_AppendLiteral(&cursor, &remaining, "\",\"ser_port\":\""))
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "\",\"ser_port\":\"") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_PORT) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "\"},\"data_aggr\":{\"mode\":") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.dataAggregationMode) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, ",\"timeval\":") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.dataAggregationTimeMs) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "}},\"gpo_act\":[],\"events\":[")
+    )
     {
         return 0U;
     }
 
-    if(!Configuration_Service_AppendUnsigned(
-           &cursor,
-           &remaining,
-           PRODUCT_PROTOCOL_TCP_SERVER_PORT))
+    for(i = 0U; i < g_liveConfiguration.eventCount; i++)
+    {
+        if(
+            (i > 0U) &&
+            !Configuration_Service_AppendLiteral(&cursor, &remaining, ",")
+        )
+        {
+            return 0U;
+        }
+
+        if(!Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.events[i]))
+        {
+            return 0U;
+        }
+    }
+
+    if(
+        !Configuration_Service_AppendLiteral(&cursor, &remaining, "],\"tag_json_format\":[")
+    )
     {
         return 0U;
     }
 
-    if(!Configuration_Service_AppendLiteral(
-           &cursor,
-           &remaining,
-           "\"},\"data_aggr\":{\"mode\":0,\"timeval\":1000}},\"gpo_act\":[],\"events\":[1,2,3],\"tag_json_format\":[1,2,5,8],\"gpi_trigger\":{\"mode\":0,\"timeval\":0,\"cond_order\":0,\"cond_1\":[],\"cond_2\":[]},\"cus_param\":\"\"}"))
+    for(i = 0U; i < (uint8_t)sizeof(g_defaultTagJsonFormat); i++)
+    {
+        if(
+            (i > 0U) &&
+            !Configuration_Service_AppendLiteral(&cursor, &remaining, ",")
+        )
+        {
+            return 0U;
+        }
+
+        if(!Configuration_Service_AppendUnsigned(&cursor, &remaining, g_defaultTagJsonFormat[i]))
+        {
+            return 0U;
+        }
+    }
+
+    if(
+        !Configuration_Service_AppendLiteral(
+            &cursor,
+            &remaining,
+            "],\"gpi_trigger\":{\"mode\":0,\"timeval\":0,\"cond_order\":0,\"cond_1\":[],\"cond_2\":[]},\"cus_param\":\""
+        ) ||
+        !Configuration_Service_AppendEscapedString(
+            &cursor,
+            &remaining,
+            g_liveConfiguration.cusParam
+        ) ||
+        !Configuration_Service_AppendLiteral(
+            &cursor,
+            &remaining,
+            "\"}"
+        )
+    )
     {
         return 0U;
     }
@@ -821,6 +1023,96 @@ static uint8_t Configuration_JsonParseObjectEnd(
     return Configuration_JsonConsume(cursor, '}');
 }
 
+static uint8_t Configuration_Service_ParseUnsignedArray(
+    Configuration_JsonCursor_t *cursor,
+    uint8_t *values,
+    uint8_t *count,
+    uint8_t maximumCount,
+    uint8_t minimumValue,
+    uint8_t maximumValue
+)
+{
+    uint8_t parsed = 0U;
+    uint8_t i;
+    uint8_t j;
+    uint32_t value;
+
+    if(
+        (cursor == NULL) ||
+        (values == NULL) ||
+        (count == NULL) ||
+        (maximumCount == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    if(Configuration_JsonConsume(cursor, '[') == 0U)
+    {
+        return 0U;
+    }
+
+    Configuration_JsonSkipWhitespace(cursor);
+    if((cursor->p < cursor->end) && (*cursor->p == ']'))
+    {
+        cursor->p++;
+        *count = 0U;
+        return 1U;
+    }
+
+    for(;;)
+    {
+        if(parsed >= maximumCount)
+        {
+            return 0U;
+        }
+
+        if(Configuration_JsonParseUnsigned(cursor, &value) == 0U)
+        {
+            return 0U;
+        }
+
+        if(
+            (value < minimumValue) ||
+            (value > maximumValue)
+        )
+        {
+            return 0U;
+        }
+
+        values[parsed++] = (uint8_t)value;
+
+        Configuration_JsonSkipWhitespace(cursor);
+        if((cursor->p < cursor->end) && (*cursor->p == ','))
+        {
+            cursor->p++;
+            continue;
+        }
+
+        if((cursor->p < cursor->end) && (*cursor->p == ']'))
+        {
+            cursor->p++;
+            break;
+        }
+
+        return 0U;
+    }
+
+    for(i = 0U; i < parsed; i++)
+    {
+        for(j = (uint8_t)(i + 1U); j < parsed; j++)
+        {
+            if(values[i] == values[j])
+            {
+                return 0U;
+            }
+        }
+    }
+
+    *count = parsed;
+    return 1U;
+}
+
 static uint8_t Configuration_Service_ParseRuntimeGlobParams(
     Configuration_JsonCursor_t *cursor,
     Configuration_StorageData_t *candidate,
@@ -831,6 +1123,10 @@ static uint8_t Configuration_Service_ParseRuntimeGlobParams(
     uint8_t foundAny = 0U;
     uint8_t seenHeartbeat = 0U;
     uint8_t seenStartAtBoot = 0U;
+    uint8_t seenRemoteReply = 0U;
+    uint8_t seenNetworkWatchdog = 0U;
+    uint8_t seenInventoryWatchdog = 0U;
+    uint8_t seenSBufSize = 0U;
 
     if(Configuration_JsonConsume(cursor, '{') == 0U)
     {
@@ -838,12 +1134,10 @@ static uint8_t Configuration_Service_ParseRuntimeGlobParams(
     }
 
     Configuration_JsonSkipWhitespace(cursor);
-    if(
-        (cursor->p < cursor->end) &&
-        (*cursor->p == '}')
-    )
+    if((cursor->p < cursor->end) && (*cursor->p == '}'))
     {
         cursor->p++;
+        *changed = 0U;
         return 1U;
     }
 
@@ -861,50 +1155,58 @@ static uint8_t Configuration_Service_ParseRuntimeGlobParams(
             return 0U;
         }
 
-        if(
-            Configuration_JsonKeyEquals(key, "hb_cylce") != 0U
-        )
+        if(strcmp(key, "hb_cylce") == 0)
         {
-            if(seenHeartbeat != 0U)
+            if(seenHeartbeat++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U || value < 5U || value > 7200U)
             {
                 return 0U;
             }
-
-            if(Configuration_JsonParseUnsigned(cursor, &value) == 0U)
-            {
-                return 0U;
-            }
-
-            if((value < 5U) || (value > 7200U))
-            {
-                return 0U;
-            }
-
             candidate->heartbeatSeconds = value;
-            seenHeartbeat = 1U;
             foundAny = 1U;
         }
-        else if(
-            Configuration_JsonKeyEquals(key, "start_inv_atbeg") != 0U
-        )
+        else if(strcmp(key, "s_buf_size") == 0)
         {
-            if(seenStartAtBoot != 0U)
+            if(seenSBufSize++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U || value < 1500U || value > 8192U)
             {
                 return 0U;
             }
-
-            if(Configuration_JsonParseUnsigned(cursor, &value) == 0U)
+            candidate->sBufSize = value;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "thwdt_net_timeout") == 0)
+        {
+            if(seenNetworkWatchdog++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U)
             {
                 return 0U;
             }
-
-            if(value > 1U)
+            candidate->networkWatchdogMinutes = value;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "thwdt_inv_timeout") == 0)
+        {
+            if(seenInventoryWatchdog++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U)
             {
                 return 0U;
             }
-
+            candidate->inventoryWatchdogMinutes = value;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "start_inv_atbeg") == 0)
+        {
+            if(seenStartAtBoot++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U || value > 1U)
+            {
+                return 0U;
+            }
             candidate->startInventoryAtBoot = (uint8_t)value;
-            seenStartAtBoot = 1U;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "remote_cmd_reply") == 0)
+        {
+            if(seenRemoteReply++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U || value > 1U)
+            {
+                return 0U;
+            }
+            candidate->remoteCmdReply = (uint8_t)value;
             foundAny = 1U;
         }
         else
@@ -913,10 +1215,7 @@ static uint8_t Configuration_Service_ParseRuntimeGlobParams(
         }
 
         Configuration_JsonSkipWhitespace(cursor);
-        if(
-            (cursor->p < cursor->end) &&
-            (*cursor->p == ',')
-        )
+        if((cursor->p < cursor->end) && (*cursor->p == ','))
         {
             cursor->p++;
             continue;
@@ -932,14 +1231,16 @@ static uint8_t Configuration_Service_ParseRuntimeGlobParams(
     }
 }
 
-static uint8_t Configuration_Service_ParseRuntimeData(
+static uint8_t Configuration_Service_ParseRuntimeDataAgg(
     Configuration_JsonCursor_t *cursor,
     Configuration_StorageData_t *candidate,
     uint8_t *changed
 )
 {
-    char key[64];
+    char key[32];
     uint8_t foundAny = 0U;
+    uint8_t seenMode = 0U;
+    uint8_t seenTimeval = 0U;
 
     if(Configuration_JsonConsume(cursor, '{') == 0U)
     {
@@ -947,10 +1248,7 @@ static uint8_t Configuration_Service_ParseRuntimeData(
     }
 
     Configuration_JsonSkipWhitespace(cursor);
-    if(
-        (cursor->p < cursor->end) &&
-        (*cursor->p == '}')
-    )
+    if((cursor->p < cursor->end) && (*cursor->p == '}'))
     {
         cursor->p++;
         *changed = 0U;
@@ -959,69 +1257,268 @@ static uint8_t Configuration_Service_ParseRuntimeData(
 
     for(;;)
     {
-        if(Configuration_JsonParseString(cursor, key, sizeof(key)) == 0U)
+        uint32_t value;
+
+        if(Configuration_JsonParseString(cursor, key, sizeof(key)) == 0U ||
+           Configuration_JsonConsume(cursor, ':') == 0U ||
+           Configuration_JsonParseUnsigned(cursor, &value) == 0U)
         {
             return 0U;
         }
 
-        if(Configuration_JsonConsume(cursor, ':') == 0U)
+        if(strcmp(key, "mode") == 0)
         {
-            return 0U;
+            if(seenMode++ != 0U || value > 1U)
+            {
+                return 0U;
+            }
+            candidate->dataAggregationMode = (uint8_t)value;
+            foundAny = 1U;
         }
-
-        if(Configuration_JsonKeyEquals(key, "glob_params") == 0U)
+        else if(strcmp(key, "timeval") == 0)
         {
-            return 0U;
+            if(seenTimeval++ != 0U || value < 50U || value > 86400000UL)
+            {
+                return 0U;
+            }
+            candidate->dataAggregationTimeMs = value;
+            foundAny = 1U;
         }
-
-        if(foundAny != 0U)
-        {
-            return 0U;
-        }
-
-        if(Configuration_Service_ParseRuntimeGlobParams(cursor, candidate, &foundAny) == 0U)
+        else
         {
             return 0U;
         }
 
         Configuration_JsonSkipWhitespace(cursor);
-        if(
-            (cursor->p < cursor->end) &&
-            (*cursor->p == ',')
-        )
+        if((cursor->p < cursor->end) && (*cursor->p == ','))
         {
             cursor->p++;
             continue;
         }
 
-        if(Configuration_JsonParseObjectEnd(cursor) == 0U)
+        if(Configuration_JsonParseObjectEnd(cursor) != 0U)
+        {
+            *changed = foundAny;
+            return 1U;
+        }
+
+        return 0U;
+    }
+}
+
+static uint8_t Configuration_Service_ParseRuntimeUpload(
+    Configuration_JsonCursor_t *cursor,
+    Configuration_StorageData_t *candidate,
+    uint8_t *changed,
+    uint8_t *unsupported
+)
+{
+    char key[64];
+    uint8_t foundAny = 0U;
+    uint8_t seenClientAck = 0U;
+    uint8_t seenCrcEnable = 0U;
+    uint8_t seenRecvTimeout = 0U;
+    uint8_t seenClearBufferTime = 0U;
+    uint8_t seenHwInf = 0U;
+    uint8_t seenDataAgg = 0U;
+
+    if(Configuration_JsonConsume(cursor, '{') == 0U)
+    {
+        return 0U;
+    }
+
+    Configuration_JsonSkipWhitespace(cursor);
+    if((cursor->p < cursor->end) && (*cursor->p == '}'))
+    {
+        cursor->p++;
+        *changed = 0U;
+        return 1U;
+    }
+
+    for(;;)
+    {
+        uint32_t value;
+
+        if(Configuration_JsonParseString(cursor, key, sizeof(key)) == 0U ||
+           Configuration_JsonConsume(cursor, ':') == 0U)
         {
             return 0U;
         }
 
-        *changed = foundAny;
-        return 1U;
+        if(strcmp(key, "client_ack") == 0 || strcmp(key, "crc_enable") == 0)
+        {
+            if(
+                ((strcmp(key, "client_ack") == 0) && (seenClientAck++ != 0U)) ||
+                ((strcmp(key, "crc_enable") == 0) && (seenCrcEnable++ != 0U))
+            )
+            {
+                return 0U;
+            }
+            if(Configuration_JsonParseUnsigned(cursor, &value) == 0U || value > 1U)
+            {
+                return 0U;
+            }
+
+            if(value != 0U)
+            {
+                *unsupported = 1U;
+                return 0U;
+            }
+
+            if(strcmp(key, "client_ack") == 0)
+            {
+                candidate->clientAck = 0U;
+            }
+            else
+            {
+                candidate->crcEnable = 0U;
+            }
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "recv_timeout") == 0)
+        {
+            if(seenRecvTimeout++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U)
+            {
+                return 0U;
+            }
+            candidate->recvTimeoutSeconds = value;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "clr_r_buf_time") == 0)
+        {
+            if(seenClearBufferTime++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U)
+            {
+                return 0U;
+            }
+            candidate->clearBufferTimeSeconds = value;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "hw_inf") == 0)
+        {
+            if(seenHwInf++ != 0U || Configuration_JsonParseUnsigned(cursor, &value) == 0U || value != 1U)
+            {
+                *unsupported = 1U;
+                return 0U;
+            }
+            candidate->hwInf = 1U;
+            foundAny = 1U;
+        }
+        else if(strcmp(key, "data_aggr") == 0)
+        {
+            uint8_t subChanged = 0U;
+            if(seenDataAgg++ != 0U)
+            {
+                return 0U;
+            }
+            if(Configuration_Service_ParseRuntimeDataAgg(cursor, candidate, &subChanged) == 0U)
+            {
+                return 0U;
+            }
+            foundAny = (uint8_t)(foundAny || subChanged);
+        }
+        else
+        {
+            *unsupported = 1U;
+            return 0U;
+        }
+
+        Configuration_JsonSkipWhitespace(cursor);
+        if((cursor->p < cursor->end) && (*cursor->p == ','))
+        {
+            cursor->p++;
+            continue;
+        }
+
+        if(Configuration_JsonParseObjectEnd(cursor) != 0U)
+        {
+            *changed = foundAny;
+            return 1U;
+        }
+
+        return 0U;
     }
+}
+
+static uint8_t Configuration_Service_ParseRuntimeEvents(
+    Configuration_JsonCursor_t *cursor,
+    Configuration_StorageData_t *candidate,
+    uint8_t *changed,
+    uint8_t *unsupported
+)
+{
+    uint8_t values[CONFIGURATION_MAX_EVENTS];
+    uint8_t count;
+    uint8_t i;
+
+    if(
+        Configuration_Service_ParseUnsignedArray(
+            cursor,
+            values,
+            &count,
+            CONFIGURATION_MAX_EVENTS,
+            1U,
+            6U
+        ) == 0U
+    )
+    {
+        return 0U;
+    }
+
+    /* Step 8 implements event codes 1, 2, 3 and 6.  Codes 4 and 5 are
+     * deliberately rejected until their reader-side semantics are available. */
+    for(i = 0U; i < count; i++)
+    {
+        if((values[i] == 4U) || (values[i] == 5U))
+        {
+            if(unsupported != NULL)
+            {
+                *unsupported = 1U;
+            }
+            return 0U;
+        }
+    }
+
+    if(count == 0U)
+    {
+        return 0U;
+    }
+
+    candidate->eventCount = count;
+    memset(candidate->events, 0, sizeof(candidate->events));
+    memcpy(candidate->events, values, count);
+    *changed = 1U;
+    return 1U;
 }
 
 static uint8_t Configuration_Service_ParseRuntimeConfig(
     const char *json,
     Configuration_StorageData_t *candidate,
-    uint8_t *changed
+    uint8_t *changed,
+    uint8_t *unsupported
 )
 {
     Configuration_JsonCursor_t cursor;
     char key[64];
     uint8_t foundData = 0U;
+    uint8_t localUnsupported = 0U;
+    uint8_t subChanged;
+    uint8_t seenGlobParams = 0U;
+    uint8_t seenUpload = 0U;
+    uint8_t seenEvents = 0U;
+    uint8_t seenCusParam = 0U;
 
     if(
         (json == NULL) ||
         (candidate == NULL) ||
-        (changed == NULL)
+        (changed == NULL) ||
+        (unsupported == NULL)
     )
     {
         return 0U;
     }
+
+    *changed = 0U;
+    *unsupported = 0U;
 
     cursor.p = json;
     cursor.end = json + strlen(json);
@@ -1032,45 +1529,128 @@ static uint8_t Configuration_Service_ParseRuntimeConfig(
     }
 
     Configuration_JsonSkipWhitespace(&cursor);
-    if(
-        (cursor.p < cursor.end) &&
-        (*cursor.p == '}')
-    )
+    if((cursor.p < cursor.end) && (*cursor.p == '}'))
     {
         return 0U;
     }
 
     for(;;)
     {
-        if(Configuration_JsonParseString(&cursor, key, sizeof(key)) == 0U)
+        if(Configuration_JsonParseString(&cursor, key, sizeof(key)) == 0U ||
+           Configuration_JsonConsume(&cursor, ':') == 0U)
         {
             return 0U;
         }
 
-        if(Configuration_JsonConsume(&cursor, ':') == 0U)
-        {
-            return 0U;
-        }
-
-        if(Configuration_JsonKeyEquals(key, "command_type") != 0U)
+        if(strcmp(key, "command_type") == 0)
         {
             if(Configuration_JsonSkipValue(&cursor, 0U) == 0U)
             {
                 return 0U;
             }
         }
-        else if(Configuration_JsonKeyEquals(key, "command_data") != 0U)
+        else if(strcmp(key, "command_data") == 0)
         {
-            if(foundData != 0U)
+            if(foundData++ != 0U)
             {
                 return 0U;
             }
 
-            if(Configuration_Service_ParseRuntimeData(&cursor, candidate, changed) == 0U)
+            /* Parse command_data as one object so the selected sub-objects
+             * are deep-merged into the current candidate. */
+            if(Configuration_JsonConsume(&cursor, '{') == 0U)
             {
                 return 0U;
             }
-            foundData = 1U;
+
+            Configuration_JsonSkipWhitespace(&cursor);
+            if((cursor.p < cursor.end) && (*cursor.p == '}'))
+            {
+                return 0U;
+            }
+
+            for(;;)
+            {
+                if(Configuration_JsonParseString(&cursor, key, sizeof(key)) == 0U ||
+                   Configuration_JsonConsume(&cursor, ':') == 0U)
+                {
+                    return 0U;
+                }
+
+                subChanged = 0U;
+
+                if(strcmp(key, "glob_params") == 0)
+                {
+                    if(seenGlobParams++ != 0U)
+                    {
+                        return 0U;
+                    }
+                    if(Configuration_Service_ParseRuntimeGlobParams(&cursor, candidate, &subChanged) == 0U)
+                    {
+                        return 0U;
+                    }
+                }
+                else if(strcmp(key, "upload") == 0)
+                {
+                    if(seenUpload++ != 0U)
+                    {
+                        return 0U;
+                    }
+                    if(Configuration_Service_ParseRuntimeUpload(&cursor, candidate, &subChanged, &localUnsupported) == 0U)
+                    {
+                        *unsupported = localUnsupported;
+                        return 0U;
+                    }
+                }
+                else if(strcmp(key, "events") == 0)
+                {
+                    if(seenEvents++ != 0U)
+                    {
+                        return 0U;
+                    }
+                    if(Configuration_Service_ParseRuntimeEvents(&cursor, candidate, &subChanged, &localUnsupported) == 0U)
+                    {
+                        *unsupported = localUnsupported;
+                        return 0U;
+                    }
+                }
+                else if(strcmp(key, "cus_param") == 0)
+                {
+                    char value[CONFIGURATION_MAX_CUS_PARAM_LENGTH + 1U];
+                    if(seenCusParam++ != 0U)
+                    {
+                        return 0U;
+                    }
+                    if(Configuration_JsonParseString(&cursor, value, sizeof(value)) == 0U)
+                    {
+                        return 0U;
+                    }
+                    memset(candidate->cusParam, 0, sizeof(candidate->cusParam));
+                    memcpy(candidate->cusParam, value, strlen(value));
+                    subChanged = 1U;
+                }
+                else
+                {
+                    localUnsupported = 1U;
+                    *unsupported = 1U;
+                    return 0U;
+                }
+
+                *changed = (uint8_t)(*changed || subChanged);
+
+                Configuration_JsonSkipWhitespace(&cursor);
+                if((cursor.p < cursor.end) && (*cursor.p == ','))
+                {
+                    cursor.p++;
+                    continue;
+                }
+
+                if(Configuration_JsonParseObjectEnd(&cursor) == 0U)
+                {
+                    return 0U;
+                }
+                break;
+            }
         }
         else
         {
@@ -1078,10 +1658,7 @@ static uint8_t Configuration_Service_ParseRuntimeConfig(
         }
 
         Configuration_JsonSkipWhitespace(&cursor);
-        if(
-            (cursor.p < cursor.end) &&
-            (*cursor.p == ',')
-        )
+        if((cursor.p < cursor.end) && (*cursor.p == ','))
         {
             cursor.p++;
             continue;
@@ -1095,6 +1672,7 @@ static uint8_t Configuration_Service_ParseRuntimeConfig(
         Configuration_JsonSkipWhitespace(&cursor);
         return (
             (foundData != 0U) &&
+            (*changed != 0U) &&
             (cursor.p == cursor.end)
         ) ? 1U : 0U;
     }
@@ -1428,6 +2006,7 @@ uint8_t Configuration_Service_ApplyRuntimeConfig(
 {
     Configuration_StorageData_t candidate = g_persistentConfiguration;
     uint8_t changed = 0U;
+    uint8_t unsupported = 0U;
 
     Configuration_Service_SetResult(
         errorCode,
@@ -1439,9 +2018,19 @@ uint8_t Configuration_Service_ApplyRuntimeConfig(
     if(Configuration_Service_ParseRuntimeConfig(
            json,
            &candidate,
-           &changed
+           &changed,
+           &unsupported
        ) == 0U)
     {
+        if(unsupported != 0U)
+        {
+            Configuration_Service_SetResult(
+                errorCode,
+                errorString,
+                CONFIGURATION_SERVICE_ERR_UNSUPPORTED,
+                "not supported operation"
+            );
+        }
         return 0U;
     }
 

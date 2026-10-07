@@ -1,3 +1,4 @@
+#include "../../Services/configuration/reader_settings.h"
 #include "firmware_configuration.h"
 
 #include "../Run_time/firmware_runtime.h"
@@ -282,6 +283,17 @@ Status_t  Firmware_Configuration_Init(void)
     HOST_Interface_Init();
 
 
+    /* Persistent network / identity settings (vendor-tool configurable). */
+    ReaderSettings_Init();
+
+    /* RF values saved from the vendor tools' static configuration. */
+    if(ReaderSettings_Get()->rfValid != 0U)
+    {
+        readerConfig.region = ReaderSettings_Get()->region;
+        readerConfig.readPower = ReaderSettings_Get()->readPower;
+        readerConfig.writePower = ReaderSettings_Get()->writePower;
+    }
+
     /*
      * --------------------------------------------------------
      * W5500 BASIC STARTUP
@@ -309,7 +321,7 @@ Status_t  Firmware_Configuration_Init(void)
 
 
     if(
-        W5500_SetNetworkConfig() == 0U
+        ReaderSettings_ApplyNetwork() == 0U
     )
     {
         System_Fault_Set(
@@ -376,7 +388,11 @@ Status_t  Firmware_Configuration_Init(void)
     }
 
 
-    if(Configuration_Service_GetStartInventoryAtBoot() != 0U)
+    /* Passive work state (vendor tools): no autonomous reading. */
+    if(
+        (Configuration_Service_GetStartInventoryAtBoot() != 0U) &&
+        (ReaderSettings_GetWorkState() == READER_SETTINGS_WORK_ACTIVE)
+    )
     {
         if(SILION_Application_StartInventory() == 0U)
         {

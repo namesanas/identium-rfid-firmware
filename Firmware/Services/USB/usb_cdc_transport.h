@@ -9,6 +9,7 @@
 void USB_CDC_Transport_Init(void);
 uint8_t USB_CDC_Transport_IsReady(void);
 uint16_t USB_CDC_Transport_Send(const uint8_t *data, uint16_t length);
+uint16_t USB_CDC_Transport_GetFreeSpace(void);
 void USB_CDC_Transport_Task(void);
 void USB_CDC_Transport_OnTxComplete(void);
 void USB_CDC_Transport_Reset(void);

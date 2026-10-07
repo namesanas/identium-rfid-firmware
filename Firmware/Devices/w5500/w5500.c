@@ -390,6 +390,32 @@ uint8_t W5500_SetNetworkConfig(void)
 	}
 }
 
+/* Network configuration from persistent reader settings. */
+uint8_t W5500_SetNetworkConfigValues(
+    const uint8_t ip[4],
+    const uint8_t subnet[4],
+    const uint8_t gateway[4],
+    const uint8_t mac[6]
+)
+{
+    if((ip == NULL) || (subnet == NULL) || (gateway == NULL) || (mac == NULL))
+    {
+        return 0U;
+    }
+
+    if(
+        (W5500_WriteRegisters(W5500_GAR, 0U, gateway, 4U) == 0U) ||
+        (W5500_WriteRegisters(W5500_SUBR, 0U, subnet, 4U) == 0U) ||
+        (W5500_WriteRegisters(W5500_SHAR, 0U, mac, 6U) == 0U) ||
+        (W5500_WriteRegisters(W5500_SIPR, 0U, ip, 4U) == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    return 1U;
+}
+
 /* ============================================================
  * READ W5500 VERSION
  * ============================================================ */
@@ -911,6 +937,55 @@ uint16_t W5500_Socket0_GetTxFreeSize(void)
  * SOCKET 0 SEND
  * ============================================================ */
 
+/* A new SEND must not be issued while the previous one is still in
+ * progress (W5500 datasheet, Sn_CR SEND). HTTP uploads stream a request
+ * in several chunks, so wait briefly for SEND_OK / TIMEOUT first. */
+#define W5500_S0_IR_SEND_OK  0x10U
+#define W5500_S0_IR_TIMEOUT  0x08U
+
+static uint8_t g_socket0SendPending = 0U;
+
+static void W5500_Socket0_WaitPreviousSend(void)
+{
+    uint8_t interruptFlags = 0U;
+    uint8_t clearFlags;
+    uint8_t attempt;
+
+    if(g_socket0SendPending == 0U)
+    {
+        return;
+    }
+
+    g_socket0SendPending = 0U;
+
+    if(W5500_Socket0_GetStatus() != W5500_Sn_SR_ESTABLISHED)
+    {
+        return;
+    }
+
+    for(attempt = 0U; attempt < 50U; attempt++)
+    {
+        (void)W5500_ReadRegisters(W5500_S0_IR, W5500_S0_BSB, &interruptFlags, 1U);
+
+        if((interruptFlags & (W5500_S0_IR_SEND_OK | W5500_S0_IR_TIMEOUT)) != 0U)
+        {
+            break;
+        }
+
+        if(attempt >= 10U)
+        {
+            Time_DelayMs(1U);
+        }
+    }
+
+    clearFlags = (uint8_t)(interruptFlags & (W5500_S0_IR_SEND_OK | W5500_S0_IR_TIMEOUT));
+
+    if(clearFlags != 0U)
+    {
+        (void)W5500_WriteRegisters(W5500_S0_IR, W5500_S0_BSB, &clearFlags, 1U);
+    }
+}
+
 uint16_t W5500_Socket0_Send(
     const uint8_t *buffer,
     uint16_t length
@@ -930,6 +1005,8 @@ uint16_t W5500_Socket0_Send(
     {
         return 0U;
     }
+
+    W5500_Socket0_WaitPreviousSend();
 
     txFreeSize =
         W5500_Socket0_GetTxFreeSize();
@@ -1038,6 +1115,8 @@ uint16_t W5500_Socket0_Send(
             1U
         );
     }
+
+    g_socket0SendPending = 1U;
 
     return length;
 }
@@ -1315,6 +1394,67 @@ uint16_t W5500_Socket1_GetTxFreeSize(void)
     return (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
 }
 
+/* A new SEND must not be issued while the previous one is still in
+ * progress (W5500 datasheet, Sn_CR SEND). The bridge streams many small
+ * chunks, so wait briefly for SEND_OK / TIMEOUT of the previous send. */
+#define W5500_Sn_IR_SEND_OK  0x10U
+#define W5500_Sn_IR_TIMEOUT  0x08U
+
+static uint8_t g_socket1SendPending = 0U;
+
+static void W5500_Socket1_WaitPreviousSend(void)
+{
+    uint8_t interruptFlags = 0U;
+    uint8_t clearFlags;
+    uint8_t attempt;
+
+    if(g_socket1SendPending == 0U)
+    {
+        return;
+    }
+
+    /* A closed/reopened socket has no send in flight. */
+    if(W5500_Socket1_GetStatus() != W5500_Sn_SR_ESTABLISHED)
+    {
+        g_socket1SendPending = 0U;
+        return;
+    }
+
+    for(attempt = 0U; attempt < 50U; attempt++)
+    {
+        (void)W5500_ReadRegisters(
+            W5500_S1_IR,
+            W5500_BSB_SOCKET1_REG,
+            &interruptFlags,
+            1U
+        );
+
+        if((interruptFlags & (W5500_Sn_IR_SEND_OK | W5500_Sn_IR_TIMEOUT)) != 0U)
+        {
+            break;
+        }
+
+        if(attempt >= 10U)
+        {
+            Time_DelayMs(1U);
+        }
+    }
+
+    clearFlags = (uint8_t)(interruptFlags & (W5500_Sn_IR_SEND_OK | W5500_Sn_IR_TIMEOUT));
+
+    if(clearFlags != 0U)
+    {
+        (void)W5500_WriteRegisters(
+            W5500_S1_IR,
+            W5500_BSB_SOCKET1_REG,
+            &clearFlags,
+            1U
+        );
+    }
+
+    g_socket1SendPending = 0U;
+}
+
 uint16_t W5500_Socket1_Send(
     const uint8_t *buffer,
     uint16_t length
@@ -1331,6 +1471,8 @@ uint16_t W5500_Socket1_Send(
     {
         return 0U;
     }
+
+    W5500_Socket1_WaitPreviousSend();
 
     txFreeSize = W5500_Socket1_GetTxFreeSize();
     if(txFreeSize == 0U)
@@ -1404,5 +1546,207 @@ uint16_t W5500_Socket1_Send(
         1U
     );
 
+    g_socket1SendPending = 1U;
+
     return length;
+}
+
+/* ============================================================
+ * SOCKET 2 - UDP (vendor-tool device discovery, port 15000)
+ * ============================================================ */
+
+#define W5500_BSB_SOCKET2_REG       9U
+#define W5500_BSB_SOCKET2_TXBUF     10U
+#define W5500_BSB_SOCKET2_RXBUF     11U
+#define W5500_Sn_MR_UDP             0x02U
+#define W5500_Sn_SR_UDP             0x22U
+#define W5500_Sn_IR_SENDOK_UDP      0x10U
+#define W5500_Sn_IR_TIMEOUT_UDP     0x08U
+
+uint8_t W5500_Socket2_GetStatus(void)
+{
+    uint8_t status = W5500_Sn_SR_CLOSED;
+
+    (void)W5500_ReadRegisters(0x0003U, W5500_BSB_SOCKET2_REG, &status, 1U);
+
+    return status;
+}
+
+uint8_t W5500_Socket2_OpenUdp(uint16_t port)
+{
+    uint8_t mode = W5500_Sn_MR_UDP;
+    uint8_t bufferSize = 0x02U;
+    uint8_t portData[2];
+    uint8_t command;
+    uint8_t attempt;
+
+    command = W5500_Sn_CR_CLOSE;
+    (void)W5500_WriteRegisters(0x0001U, W5500_BSB_SOCKET2_REG, &command, 1U);
+
+    portData[0] = (uint8_t)(port >> 8U);
+    portData[1] = (uint8_t)(port & 0xFFU);
+
+    (void)W5500_WriteRegisters(0x001EU, W5500_BSB_SOCKET2_REG, &bufferSize, 1U);
+    (void)W5500_WriteRegisters(0x001FU, W5500_BSB_SOCKET2_REG, &bufferSize, 1U);
+
+    if(
+        (W5500_WriteRegisters(0x0000U, W5500_BSB_SOCKET2_REG, &mode, 1U) == 0U) ||
+        (W5500_WriteRegisters(0x0004U, W5500_BSB_SOCKET2_REG, portData, 2U) == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    command = W5500_Sn_CR_OPEN;
+    if(W5500_WriteRegisters(0x0001U, W5500_BSB_SOCKET2_REG, &command, 1U) == 0U)
+    {
+        return 0U;
+    }
+
+    for(attempt = 0U; attempt < 20U; attempt++)
+    {
+        if(W5500_Socket2_GetStatus() == W5500_Sn_SR_UDP)
+        {
+            return 1U;
+        }
+        Time_DelayMs(1U);
+    }
+
+    return 0U;
+}
+
+/* Reads one datagram. Returns the payload length (0 = none). */
+uint16_t W5500_Socket2_ReceiveFrom(
+    uint8_t *buffer,
+    uint16_t bufferSize,
+    uint8_t sourceIp[4],
+    uint16_t *sourcePort
+)
+{
+    uint8_t data[2];
+    uint8_t header[8];
+    uint16_t rxSize;
+    uint16_t readPtr;
+    uint16_t payloadLength;
+    uint16_t copyLength;
+    uint16_t i;
+    uint8_t command = W5500_S0_RECV;
+
+    if(W5500_ReadRegisters(0x0026U, W5500_BSB_SOCKET2_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    rxSize = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+    if(rxSize < 8U)
+    {
+        return 0U;
+    }
+
+    (void)W5500_ReadRegisters(0x0028U, W5500_BSB_SOCKET2_REG, data, 2U);
+    readPtr = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+
+    /* UDP header in the RX buffer: IP(4) PORT(2) LENGTH(2). */
+    for(i = 0U; i < 8U; i++)
+    {
+        (void)W5500_ReadRegisters(
+            (uint16_t)((readPtr + i) & 0x07FFU),
+            W5500_BSB_SOCKET2_RXBUF,
+            &header[i],
+            1U
+        );
+    }
+
+    sourceIp[0] = header[0];
+    sourceIp[1] = header[1];
+    sourceIp[2] = header[2];
+    sourceIp[3] = header[3];
+    *sourcePort = (uint16_t)(((uint16_t)header[4] << 8U) | header[5]);
+    payloadLength = (uint16_t)(((uint16_t)header[6] << 8U) | header[7]);
+
+    copyLength = (payloadLength < bufferSize) ? payloadLength : bufferSize;
+
+    for(i = 0U; i < copyLength; i++)
+    {
+        (void)W5500_ReadRegisters(
+            (uint16_t)((readPtr + 8U + i) & 0x07FFU),
+            W5500_BSB_SOCKET2_RXBUF,
+            &buffer[i],
+            1U
+        );
+    }
+
+    readPtr = (uint16_t)(readPtr + 8U + payloadLength);
+    data[0] = (uint8_t)(readPtr >> 8U);
+    data[1] = (uint8_t)(readPtr & 0xFFU);
+    (void)W5500_WriteRegisters(0x0028U, W5500_BSB_SOCKET2_REG, data, 2U);
+    (void)W5500_WriteRegisters(0x0001U, W5500_BSB_SOCKET2_REG, &command, 1U);
+
+    return copyLength;
+}
+
+uint8_t W5500_Socket2_SendTo(
+    const uint8_t *buffer,
+    uint16_t length,
+    const uint8_t destinationIp[4],
+    uint16_t destinationPort
+)
+{
+    uint8_t data[2];
+    uint16_t freeSize;
+    uint16_t writePtr;
+    uint16_t i;
+    uint8_t command = W5500_S0_SEND;
+    uint8_t interruptFlags = 0U;
+    uint8_t attempt;
+
+    (void)W5500_ReadRegisters(0x0020U, W5500_BSB_SOCKET2_REG, data, 2U);
+    freeSize = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+    if(freeSize < length)
+    {
+        return 0U;
+    }
+
+    (void)W5500_WriteRegisters(0x000CU, W5500_BSB_SOCKET2_REG, destinationIp, 4U);
+    data[0] = (uint8_t)(destinationPort >> 8U);
+    data[1] = (uint8_t)(destinationPort & 0xFFU);
+    (void)W5500_WriteRegisters(0x0010U, W5500_BSB_SOCKET2_REG, data, 2U);
+
+    (void)W5500_ReadRegisters(0x0024U, W5500_BSB_SOCKET2_REG, data, 2U);
+    writePtr = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+
+    for(i = 0U; i < length; i++)
+    {
+        (void)W5500_WriteRegisters(
+            (uint16_t)((writePtr + i) & 0x07FFU),
+            W5500_BSB_SOCKET2_TXBUF,
+            &buffer[i],
+            1U
+        );
+    }
+
+    writePtr = (uint16_t)(writePtr + length);
+    data[0] = (uint8_t)(writePtr >> 8U);
+    data[1] = (uint8_t)(writePtr & 0xFFU);
+    (void)W5500_WriteRegisters(0x0024U, W5500_BSB_SOCKET2_REG, data, 2U);
+    (void)W5500_WriteRegisters(0x0001U, W5500_BSB_SOCKET2_REG, &command, 1U);
+
+    /* Wait for SEND_OK (ARP + transmit) so the next send is not issued early. */
+    for(attempt = 0U; attempt < 50U; attempt++)
+    {
+        (void)W5500_ReadRegisters(0x0002U, W5500_BSB_SOCKET2_REG, &interruptFlags, 1U);
+        if((interruptFlags & (W5500_Sn_IR_SENDOK_UDP | W5500_Sn_IR_TIMEOUT_UDP)) != 0U)
+        {
+            break;
+        }
+        Time_DelayMs(1U);
+    }
+
+    interruptFlags &= (W5500_Sn_IR_SENDOK_UDP | W5500_Sn_IR_TIMEOUT_UDP);
+    if(interruptFlags != 0U)
+    {
+        (void)W5500_WriteRegisters(0x0002U, W5500_BSB_SOCKET2_REG, &interruptFlags, 1U);
+    }
+
+    return ((interruptFlags & W5500_Sn_IR_SENDOK_UDP) != 0U) ? 1U : 0U;
 }

@@ -96,6 +96,11 @@ uint16_t USB_CDC_Transport_Send(const uint8_t *data, uint16_t length)
     return accepted;
 }
 
+uint16_t USB_CDC_Transport_GetFreeSpace(void)
+{
+    return (uint16_t)(USB_CDC_TRANSPORT_TX_QUEUE_SIZE - 1U - USB_CDC_Transport_QueuedLength());
+}
+
 void USB_CDC_Transport_OnTxComplete(void)
 {
     usbTxActiveLen = 0U;

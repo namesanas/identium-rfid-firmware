@@ -31,6 +31,7 @@ void Identium_Command_ProcessJson(
     g_lastCommand[sizeof(g_lastCommand)-1U] = '\0';
 }
 
+const char *ReaderSettings_GetName(void) { return "RFID-F429-DEV"; }
 uint32_t Time_GetTickMs(void) { return g_tick; }
 uint64_t Time_GetEpochMs(void) { return 1789981401488ULL + g_tick; }
 

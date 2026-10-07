@@ -2134,3 +2134,122 @@ SILION_ApplicationState_t SILION_Application_GetState(void)
 {
     return appState;
 }
+
+
+/*
+ * ------------------------------------------------------------
+ * READER MANAGER MODULE BRIDGE
+ * ------------------------------------------------------------
+ */
+static uint8_t bridgeResumeInventory = 0U;
+static uint8_t bridgeTxBuffer[SILION_MAX_FRAME_SIZE + 8U];
+
+uint8_t SILION_Application_BridgeAcquire(void)
+{
+    if(pSilion == NULL)
+    {
+        return 0U;
+    }
+
+    if(appState == SILION_APP_BRIDGE)
+    {
+        return 1U;
+    }
+
+    bridgeResumeInventory = 0U;
+
+    if(appState == SILION_APP_INVENTORY)
+    {
+        bridgeResumeInventory = 1U;
+
+        /* A failed STOP is not fatal: the PC sends its own
+         * Stop Async Inventory as the first module command. */
+        (void)SILION_Application_StopInventory();
+    }
+
+    SILION_ClearFrame(pSilion);
+    SILION_SetRawMode(1U);
+
+    appState = SILION_APP_BRIDGE;
+
+    return 1U;
+}
+
+void SILION_Application_BridgeRelease(void)
+{
+    if(appState != SILION_APP_BRIDGE)
+    {
+        return;
+    }
+
+    SILION_SetRawMode(0U);
+    SILION_ClearFrame(pSilion);
+
+    /* The PC may have left the module in async inventory.
+     * StopInventory only runs from the INVENTORY state; its
+     * result is irrelevant if the module was already stopped. */
+    appState = SILION_APP_INVENTORY;
+    (void)SILION_Application_StopInventory();
+
+    SILION_ClearRxQueue();
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+
+    appState = SILION_APP_IDLE;
+
+    if(bridgeResumeInventory != 0U)
+    {
+        bridgeResumeInventory = 0U;
+        (void)SILION_Application_StartInventory();
+    }
+}
+
+uint8_t SILION_Application_BridgeIsTxReady(void)
+{
+    if(
+        (pSilion == NULL) ||
+        (pSilion->pUSARTHandle == NULL)
+    )
+    {
+        return 0U;
+    }
+
+    return (pSilion->pUSARTHandle->TxBusyState == USART_READY) ? 1U : 0U;
+}
+
+uint8_t SILION_Application_BridgeSend(
+    const uint8_t *frame,
+    uint16_t frameLength
+)
+{
+    uint16_t i;
+
+    if(
+        (appState != SILION_APP_BRIDGE) ||
+        (frame == NULL) ||
+        (frameLength == 0U) ||
+        (frameLength > sizeof(bridgeTxBuffer))
+    )
+    {
+        return 0U;
+    }
+
+    if(SILION_Application_BridgeIsTxReady() == 0U)
+    {
+        return 0U;
+    }
+
+    /* USART TX is interrupt driven; the buffer must outlive this call. */
+    for(i = 0U; i < frameLength; i++)
+    {
+        bridgeTxBuffer[i] = frame[i];
+    }
+
+    txComplete = 0U;
+
+    return SILION_SendFrame(
+        pSilion,
+        bridgeTxBuffer,
+        frameLength
+    );
+}

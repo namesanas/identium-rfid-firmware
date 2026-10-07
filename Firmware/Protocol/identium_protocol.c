@@ -1,3 +1,4 @@
+#include "../Services/configuration/reader_settings.h"
 #include "identium_protocol.h"
 #include "identium_command.h"
 
@@ -190,7 +191,7 @@ static uint8_t Identium_Protocol_SendSyncTimeRequest(void)
         buffer,
         sizeof(buffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"sync_time_req\"}\n",
-        PRODUCT_PROTOCOL_READER_NAME
+        ReaderSettings_GetName()
     );
 
     if(
@@ -221,7 +222,7 @@ static uint8_t Identium_Protocol_SendReaderException(
         buffer,
         sizeof(buffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"reader_exception\",\"event_data\":{\"err_code\":%lu,\"err_string\":\"%s\"}}\n",
-        PRODUCT_PROTOCOL_READER_NAME,
+        ReaderSettings_GetName(),
         (unsigned long)errorCode,
         errorString
     );
@@ -264,7 +265,7 @@ static uint8_t Identium_Protocol_SendCommandReply(
         sizeof(buffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"command_reply\",\"event_data\":{"
         "\"command_type\":\"%s\",\"err_code\":%u,\"err_string\":\"%s\"}}\n",
-        PRODUCT_PROTOCOL_READER_NAME,
+        ReaderSettings_GetName(),
         commandType,
         (unsigned int)errCode,
         errString
@@ -487,7 +488,7 @@ static uint8_t Identium_Protocol_BuildTagBatch(
         identiumTagBatchBuffer,
         sizeof(identiumTagBatchBuffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"tag_read\",\"event_data\":[",
-        PRODUCT_PROTOCOL_READER_NAME
+        ReaderSettings_GetName()
     );
 
     if(
@@ -839,7 +840,7 @@ uint8_t Identium_Protocol_SendHeartbeat(void)
         buffer,
         sizeof(buffer),
         "{\"reader_name\":\"%s\",\"event_type\":\"heart_beat\",\"event_data\":%lu}\n",
-        PRODUCT_PROTOCOL_READER_NAME,
+        ReaderSettings_GetName(),
         (unsigned long)nextCounter
     );
 
@@ -930,7 +931,7 @@ void Identium_Protocol_ReportGpiChange(
         "{\"reader_name\":\"%s\",\"event_type\":\"gpi_changed\",\"event_data\":{"
         "\"gpi_states\":[{\"gpi\":1,\"state\":%u},{\"gpi\":2,\"state\":%u},"
         "{\"gpi\":3,\"state\":%u},{\"gpi\":4,\"state\":%u}],\"timestamp\":%s}}\n",
-        PRODUCT_PROTOCOL_READER_NAME,
+        ReaderSettings_GetName(),
         (unsigned int)states[0],
         (unsigned int)states[1],
         (unsigned int)states[2],

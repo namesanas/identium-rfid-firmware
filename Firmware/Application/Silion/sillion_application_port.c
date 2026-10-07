@@ -16,7 +16,7 @@
  * ============================================================
  */
 
-#define SILION_APP_RX_QUEUE_SIZE    256U
+#define SILION_APP_RX_QUEUE_SIZE    4096U
 
 
 /*
@@ -44,6 +44,13 @@ static volatile uint32_t rxOverflow = 0U;
 
 static uint32_t rxOverflowReported = 0U;
 static uint32_t asyncQueueOverflowReported = 0U;
+
+/*
+ * Raw mode: while the Reader Manager module bridge owns the
+ * module UART, received bytes are not parsed locally. They stay
+ * in rxQueue and are drained by SILION_ReadRawBytes().
+ */
+static volatile uint8_t rawMode = 0U;
 
 
 /*
@@ -233,6 +240,11 @@ void SILION_ProcessRxQueue(void)
         return;
     }
 
+    if(rawMode != 0U)
+    {
+        return;
+    }
+
     while(rxHead != rxTail)
     {
         uint8_t byte;
@@ -333,6 +345,54 @@ void SILION_ClearRxQueue(void)
     CriticalSection_Exit(
         primask
     );
+}
+
+
+/*
+ * ============================================================
+ * RAW MODE (module bridge)
+ * ============================================================
+ */
+
+void SILION_SetRawMode(uint8_t enable)
+{
+    SILION_ClearRxQueue();
+    SILION_ClearUartFlags();
+
+    rawMode = (enable != 0U) ? 1U : 0U;
+}
+
+
+uint16_t SILION_ReadRawBytes(
+    uint8_t *buffer,
+    uint16_t bufferSize
+)
+{
+    uint16_t count = 0U;
+
+    if(buffer == NULL)
+    {
+        return 0U;
+    }
+
+    while(
+        (count < bufferSize) &&
+        (rxHead != rxTail)
+    )
+    {
+        buffer[count++] = rxQueue[rxTail];
+
+        if((uint16_t)(rxTail + 1U) >= SILION_APP_RX_QUEUE_SIZE)
+        {
+            rxTail = 0U;
+        }
+        else
+        {
+            rxTail = (uint16_t)(rxTail + 1U);
+        }
+    }
+
+    return count;
 }
 
 

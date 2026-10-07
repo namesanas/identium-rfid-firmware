@@ -6,7 +6,9 @@
 typedef enum
 {
     SILION_APP_IDLE = 0U,
-    SILION_APP_INVENTORY
+    SILION_APP_INVENTORY,
+    /* Module UART is owned by the Reader Manager module bridge. */
+    SILION_APP_BRIDGE
 } SILION_ApplicationState_t;
 
 void SILION_Application_Init(Silion_Handle_t *pSilionHandle);
@@ -83,5 +85,21 @@ uint8_t SILION_Application_StopInventory(void);
 uint8_t SILION_Application_IsInventoryRunning(void);
 
 SILION_ApplicationState_t SILION_Application_GetState(void);
+
+/*
+ * Reader Manager module bridge ownership.
+ *
+ * Acquire stops local inventory (remembering whether it ran) and
+ * switches the module UART to raw mode. Release stops any module
+ * async inventory left running by the PC, returns the UART to local
+ * parsing and restarts local inventory if it was running before.
+ */
+uint8_t SILION_Application_BridgeAcquire(void);
+void SILION_Application_BridgeRelease(void);
+uint8_t SILION_Application_BridgeIsTxReady(void);
+uint8_t SILION_Application_BridgeSend(
+    const uint8_t *frame,
+    uint16_t frameLength
+);
 
 #endif /* RFID_CONTROLLER_SILLION_APPLICATION_H_ */

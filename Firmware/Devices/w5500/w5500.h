@@ -125,6 +125,12 @@ uint8_t W5500_WriteRegisters(
  * ============================================================ */
 
 uint8_t W5500_SetNetworkConfig(void);
+uint8_t W5500_SetNetworkConfigValues(
+    const uint8_t ip[4],
+    const uint8_t subnet[4],
+    const uint8_t gateway[4],
+    const uint8_t mac[6]
+);
 uint8_t W5500_ReadVersion(void);
 uint8_t W5500_IsLinkUp(void);
 
@@ -154,6 +160,12 @@ uint16_t W5500_Socket1_GetRxSize(void);
 uint16_t W5500_Socket1_Receive(uint8_t *buffer, uint16_t bufferSize);
 uint16_t W5500_Socket1_GetTxFreeSize(void);
 uint16_t W5500_Socket1_Send(const uint8_t *buffer, uint16_t length);
+
+/* Socket 2: UDP (vendor-tool device discovery). */
+uint8_t W5500_Socket2_GetStatus(void);
+uint8_t W5500_Socket2_OpenUdp(uint16_t port);
+uint16_t W5500_Socket2_ReceiveFrom(uint8_t *buffer, uint16_t bufferSize, uint8_t sourceIp[4], uint16_t *sourcePort);
+uint8_t W5500_Socket2_SendTo(const uint8_t *buffer, uint16_t length, const uint8_t destinationIp[4], uint16_t destinationPort);
 
 /* ============================================================
  * SOCKET 0 RX

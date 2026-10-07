@@ -51,4 +51,7 @@ uint16_t Ethernet_Service_SendComplete(
 
 uint8_t Ethernet_Service_IsConnected(void);
 
+/* Close the upload connection and redial the configured server now. */
+void Ethernet_Service_Restart(void);
+
 #endif /* RFID_CONTROLLER_ETHERNET_SERVICE_H */

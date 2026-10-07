@@ -5,7 +5,7 @@
 #include "../../Protocols/silion/silion_protocol.h"
 #include "../../Drivers/uart/uart.h"
 //i dont have these folders i only have application bsp common config devices drivers protocols services
-#define SILION_APP_RX_QUEUE_SIZE 256U
+#define SILION_APP_RX_QUEUE_SIZE 4096U
 
 extern volatile uint8_t txComplete;
 extern volatile uint8_t rxComplete;
@@ -33,6 +33,10 @@ void SILION_ClearRxQueue(void);
 void SILION_DelayMs(uint32_t delayMs);
 int SILION_WaitForResponse(uint32_t timeoutMs);
 int SILION_WaitForTxComplete(uint32_t timeoutMs);
+
+/* Raw module UART access for the Reader Manager module bridge. */
+void SILION_SetRawMode(uint8_t enable);
+uint16_t SILION_ReadRawBytes(uint8_t *buffer, uint16_t bufferSize);
 
 /* Host/application output hooks. */
 void HOST_SendString(const char *text);

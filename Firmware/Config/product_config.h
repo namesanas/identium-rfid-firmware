@@ -43,6 +43,12 @@
 #define PRODUCT_RFID_WRITE_POWER        2500U
 #define PRODUCT_RFID_SESSION            0U
 
+/* Mainboard firmware version a.b.c.d reported to Reader Manager ("VER"). */
+#define PRODUCT_MAINBOARD_VERSION_0     1U
+#define PRODUCT_MAINBOARD_VERSION_1     0U
+#define PRODUCT_MAINBOARD_VERSION_2     0U
+#define PRODUCT_MAINBOARD_VERSION_3     8U
+
 
 
 #endif /* PRODUCT_CONFIG_H_ */

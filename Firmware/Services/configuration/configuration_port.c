@@ -1,6 +1,11 @@
 #include "configuration_port.h"
 
 #include "configuration_service.h"
+#include "module_bridge.h"
+#include "reader_settings.h"
+#include "vendor_config.h"
+#include "discovery_service.h"
+#include "../USB/usb_cdc_transport.h"
 #include "../../Config/product_config.h"
 #include "../../Devices/w5500/w5500.h"
 #include "../../Services/Time/time_service.h"
@@ -8,7 +13,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#define CONFIGURATION_PORT_RX_BUFFER_SIZE 64U
+/* Large enough for a set-active / set-static JSON request. */
+#define CONFIGURATION_PORT_RX_BUFFER_SIZE (6U + 2048U)
 #define CONFIGURATION_PORT_RESPONSE_SIZE  (CONFIGURATION_SERVICE_MAX_JSON + 16U)
 #define CONFIGURATION_PORT_TCP_LISTEN_PORT 8080U
 
@@ -23,26 +29,8 @@ static uint16_t g_rxLength = 0U;
 static uint8_t g_started = 0U;
 static uint8_t g_waitingForClientClose = 0U;
 
-static uint16_t Configuration_Port_PadJson(
-    uint8_t *buffer,
-    uint16_t length,
-    uint16_t capacity
-)
-{
-    uint16_t paddedLength = (uint16_t)((length + 3U) & (uint16_t)~3U);
-
-    if(paddedLength > capacity)
-    {
-        return 0U;
-    }
-
-    while(length < paddedLength)
-    {
-        buffer[length++] = 0U;
-    }
-
-    return paddedLength;
-}
+/* Where EE replies go: TCP socket 1, or the USB CDC port (COM route). */
+static uint8_t g_replyToUsb = 0U;
 
 static uint8_t Configuration_Port_SendResponse(
     uint8_t commandId,
@@ -86,12 +74,146 @@ static uint8_t Configuration_Port_SendResponse(
 
     totalLength = (uint16_t)(10U + contentLength);
 
+    if(g_replyToUsb != 0U)
+    {
+        return (USB_CDC_Transport_Send(response, totalLength) == totalLength) ? 1U : 0U;
+    }
+
     return (
         W5500_Socket1_Send(
             response,
             totalLength
         ) == totalLength
     ) ? 1U : 0U;
+}
+
+/* Handles one complete EE request (header + content) and sends the
+ * reply on the current response transport. */
+static void Configuration_Port_Dispatch(
+    const uint8_t *frame,
+    uint16_t dataLength
+)
+{
+    uint8_t commandId;
+    uint8_t *content = g_contentBuffer;
+    uint16_t contentLength;
+
+    commandId = frame[4];
+
+    if(commandId == CONFIGURATION_PORT_CMD_WORK_STATE)
+    {
+        if(dataLength != 1U)
+        {
+            uint8_t invalidContent = 0U;
+            (void)Configuration_Port_SendResponse(
+                commandId,
+                &invalidContent,
+                1U,
+                1U
+            );
+        }
+        else
+        {
+            content[0] = Configuration_Service_GetWorkState();
+            (void)Configuration_Port_SendResponse(
+                commandId,
+                content,
+                1U,
+                0U
+            );
+        }
+    }
+    else if(
+        (commandId == CONFIGURATION_PORT_CMD_ACTIVE_JSON) ||
+        (commandId == CONFIGURATION_PORT_CMD_STATIC_JSON)
+    )
+    {
+        if(dataLength != 2U)
+        {
+            contentLength = 1U;
+            content[0] = 0U;
+            (void)Configuration_Port_SendResponse(
+                commandId,
+                content,
+                contentLength,
+                1U
+            );
+        }
+        else
+        {
+            if(commandId == CONFIGURATION_PORT_CMD_ACTIVE_JSON)
+            {
+                contentLength = Configuration_Service_BuildActiveJson(
+                    (char *)content,
+                    sizeof(g_contentBuffer)
+                );
+            }
+            else
+            {
+                contentLength = Configuration_Service_BuildStaticJson(
+                    (char *)content,
+                    sizeof(g_contentBuffer)
+                );
+            }
+
+            if(contentLength == 0U)
+            {
+                content[0] = 0U;
+                contentLength = 1U;
+                (void)Configuration_Port_SendResponse(
+                    commandId,
+                    content,
+                    contentLength,
+                    2U
+                );
+            }
+            else
+            {
+                /* No NUL padding: ReaderSense passes the content
+                 * straight to JSON.parse(), which rejects NULs. */
+                (void)Configuration_Port_SendResponse(
+                    commandId,
+                    content,
+                    contentLength,
+                    0U
+                );
+            }
+        }
+    }
+    else if(
+        (commandId == VENDOR_CONFIG_CMD_SET_ACTIVE) ||
+        (commandId == VENDOR_CONFIG_CMD_SET_STATIC) ||
+        (commandId == VENDOR_CONFIG_CMD_CLEAR) ||
+        (commandId == VENDOR_CONFIG_CMD_SWITCH)
+    )
+    {
+        uint32_t vendorStatus;
+        uint8_t replyByte = 0U;
+
+        vendorStatus = VendorConfig_Handle(
+            commandId,
+            (const char *)&frame[6],
+            dataLength,
+            &replyByte
+        );
+
+        (void)Configuration_Port_SendResponse(
+            commandId,
+            &replyByte,
+            1U,
+            vendorStatus
+        );
+    }
+    else
+    {
+        content[0] = 0U;
+        (void)Configuration_Port_SendResponse(
+            commandId,
+            content,
+            1U,
+            1U
+        );
+    }
 }
 
 static void Configuration_Port_ResetConnectionState(void)
@@ -113,9 +235,12 @@ void Configuration_Port_Task(void)
     uint16_t received;
     uint16_t dataLength;
     uint16_t totalLength;
-    uint8_t commandId;
-    uint8_t *content = g_contentBuffer;
-    uint16_t contentLength;
+
+    /* Deferred work: settings changes, reboot, config writes, discovery. */
+    ReaderSettings_Task();
+    VendorConfig_Task();
+    Discovery_Service_Task();
+    Module_Bridge_Poll();
 
     status = W5500_Socket1_GetStatus();
     {
@@ -127,6 +252,13 @@ void Configuration_Port_Task(void)
 
         if(status == W5500_Sn_SR_ESTABLISHED)
         {
+            /* Reader Manager module session: persistent connection. */
+            if(Module_Bridge_IsActive() != 0U)
+            {
+                Module_Bridge_Task();
+                return;
+            }
+
             /* The protocol is one request per connection. After sending the
              * response, let the client close the connection cleanly instead
              * of forcing a fixed-time local close. This avoids a race with
@@ -146,15 +278,34 @@ void Configuration_Port_Task(void)
                 g_rxLength = (uint16_t)(g_rxLength + received);
             }
 
+            if(g_rxLength == 0U)
+            {
+                return;
+            }
+
+            /* The first byte selects the protocol for the whole
+             * connection: EE = Identium configuration request (one per
+             * connection), anything else = Reader Manager module
+             * session (FF module frames, ASCII mainboard commands). */
+            if(g_rxBuffer[0] != 0xEEU)
+            {
+                if(Module_Bridge_Begin(g_rxBuffer, g_rxLength) != 0U)
+                {
+                    Configuration_Port_ResetConnectionState();
+                    return;
+                }
+
+                (void)W5500_Socket1_Close();
+                Configuration_Port_ResetConnectionState();
+                return;
+            }
+
             if(g_rxLength < 6U)
             {
                 return;
             }
 
-            if(
-                (g_rxBuffer[0] != 0xEEU) ||
-                (g_rxBuffer[1] != 0x00U)
-            )
+            if(g_rxBuffer[1] != 0x00U)
             {
                 (void)W5500_Socket1_Close();
                 Configuration_Port_ResetConnectionState();
@@ -180,108 +331,7 @@ void Configuration_Port_Task(void)
                 return;
             }
 
-            commandId = g_rxBuffer[4];
-
-            if(commandId == CONFIGURATION_PORT_CMD_WORK_STATE)
-            {
-                if(dataLength != 1U)
-                {
-                    uint8_t invalidContent = 0U;
-                    (void)Configuration_Port_SendResponse(
-                        commandId,
-                        &invalidContent,
-                        1U,
-                        1U
-                    );
-                }
-                else
-                {
-                    content[0] = Configuration_Service_GetWorkState();
-                    (void)Configuration_Port_SendResponse(
-                        commandId,
-                        content,
-                        1U,
-                        0U
-                    );
-                }
-            }
-            else if(
-                (commandId == CONFIGURATION_PORT_CMD_ACTIVE_JSON) ||
-                (commandId == CONFIGURATION_PORT_CMD_STATIC_JSON)
-            )
-            {
-                if(dataLength != 2U)
-                {
-                    contentLength = 1U;
-                    content[0] = 0U;
-                    (void)Configuration_Port_SendResponse(
-                        commandId,
-                        content,
-                        contentLength,
-                        1U
-                    );
-                }
-                else
-                {
-                    if(commandId == CONFIGURATION_PORT_CMD_ACTIVE_JSON)
-                    {
-                        contentLength = Configuration_Service_BuildActiveJson(
-                            (char *)content,
-                            sizeof(g_contentBuffer)
-                        );
-                    }
-                    else
-                    {
-                        contentLength = Configuration_Service_BuildStaticJson(
-                            (char *)content,
-                            sizeof(g_contentBuffer)
-                        );
-                    }
-
-                    if(contentLength == 0U)
-                    {
-                        content[0] = 0U;
-                        contentLength = 1U;
-                        (void)Configuration_Port_SendResponse(
-                            commandId,
-                            content,
-                            contentLength,
-                            2U
-                        );
-                    }
-                    else
-                    {
-                        contentLength = Configuration_Port_PadJson(
-                            content,
-                            contentLength,
-                            sizeof(g_contentBuffer)
-                        );
-
-                        if(contentLength == 0U)
-                        {
-                            content[0] = 0U;
-                            contentLength = 1U;
-                        }
-
-                        (void)Configuration_Port_SendResponse(
-                            commandId,
-                            content,
-                            contentLength,
-                            0U
-                        );
-                    }
-                }
-            }
-            else
-            {
-                content[0] = 0U;
-                (void)Configuration_Port_SendResponse(
-                    commandId,
-                    content,
-                    1U,
-                    1U
-                );
-            }
+            Configuration_Port_Dispatch(g_rxBuffer, dataLength);
 
             g_waitingForClientClose = 1U;
             g_rxLength = 0U;
@@ -293,6 +343,10 @@ void Configuration_Port_Task(void)
             /* Peer has closed its side after receiving the response. Now it is
              * safe to close our side and immediately reopen the listening
              * socket for the next one-request connection. */
+            if(Module_Bridge_IsActive() != 0U)
+            {
+                Module_Bridge_End();
+            }
             (void)W5500_Socket1_Close();
             Configuration_Port_ResetConnectionState();
 
@@ -307,6 +361,10 @@ void Configuration_Port_Task(void)
         }
         else if(status == W5500_Sn_SR_CLOSED)
         {
+            if(Module_Bridge_IsActive() != 0U)
+            {
+                Module_Bridge_End();
+            }
             Configuration_Port_ResetConnectionState();
 
             if(
@@ -323,4 +381,27 @@ void Configuration_Port_Task(void)
             g_started = 0U;
         }
     }
+}
+
+void Configuration_Port_HandleUsbRequest(
+    const uint8_t *frame,
+    uint16_t length
+)
+{
+    uint16_t dataLength;
+
+    if((frame == NULL) || (length < 6U) || (frame[0] != 0xEEU) || (frame[1] != 0x00U))
+    {
+        return;
+    }
+
+    dataLength = (uint16_t)(((uint16_t)frame[2] << 8U) | frame[3]);
+    if((uint16_t)(6U + dataLength) > length)
+    {
+        return;
+    }
+
+    g_replyToUsb = 1U;
+    Configuration_Port_Dispatch(frame, dataLength);
+    g_replyToUsb = 0U;
 }

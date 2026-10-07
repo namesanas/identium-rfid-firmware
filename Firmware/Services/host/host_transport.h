@@ -7,7 +7,7 @@
 #define HOST_TRANSPORT_ETHERNET  1U
 #define HOST_TRANSPORT_NONE      2U
 
-#define HOST_RX_QUEUE_SIZE       256U
+#define HOST_RX_QUEUE_SIZE       1024U
 
 
 void HOST_Transport_Init(void);

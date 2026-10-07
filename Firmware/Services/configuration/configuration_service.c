@@ -1,6 +1,7 @@
 #include "configuration_service.h"
 
 #include "configuration_storage.h"
+#include "reader_settings.h"
 #include "../../Config/product_config.h"
 #include "../../Application/Silion/sillion_application.h"
 #include "../../Services/GPIO/gpio_service.h"
@@ -541,7 +542,7 @@ const uint8_t *Configuration_Service_GetTagJsonFormat(uint8_t *count)
 uint8_t Configuration_Service_GetWorkState(void)
 {
     (void)g_initialized;
-    return 3U;
+    return ReaderSettings_GetWorkState();
 }
 
 /* ------------------------------ JSON output ---------------------------- */
@@ -804,7 +805,7 @@ uint16_t Configuration_Service_BuildActiveJson(
        !Configuration_Service_AppendEscapedName(
            &cursor,
            &remaining,
-           PRODUCT_PROTOCOL_READER_NAME
+           ReaderSettings_GetName()
        ) ||
        !Configuration_Service_AppendLiteral(
            &cursor,
@@ -855,22 +856,50 @@ uint16_t Configuration_Service_BuildActiveJson(
            &cursor,
            &remaining,
            g_liveConfiguration.hwInf
-       ) ||
+       )
+    )
+    {
+        return 0U;
+    }
+
+    /* Only the selected transport is present: the tools pick the upload
+     * type from whichever of tcp / http is an object. */
+    if(ReaderSettings_GetUploadMode() == READER_SETTINGS_UPLOAD_HTTP)
+    {
+        if(
+            !Configuration_Service_AppendLiteral(&cursor, &remaining, ",\"http\":{\"url\":\"") ||
+            !Configuration_Service_AppendEscapedString(&cursor, &remaining, ReaderSettings_Get()->httpUrl) ||
+            !Configuration_Service_AppendLiteral(&cursor, &remaining, "\",\"timeout\":") ||
+            !Configuration_Service_AppendUnsigned(&cursor, &remaining, ReaderSettings_Get()->httpTimeout) ||
+            !Configuration_Service_AppendLiteral(&cursor, &remaining, "}")
+        )
+        {
+            return 0U;
+        }
+    }
+    else if(
        !Configuration_Service_AppendLiteral(
            &cursor,
            &remaining,
            ",\"tcp\":{\"ser_ip\":\""
        ) ||
-       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_0) ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, ReaderSettings_Get()->serverIp[0]) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
-       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_1) ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, ReaderSettings_Get()->serverIp[1]) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
-       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_2) ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, ReaderSettings_Get()->serverIp[2]) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ".") ||
-       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_IP_3) ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, ReaderSettings_Get()->serverIp[3]) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, "\",\"ser_port\":\"") ||
-       !Configuration_Service_AppendUnsigned(&cursor, &remaining, PRODUCT_PROTOCOL_TCP_SERVER_PORT) ||
-       !Configuration_Service_AppendLiteral(&cursor, &remaining, "\"},\"data_aggr\":{\"mode\":") ||
+       !Configuration_Service_AppendUnsigned(&cursor, &remaining, ReaderSettings_Get()->serverPort) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "\"}")
+    )
+    {
+        return 0U;
+    }
+
+    if(
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, ",\"data_aggr\":{\"mode\":") ||
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.dataAggregationMode) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ",\"timeval\":") ||
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.dataAggregationTimeMs) ||
@@ -1004,11 +1033,30 @@ uint16_t Configuration_Service_BuildStaticJson(
            "\"uart1\":{\"baud\":115200,\"data_bits\":8,\"stop_bits\":1,\"parity\":0,\"flow_ctrl\":0,\"address\":1},"
            "\"uart2\":{\"baud\":115200,\"data_bits\":8,\"stop_bits\":1,\"parity\":0,\"flow_ctrl\":0,\"address\":2},"
            "\"app_init\":{\"usb_type\":1,\"max_tb_rec_len\":128,\"evt_que_len\":32},"
-           "\"ethernet\":{\"ip\":\"192.168.150.50\",\"nm\":\"255.255.255.0\","
-           "\"gw\":\"192.168.150.1\",\"dns\":\"0.0.0.0\",\"lport\":8080}}"
     ))
     {
         return 0U;
+    }
+
+    {
+        const ReaderSettings_t *settings = ReaderSettings_Get();
+
+        if(!Configuration_Service_Append(
+               &cursor,
+               &remaining,
+               "\"ethernet\":{\"ip\":\"%u.%u.%u.%u\",\"nm\":\"%u.%u.%u.%u\","
+               "\"gw\":\"%u.%u.%u.%u\",\"dns\":\"%u.%u.%u.%u\","
+               "\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"lport\":%u}}",
+               settings->ip[0], settings->ip[1], settings->ip[2], settings->ip[3],
+               settings->netmask[0], settings->netmask[1], settings->netmask[2], settings->netmask[3],
+               settings->gateway[0], settings->gateway[1], settings->gateway[2], settings->gateway[3],
+               settings->dns[0], settings->dns[1], settings->dns[2], settings->dns[3],
+               settings->mac[0], settings->mac[1], settings->mac[2],
+               settings->mac[3], settings->mac[4], settings->mac[5],
+               (unsigned int)settings->configPort))
+        {
+            return 0U;
+        }
     }
 
     return (uint16_t)strlen(buffer);

@@ -12,7 +12,7 @@
 
 #include "../serial/serial_port.h"
 #include "../USB/usb_cdc_transport.h"
-#include "../ethernet/ethernet_service.h"
+#include "../ethernet/host_tcp_server.h"
 #include "../../Common/critical_section.h"
 #include "../configuration/module_bridge.h"
 #include "../configuration/configuration_port.h"
@@ -144,6 +144,79 @@ static void HOST_Mux_CheckTimeout(HOST_VendorMux_t *mux)
     }
 }
 
+/* 0 = prefix of no token, 1 = prefix of a token, 2 = whole token. */
+static uint8_t HOST_Mux_MatchToken(const uint8_t *prefix, uint8_t length)
+{
+    uint8_t i;
+    uint8_t result = 0U;
+
+    for(i = 0U; i < (sizeof(hostVendorTokens) / sizeof(hostVendorTokens[0])); i++)
+    {
+        size_t tokenLength = strlen(hostVendorTokens[i]);
+
+        if(
+            (length <= tokenLength) &&
+            (memcmp(hostVendorTokens[i], prefix, length) == 0)
+        )
+        {
+            if(length == tokenLength)
+            {
+                return 2U;
+            }
+            result = 1U;
+        }
+    }
+
+    return result;
+}
+
+/* A module-bridge session is open on this link. Module frames and board
+ * commands go to the bridge. A printable byte at a frame boundary that
+ * cannot start a board command begins a legacy ASCII line (the desktop
+ * GUI after a VSWR scan, for example): the session ends, the module goes
+ * back to local use and the line goes to the legacy parser, instead of
+ * being swallowed until the session times out. */
+static uint8_t HOST_Mux_SessionByte(HOST_VendorMux_t *mux, uint8_t byte)
+{
+    uint8_t match;
+    uint8_t length;
+
+    if(
+        (mux->prefixLength == 0U) &&
+        (
+            (Module_Bridge_HasPendingHostBytes() != 0U) ||
+            (byte < 0x20U) ||
+            (byte > 0x7EU)
+        )
+    )
+    {
+        Module_Bridge_PushLinkBytes(mux->link, &byte, 1U);
+        return 1U;
+    }
+
+    mux->prefix[mux->prefixLength++] = byte;
+    match = HOST_Mux_MatchToken(mux->prefix, mux->prefixLength);
+
+    if(match == 1U)
+    {
+        return 1U;
+    }
+
+    length = mux->prefixLength;
+    mux->prefixLength = 0U;
+
+    if(match == 2U)
+    {
+        Module_Bridge_PushLinkBytes(mux->link, mux->prefix, length);
+        return 1U;
+    }
+
+    Module_Bridge_EndLinkForLocalUse(mux->link);
+    HOST_Mux_Release(mux, mux->prefix, length);
+    mux->lineStart = 0U;
+    return 1U;
+}
+
 /* Returns 1 when the byte was taken by the vendor-tool path. */
 static uint8_t HOST_Mux_Byte(HOST_VendorMux_t *mux, uint8_t byte)
 {
@@ -154,8 +227,7 @@ static uint8_t HOST_Mux_Byte(HOST_VendorMux_t *mux, uint8_t byte)
 
     if(Module_Bridge_IsLinkActive(mux->link) != 0U)
     {
-        Module_Bridge_PushLinkBytes(mux->link, &byte, 1U);
-        return 1U;
+        return HOST_Mux_SessionByte(mux, byte);
     }
 
     if(mux->eeActive != 0U)
@@ -603,7 +675,7 @@ void HOST_Transport_SendString(uint8_t transport,const char *text
         == HOST_TRANSPORT_ETHERNET
     )
     {
-        (void)Ethernet_Service_Send(
+        (void)Host_Tcp_Server_Send(
             (const uint8_t *)text,
             length
         );

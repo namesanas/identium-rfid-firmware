@@ -8,8 +8,13 @@
 #include <stdlib.h>
 
 #include "../../Services/ethernet/ethernet_service.h"
+#include "../../Services/ethernet/host_tcp_server.h"
 
 #include "../../Services/system/system_fault.h"
+#include "../../Services/GPIO/gpio_service.h"
+#include "../../Services/configuration/configuration_port.h"
+#include "../../Services/configuration/reader_settings.h"
+#include "../../Services/configuration/vendor_config.h"
 
 
 
@@ -30,7 +35,8 @@ static uint8_t HOST_HexNibble(
     return 0xFFU;
 }
 
-#define HOST_RX_BUFFER_SIZE 128U
+/* Longest command: SET_HTTP with a 127-character URL. */
+#define HOST_RX_BUFFER_SIZE 320U
 
 
 static char hostRxBuffer[HOST_RX_BUFFER_SIZE];
@@ -257,6 +263,7 @@ uint8_t HOST_IsTagTransportEthernet(void)
 void HOST_Interface_Task(void)
 	{
 	    USB_CDC_Transport_Task();
+	    Host_Tcp_Server_Task();
 	    uint8_t byte;
 	    uint8_t transport;
 
@@ -1601,6 +1608,172 @@ void HOST_Interface_Task(void)
                         "ERROR,WRITE_TAG\r\n"
                     );
                 }
+            }
+
+            /*
+             * =================================================
+             * BOARD COMMANDS (desktop GUI)
+             * =================================================
+             */
+            else if(strcmp(hostRxBuffer, "GET_CAPABILITIES") == 0)
+            {
+                char response[112];
+
+                (void)snprintf(
+                    response,
+                    sizeof(response),
+                    "CAPABILITIES,GPI=%u,GPO=%u,ANTENNAS=1,HTTP=1,VSWR=1,SET_GPO=1,SET_HTTP=1\r\n",
+                    (unsigned int)INDUSTRIAL_IO_COUNT,
+                    (unsigned int)INDUSTRIAL_IO_COUNT
+                );
+                HOST_SendString(response);
+            }
+            else if(strcmp(hostRxBuffer, "GET_GPI") == 0)
+            {
+                uint8_t states[INDUSTRIAL_IO_COUNT];
+                char response[64];
+
+                GPIO_Service_GetAllInputs(states);
+                (void)snprintf(
+                    response,
+                    sizeof(response),
+                    "GPI,GPI1=%u,GPI2=%u,GPI3=%u,GPI4=%u\r\n",
+                    states[0], states[1], states[2], states[3]
+                );
+                HOST_SendString(response);
+            }
+            else if(strcmp(hostRxBuffer, "GET_NETWORK") == 0)
+            {
+                const ReaderSettings_t *settings = ReaderSettings_Get();
+                char response[160];
+
+                (void)snprintf(
+                    response,
+                    sizeof(response),
+                    "NETWORK,IP=%u.%u.%u.%u,MASK=%u.%u.%u.%u,GATEWAY=%u.%u.%u.%u,"
+                    "DNS=%u.%u.%u.%u,PORT=%u,MAC=%02X:%02X:%02X:%02X:%02X:%02X\r\n",
+                    settings->ip[0], settings->ip[1], settings->ip[2], settings->ip[3],
+                    settings->netmask[0], settings->netmask[1], settings->netmask[2], settings->netmask[3],
+                    settings->gateway[0], settings->gateway[1], settings->gateway[2], settings->gateway[3],
+                    settings->dns[0], settings->dns[1], settings->dns[2], settings->dns[3],
+                    (unsigned int)CONFIGURATION_PORT_TCP_LISTEN_PORT,
+                    settings->mac[0], settings->mac[1], settings->mac[2],
+                    settings->mac[3], settings->mac[4], settings->mac[5]
+                );
+                HOST_SendString(response);
+            }
+            /* SET_GPO,number,state,durationSeconds */
+            else if(strncmp(hostRxBuffer, "SET_GPO,", 8U) == 0)
+            {
+                unsigned int number;
+                unsigned int state;
+                unsigned long duration;
+                uint8_t outputNumber;
+                uint8_t outputState;
+                uint32_t outputDuration;
+                uint32_t errorCode = 0U;
+                const char *errorString = "ok";
+
+                if(
+                    (sscanf(&hostRxBuffer[8U], "%u,%u,%lu", &number, &state, &duration) == 3) &&
+                    (number >= 1U) && (number <= INDUSTRIAL_IO_COUNT) &&
+                    (state <= 1U)
+                )
+                {
+                    outputNumber = (uint8_t)number;
+                    outputState = (uint8_t)state;
+                    outputDuration = (uint32_t)duration;
+
+                    if(
+                        GPIO_Service_SetOutputs(
+                            &outputNumber,
+                            &outputState,
+                            &outputDuration,
+                            1U,
+                            &errorCode,
+                            &errorString
+                        ) == GPIO_SERVICE_OK
+                    )
+                    {
+                        HOST_SendString("OK,SET_GPO\r\n");
+                    }
+                    else
+                    {
+                        HOST_SendString("ERROR,SET_GPO\r\n");
+                    }
+                }
+                else
+                {
+                    HOST_SendString("ERROR,SET_GPO\r\n");
+                }
+            }
+            /* SET_HTTP,url,timeoutSeconds,active,startAtBoot: applied through
+             * the same path as a Reader Manager set-active request. */
+            else if(strncmp(hostRxBuffer, "SET_HTTP,", 9U) == 0)
+            {
+                char url[READER_SETTINGS_URL_MAX + 1U];
+                char json[256];
+                unsigned int timeout;
+                unsigned int active;
+                unsigned int startAtBoot;
+                uint8_t replyByte = 0U;
+                int jsonLength;
+                uint8_t ok = 0U;
+
+                if(
+                    (sscanf(&hostRxBuffer[9U], "%127[^,],%u,%u,%u", url, &timeout, &active, &startAtBoot) == 4) &&
+                    (timeout <= 65535U) && (active <= 1U) && (startAtBoot <= 1U) &&
+                    (strchr(url, '"') == NULL) && (strchr(url, '\\') == NULL)
+                )
+                {
+                    jsonLength = snprintf(
+                        json,
+                        sizeof(json),
+                        "{\"glob_params\":{\"start_inv_atbeg\":%u},"
+                        "\"upload\":{\"http\":{\"url\":\"%s\",\"timeout\":%u}}}",
+                        startAtBoot,
+                        url,
+                        timeout
+                    );
+
+                    if(
+                        (jsonLength > 0) &&
+                        (jsonLength < (int)sizeof(json)) &&
+                        (VendorConfig_Handle(
+                            VENDOR_CONFIG_CMD_SET_ACTIVE,
+                            json,
+                            (uint16_t)jsonLength,
+                            &replyByte
+                        ) == 0U)
+                    )
+                    {
+                        /* Apply the new settings before changing the work
+                         * state, so active mode starts with them. */
+                        VendorConfig_Task();
+
+                        ok = VendorConfig_SetWorkState(
+                            (active != 0U)
+                                ? READER_SETTINGS_WORK_ACTIVE
+                                : READER_SETTINGS_WORK_PASSIVE
+                        );
+                    }
+                }
+
+                HOST_SendString((ok != 0U) ? "OK,SET_HTTP\r\n" : "ERROR,SET_HTTP\r\n");
+            }
+            /* GUI features without hardware or module support yet: answer
+             * explicitly so the host's command queue stays aligned. */
+            else if(strncmp(hostRxBuffer, "SET_BUZZER,", 11U) == 0)
+            {
+                HOST_SendString("ERROR,SET_BUZZER\r\n");
+            }
+            else if(strncmp(hostRxBuffer, "SET_GEN2,", 9U) == 0)
+            {
+                HOST_SendString("ERROR,SET_GEN2\r\n");
+            }
+            else if(strncmp(hostRxBuffer, "SET_ANTENNAS,", 13U) == 0)
+            {
+                HOST_SendString("ERROR,SET_ANTENNAS\r\n");
             }
             /*
              * =================================================

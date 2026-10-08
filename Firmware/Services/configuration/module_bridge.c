@@ -701,6 +701,25 @@ void Module_Bridge_PushLinkBytes(uint8_t link, const uint8_t *data, uint16_t len
     g_hostLength = (uint16_t)(g_hostLength + length);
 }
 
+uint8_t Module_Bridge_HasPendingHostBytes(void)
+{
+    return (g_hostLength != 0U) ? 1U : 0U;
+}
+
+void Module_Bridge_EndLinkForLocalUse(uint8_t link)
+{
+    if(Module_Bridge_IsLinkActive(link) == 0U)
+    {
+        return;
+    }
+
+    Module_Bridge_End();
+
+    /* Skip the reconnect grace period: the release runs on this poll. */
+    g_sessionEndMs = Time_GetTickMs() - MODULE_BRIDGE_RELEASE_DELAY_MS;
+    Module_Bridge_Poll();
+}
+
 void Module_Bridge_Task(void)
 {
     uint16_t received;

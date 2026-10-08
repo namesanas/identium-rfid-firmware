@@ -33,6 +33,14 @@ uint8_t Module_Bridge_BeginLink(uint8_t link, const uint8_t *data, uint16_t leng
 void Module_Bridge_PushLinkBytes(uint8_t link, const uint8_t *data, uint16_t length);
 uint8_t Module_Bridge_IsLinkActive(uint8_t link);
 
+/* Pushed bytes not yet consumed: a module frame or board command is
+ * still incomplete. */
+uint8_t Module_Bridge_HasPendingHostBytes(void);
+
+/* The link switched to the legacy ASCII protocol: end its session and
+ * hand the module back to local use immediately. */
+void Module_Bridge_EndLinkForLocalUse(uint8_t link);
+
 /* Called every loop: drains the module UART and releases the module
  * back to local use after the PC has been gone for a grace period. */
 void Module_Bridge_Poll(void);

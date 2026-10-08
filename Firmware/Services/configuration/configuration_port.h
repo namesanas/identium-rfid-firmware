@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+/* Vendor-tool TCP port (Reader Manager / ReaderSense). */
+#define CONFIGURATION_PORT_TCP_LISTEN_PORT 8080U
+
 void Configuration_Port_Init(void);
 void Configuration_Port_Task(void);
 

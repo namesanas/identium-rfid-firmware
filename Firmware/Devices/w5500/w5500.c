@@ -1750,3 +1750,255 @@ uint8_t W5500_Socket2_SendTo(
 
     return ((interruptFlags & W5500_Sn_IR_SENDOK_UDP) != 0U) ? 1U : 0U;
 }
+
+/* ============================================================
+ * SOCKET 3 - HOST TEXT-COMMAND SERVER (desktop GUI, TCP)
+ * ============================================================ */
+
+#define W5500_BSB_SOCKET3_REG       13U
+#define W5500_BSB_SOCKET3_TXBUF     14U
+#define W5500_BSB_SOCKET3_RXBUF     15U
+
+static uint8_t g_socket3SendPending = 0U;
+
+uint8_t W5500_Socket3_GetStatus(void)
+{
+    uint8_t status = W5500_Sn_SR_CLOSED;
+
+    (void)W5500_ReadRegisters(0x0003U, W5500_BSB_SOCKET3_REG, &status, 1U);
+
+    return status;
+}
+
+static uint8_t W5500_Socket3_Command(uint8_t command)
+{
+    return W5500_WriteRegisters(0x0001U, W5500_BSB_SOCKET3_REG, &command, 1U);
+}
+
+static uint8_t W5500_Socket3_WaitStatus(uint8_t wanted)
+{
+    uint8_t attempt;
+
+    for(attempt = 0U; attempt < 20U; attempt++)
+    {
+        Time_DelayMs(1U);
+
+        if(W5500_Socket3_GetStatus() == wanted)
+        {
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+uint8_t W5500_Socket3_Close(void)
+{
+    uint8_t interruptFlags = 0xFFU;
+
+    (void)W5500_WriteRegisters(0x0002U, W5500_BSB_SOCKET3_REG, &interruptFlags, 1U);
+    (void)W5500_Socket3_Command(W5500_Sn_CR_CLOSE);
+    g_socket3SendPending = 0U;
+
+    return W5500_Socket3_WaitStatus(W5500_Sn_SR_CLOSED);
+}
+
+uint8_t W5500_Socket3_Listen(uint16_t port)
+{
+    uint8_t mode = 0x01U;          /* TCP */
+    uint8_t bufferSize = 0x02U;    /* 2 KB each way */
+    uint8_t portData[2];
+
+    portData[0] = (uint8_t)(port >> 8U);
+    portData[1] = (uint8_t)(port & 0xFFU);
+
+    (void)W5500_WriteRegisters(0x001EU, W5500_BSB_SOCKET3_REG, &bufferSize, 1U);
+    (void)W5500_WriteRegisters(0x001FU, W5500_BSB_SOCKET3_REG, &bufferSize, 1U);
+
+    if(
+        (W5500_WriteRegisters(0x0000U, W5500_BSB_SOCKET3_REG, &mode, 1U) == 0U) ||
+        (W5500_WriteRegisters(0x0004U, W5500_BSB_SOCKET3_REG, portData, 2U) == 0U) ||
+        (W5500_Socket3_Command(W5500_Sn_CR_OPEN) == 0U) ||
+        (W5500_Socket3_WaitStatus(W5500_Sn_SR_INIT) == 0U) ||
+        (W5500_Socket3_Command(W5500_Sn_CR_LISTEN) == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    return W5500_Socket3_WaitStatus(W5500_Sn_SR_LISTEN);
+}
+
+uint16_t W5500_Socket3_Receive(uint8_t *buffer, uint16_t bufferSize)
+{
+    uint8_t data[2];
+    uint16_t rxSize;
+    uint16_t readPtr;
+    uint16_t firstPart;
+
+    if((buffer == NULL) || (bufferSize == 0U))
+    {
+        return 0U;
+    }
+
+    if(W5500_ReadRegisters(0x0026U, W5500_BSB_SOCKET3_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    rxSize = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+    if(rxSize == 0U)
+    {
+        return 0U;
+    }
+
+    if(rxSize > bufferSize)
+    {
+        rxSize = bufferSize;
+    }
+
+    if(W5500_ReadRegisters(0x0028U, W5500_BSB_SOCKET3_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    readPtr = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+
+    firstPart = (uint16_t)(0x0800U - (readPtr & 0x07FFU));
+    if(firstPart > rxSize)
+    {
+        firstPart = rxSize;
+    }
+
+    if(W5500_ReadRegisters((uint16_t)(readPtr & 0x07FFU), W5500_BSB_SOCKET3_RXBUF, buffer, firstPart) == 0U)
+    {
+        return 0U;
+    }
+
+    if(
+        (rxSize > firstPart) &&
+        (W5500_ReadRegisters(0U, W5500_BSB_SOCKET3_RXBUF, &buffer[firstPart], (uint16_t)(rxSize - firstPart)) == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    readPtr = (uint16_t)(readPtr + rxSize);
+    data[0] = (uint8_t)(readPtr >> 8U);
+    data[1] = (uint8_t)(readPtr & 0xFFU);
+
+    if(W5500_WriteRegisters(0x0028U, W5500_BSB_SOCKET3_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    (void)W5500_Socket3_Command(W5500_S0_RECV);
+
+    return rxSize;
+}
+
+/* Previous SEND finished (SEND_OK / TIMEOUT seen, flags cleared).
+ * Never waits: tag output must not stall the main loop. */
+static uint8_t W5500_Socket3_SendIdle(void)
+{
+    uint8_t interruptFlags = 0U;
+
+    if(g_socket3SendPending == 0U)
+    {
+        return 1U;
+    }
+
+    (void)W5500_ReadRegisters(0x0002U, W5500_BSB_SOCKET3_REG, &interruptFlags, 1U);
+    interruptFlags &= (W5500_Sn_IR_SEND_OK | W5500_Sn_IR_TIMEOUT);
+
+    if(interruptFlags == 0U)
+    {
+        return 0U;
+    }
+
+    (void)W5500_WriteRegisters(0x0002U, W5500_BSB_SOCKET3_REG, &interruptFlags, 1U);
+    g_socket3SendPending = 0U;
+
+    return 1U;
+}
+
+uint16_t W5500_Socket3_GetTxFreeSize(void)
+{
+    uint8_t data[2];
+
+    if(W5500_Socket3_SendIdle() == 0U)
+    {
+        return 0U;
+    }
+
+    if(W5500_ReadRegisters(0x0020U, W5500_BSB_SOCKET3_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    return (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+}
+
+uint16_t W5500_Socket3_Send(const uint8_t *buffer, uint16_t length)
+{
+    uint8_t data[2];
+    uint16_t freeSize;
+    uint16_t writePtr;
+    uint16_t firstPart;
+
+    if((buffer == NULL) || (length == 0U))
+    {
+        return 0U;
+    }
+
+    freeSize = W5500_Socket3_GetTxFreeSize();
+    if(freeSize == 0U)
+    {
+        return 0U;
+    }
+
+    if(length > freeSize)
+    {
+        length = freeSize;
+    }
+
+    if(W5500_ReadRegisters(0x0024U, W5500_BSB_SOCKET3_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    writePtr = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
+
+    firstPart = (uint16_t)(0x0800U - (writePtr & 0x07FFU));
+    if(firstPart > length)
+    {
+        firstPart = length;
+    }
+
+    if(W5500_WriteRegisters((uint16_t)(writePtr & 0x07FFU), W5500_BSB_SOCKET3_TXBUF, buffer, firstPart) == 0U)
+    {
+        return 0U;
+    }
+
+    if(
+        (length > firstPart) &&
+        (W5500_WriteRegisters(0U, W5500_BSB_SOCKET3_TXBUF, &buffer[firstPart], (uint16_t)(length - firstPart)) == 0U)
+    )
+    {
+        return 0U;
+    }
+
+    writePtr = (uint16_t)(writePtr + length);
+    data[0] = (uint8_t)(writePtr >> 8U);
+    data[1] = (uint8_t)(writePtr & 0xFFU);
+
+    if(W5500_WriteRegisters(0x0024U, W5500_BSB_SOCKET3_REG, data, 2U) == 0U)
+    {
+        return 0U;
+    }
+
+    (void)W5500_Socket3_Command(W5500_S0_SEND);
+    g_socket3SendPending = 1U;
+
+    return length;
+}

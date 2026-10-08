@@ -23,6 +23,7 @@
 #include "../../Services/ethernet/ethernet_service.h"
 #include "../../Services/configuration/configuration_service.h"
 #include "../../Services/configuration/configuration_port.h"
+#include "../../Services/ethernet/host_tcp_server.h"
 #include "../../Services/host/host_transport.h"
 #include "../../Protocol/identium_protocol.h"
 #include "../../BSP/industrial_io.h"
@@ -337,6 +338,7 @@ Status_t  Firmware_Configuration_Init(void)
 
 
     Configuration_Port_Init();
+    Host_Tcp_Server_Init();
 
     if(
         Ethernet_Service_Init(

@@ -167,6 +167,14 @@ uint8_t W5500_Socket2_OpenUdp(uint16_t port);
 uint16_t W5500_Socket2_ReceiveFrom(uint8_t *buffer, uint16_t bufferSize, uint8_t sourceIp[4], uint16_t *sourcePort);
 uint8_t W5500_Socket2_SendTo(const uint8_t *buffer, uint16_t length, const uint8_t destinationIp[4], uint16_t destinationPort);
 
+/* Socket 3: host text-command server (desktop GUI over TCP). */
+uint8_t W5500_Socket3_Listen(uint16_t port);
+uint8_t W5500_Socket3_GetStatus(void);
+uint8_t W5500_Socket3_Close(void);
+uint16_t W5500_Socket3_Receive(uint8_t *buffer, uint16_t bufferSize);
+uint16_t W5500_Socket3_GetTxFreeSize(void);
+uint16_t W5500_Socket3_Send(const uint8_t *buffer, uint16_t length);
+
 /* ============================================================
  * SOCKET 0 RX
  * ============================================================ */

@@ -25,11 +25,13 @@ void Module_Bridge_End(void);
 
 uint8_t Module_Bridge_IsActive(void);
 
-/* Same session over the native USB CDC (virtual COM) port: the tools'
- * "COMx" connection. Bytes are pushed in by the host transport. */
-uint8_t Module_Bridge_BeginUsb(const uint8_t *data, uint16_t length);
-void Module_Bridge_PushUsbBytes(const uint8_t *data, uint16_t length);
-uint8_t Module_Bridge_IsUsbActive(void);
+/* Same session over a serial link -- the tools' "COMx" connection, on
+ * the native USB CDC port (HOST_TRANSPORT_USB) or the RS232/RS485 host
+ * port (HOST_TRANSPORT_SERIAL). Bytes are pushed in by the host
+ * transport. */
+uint8_t Module_Bridge_BeginLink(uint8_t link, const uint8_t *data, uint16_t length);
+void Module_Bridge_PushLinkBytes(uint8_t link, const uint8_t *data, uint16_t length);
+uint8_t Module_Bridge_IsLinkActive(uint8_t link);
 
 /* Called every loop: drains the module UART and releases the module
  * back to local use after the PC has been gone for a grace period. */

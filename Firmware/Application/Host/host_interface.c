@@ -163,6 +163,88 @@ void HOST_SendString(const char *text)
 }
 
 
+/* Legacy ASCII tag line, sent on the transport selected for tags. */
+void HOST_SendTag(const SILION_Tag_t *tag)
+{
+    char buffer[256];
+    uint16_t pos = 0U;
+    uint16_t i;
+    int written;
+
+    if(tag == NULL)
+    {
+        return;
+    }
+
+    written = snprintf(
+        &buffer[pos],
+        sizeof(buffer) - pos,
+        "TAG,EPC="
+    );
+
+    if(written < 0)
+    {
+        return;
+    }
+
+    if((size_t)written >= (sizeof(buffer) - pos))
+    {
+        return;
+    }
+
+    pos += (uint16_t)written;
+
+    for(i = 0U; i < tag->epcLengthBytes; i++)
+    {
+        written = snprintf(
+            &buffer[pos],
+            sizeof(buffer) - pos,
+            "%02X",
+            tag->epc[i]
+        );
+
+        if(written < 0)
+        {
+            return;
+        }
+
+        if((size_t)written >= (sizeof(buffer) - pos))
+        {
+            return;
+        }
+
+        pos += (uint16_t)written;
+    }
+
+    written = snprintf(
+        &buffer[pos],
+        sizeof(buffer) - pos,
+        ",RSSI=%d,ANT=%u,FREQ=%lu,TIME=%lu\r\n",
+        tag->rssi,
+        tag->antenna,
+        (unsigned long)tag->frequencyKHz,
+        (unsigned long)tag->timestampMs
+    );
+
+    if(written < 0)
+    {
+        return;
+    }
+
+    if((size_t)written >= (sizeof(buffer) - pos))
+    {
+        return;
+    }
+
+    pos += (uint16_t)written;
+
+    HOST_Transport_SendString(
+        HOST_Transport_GetTagTransport(),
+        buffer
+    );
+}
+
+
 uint8_t HOST_IsTagTransportEthernet(void)
 {
     return (

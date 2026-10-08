@@ -40,6 +40,6 @@ uint16_t SILION_ReadRawBytes(uint8_t *buffer, uint16_t bufferSize);
 
 /* Host/application output hooks. */
 void HOST_SendString(const char *text);
-void VCP_SendTag(const SILION_Tag_t *tag);
+void HOST_SendTag(const SILION_Tag_t *tag);
 
 #endif /* RFID_CONTROLLER_SILLION_APPLICATION_PORT_H_ */

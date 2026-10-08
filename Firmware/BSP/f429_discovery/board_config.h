@@ -45,6 +45,17 @@
 #define BOARD_W5500_INT_PORT          NULL
 #define BOARD_W5500_INT_PIN           0xFFU
 
+/*
+ * RS485 driver enable. The Discovery board has no transceiver, so DE is
+ * routed to the green user LED (LD3): it lights while the port drives the
+ * bus, which makes the direction switching visible on the bench. The
+ * board has no RS232/RS485 selector either.
+ */
+#define BOARD_RS485_DE_RE_PORT        GPIOG
+#define BOARD_RS485_DE_RE_PIN         13U
+#define BOARD_SERIAL_MODE_PORT        NULL
+#define BOARD_SERIAL_MODE_PIN         0xFFU
+
 #define BOARD_HOST_USART_IRQ          37U
 #define BOARD_RFID_USART_IRQ          39U
 #endif /* RFID_CONTROLLER_BSP_F429_DISCOVERY_CONFIG_H */

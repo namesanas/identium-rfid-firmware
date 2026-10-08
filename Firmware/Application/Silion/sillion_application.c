@@ -11,7 +11,7 @@
 #include "../../Services/Time/time_service.h"
 #include "../../Protocol/identium_protocol.h"
 
-extern void VCP_SendTag(const SILION_Tag_t *tag);
+extern void HOST_SendTag(const SILION_Tag_t *tag);
 extern volatile uint32_t silionTxCompleteEventCount;
 
 SILION_ReaderConfig_t readerConfig;
@@ -1199,7 +1199,7 @@ void SILION_Application_Task(void)
     )
     {
         (void)Identium_Protocol_ReportTag(&asyncTag);
-        VCP_SendTag(&asyncTag);
+        HOST_SendTag(&asyncTag);
     }
 }
 
@@ -1715,7 +1715,7 @@ uint8_t SILION_Application_SingleInventory(
 
 
                         (void)Identium_Protocol_ReportTag(&tag);
-                        VCP_SendTag(&tag);
+                        HOST_SendTag(&tag);
 
                         return 1U;
                     }
@@ -1963,7 +1963,7 @@ uint8_t SILION_Application_SynchronousInventory(
         )
         {
             (void)Identium_Protocol_ReportTag(&tags[i]);
-            VCP_SendTag(
+            HOST_SendTag(
                 &tags[i]
             );
         }

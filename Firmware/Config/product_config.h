@@ -36,6 +36,12 @@
 #define PRODUCT_RFID_BAUDRATE           115200U
 #define PRODUCT_HOST_BAUDRATE           115200U
 
+/* Host serial port electrical mode at power-up: 0 = RS232, 1 = RS485.
+ * Can be overridden from the compiler command line. */
+#ifndef PRODUCT_SERIAL_DEFAULT_MODE
+#define PRODUCT_SERIAL_DEFAULT_MODE     0U
+#endif
+
 #define PRODUCT_RFID_DEFAULT_REGION     8U
 #define PRODUCT_RFID_TX_ANTENNA         1U
 #define PRODUCT_RFID_RX_ANTENNA         1U

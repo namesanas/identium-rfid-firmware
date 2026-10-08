@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "../VCP/vcp_transport.h"
+#include "../serial/serial_port.h"
 #include "../USB/usb_cdc_transport.h"
 #include "../ethernet/ethernet_service.h"
 #include "../../Common/critical_section.h"
@@ -53,161 +53,193 @@ static volatile uint8_t hostTagTransport =
 
 
 /* ============================================================
- * USB VENDOR-TOOL ROUTER ("COM route")
+ * VENDOR-TOOL ROUTER ("COM route")
  *
  * Reader Manager / ReaderSense connect to a "COMx" address with the
- * same protocol they use on TCP 8080. On the USB CDC port, at the start
- * of a line:
- *   FF ...                              -> module bridge session (USB)
- *   IOGET IOSET IPGET IPSET GIO SIO VER -> module bridge session (USB)
- *   EE 00 len cmd flags data [CRC]      -> configuration request (reply on USB)
- * Everything else goes to the legacy ASCII parser unchanged. No legacy
- * command starts with one of these tokens.
+ * same protocol they use on TCP 8080. That COM port is either the
+ * native USB CDC port or the RS232/RS485 host port, and each link has
+ * its own router. At the start of a line:
+ *   FF ...                              -> module bridge session
+ *   IOGET IOSET IPGET IPSET GIO SIO VER -> module bridge session
+ *   EE 00 len cmd flags data [CRC]      -> configuration request
+ * Replies go back on the link the request came from. Everything else
+ * goes to the legacy ASCII parser unchanged. No legacy command starts
+ * with one of these tokens.
  * ============================================================
  */
 
-#define HOST_USB_MUX_EE_MAX       (6U + 2048U + 2U)
-#define HOST_USB_MUX_TIMEOUT_MS   500U
+#define HOST_MUX_EE_MAX       (6U + 2048U + 2U)
+#define HOST_MUX_TIMEOUT_MS   500U
 
-static const char *const hostUsbVendorTokens[] =
+typedef struct
+{
+    uint8_t link;
+    uint8_t lineStart;
+    uint8_t prefix[8];
+    uint8_t prefixLength;
+    uint8_t release[8];
+    uint8_t releaseLength;
+    uint8_t releasePos;
+    uint8_t ee[HOST_MUX_EE_MAX];
+    uint16_t eeLength;
+    uint8_t eeActive;
+    uint32_t lastByteMs;
+} HOST_VendorMux_t;
+
+static const char *const hostVendorTokens[] =
 {
     "IOGET", "IOSET", "IPGET", "IPSET", "GIO", "SIO", "VER"
 };
 
-static uint8_t hostUsbLineStart = 1U;
-static uint8_t hostUsbPrefix[8];
-static uint8_t hostUsbPrefixLength = 0U;
-static uint8_t hostUsbRelease[8];
-static uint8_t hostUsbReleaseLength = 0U;
-static uint8_t hostUsbReleasePos = 0U;
-static uint8_t hostUsbEe[HOST_USB_MUX_EE_MAX];
-static uint16_t hostUsbEeLength = 0U;
-static uint8_t hostUsbEeActive = 0U;
-static uint32_t hostUsbLastByteMs = 0U;
+/* Zero-initialised (.bss); HOST_Transport_Init() sets them up. */
+static HOST_VendorMux_t hostUsbMux;
+static HOST_VendorMux_t hostSerialMux;
 
-static void HOST_UsbMux_Release(const uint8_t *data, uint8_t length)
+static void HOST_Mux_Init(HOST_VendorMux_t *mux, uint8_t link)
 {
-    memcpy(hostUsbRelease, data, length);
-    hostUsbReleaseLength = length;
-    hostUsbReleasePos = 0U;
+    memset(mux, 0, sizeof(*mux));
+    mux->link = link;
+    mux->lineStart = 1U;
+}
+
+static HOST_VendorMux_t *HOST_Mux_ForLink(uint8_t link)
+{
+    if(link == HOST_TRANSPORT_USB)
+    {
+        return &hostUsbMux;
+    }
+
+    if(link == HOST_TRANSPORT_SERIAL)
+    {
+        return &hostSerialMux;
+    }
+
+    return NULL;
+}
+
+static void HOST_Mux_Release(HOST_VendorMux_t *mux, const uint8_t *data, uint8_t length)
+{
+    memcpy(mux->release, data, length);
+    mux->releaseLength = length;
+    mux->releasePos = 0U;
 }
 
 /* A started token/frame that never completes is abandoned. */
-static void HOST_UsbMux_CheckTimeout(void)
+static void HOST_Mux_CheckTimeout(HOST_VendorMux_t *mux)
 {
     if(
-        ((hostUsbPrefixLength != 0U) || (hostUsbEeActive != 0U)) &&
-        ((Time_GetTickMs() - hostUsbLastByteMs) >= HOST_USB_MUX_TIMEOUT_MS)
+        ((mux->prefixLength != 0U) || (mux->eeActive != 0U)) &&
+        ((Time_GetTickMs() - mux->lastByteMs) >= HOST_MUX_TIMEOUT_MS)
     )
     {
-        if(hostUsbPrefixLength != 0U)
+        if(mux->prefixLength != 0U)
         {
-            HOST_UsbMux_Release(hostUsbPrefix, hostUsbPrefixLength);
-            hostUsbPrefixLength = 0U;
+            HOST_Mux_Release(mux, mux->prefix, mux->prefixLength);
+            mux->prefixLength = 0U;
         }
 
-        hostUsbEeActive = 0U;
-        hostUsbEeLength = 0U;
-        hostUsbLineStart = 1U;
+        mux->eeActive = 0U;
+        mux->eeLength = 0U;
+        mux->lineStart = 1U;
     }
 }
 
 /* Returns 1 when the byte was taken by the vendor-tool path. */
-static uint8_t HOST_UsbMux_Byte(uint8_t byte)
+static uint8_t HOST_Mux_Byte(HOST_VendorMux_t *mux, uint8_t byte)
 {
     uint8_t i;
     uint8_t anyPrefix = 0U;
 
-    hostUsbLastByteMs = Time_GetTickMs();
+    mux->lastByteMs = Time_GetTickMs();
 
-    if(Module_Bridge_IsUsbActive() != 0U)
+    if(Module_Bridge_IsLinkActive(mux->link) != 0U)
     {
-        Module_Bridge_PushUsbBytes(&byte, 1U);
+        Module_Bridge_PushLinkBytes(mux->link, &byte, 1U);
         return 1U;
     }
 
-    if(hostUsbEeActive != 0U)
+    if(mux->eeActive != 0U)
     {
         uint16_t needed;
 
-        hostUsbEe[hostUsbEeLength++] = byte;
+        mux->ee[mux->eeLength++] = byte;
 
-        if(hostUsbEeLength < 6U)
+        if(mux->eeLength < 6U)
         {
             return 1U;
         }
 
-        needed = (uint16_t)(6U + (((uint16_t)hostUsbEe[2] << 8U) | hostUsbEe[3]));
-        if((hostUsbEe[5] & 0x02U) != 0U)
+        needed = (uint16_t)(6U + (((uint16_t)mux->ee[2] << 8U) | mux->ee[3]));
+        if((mux->ee[5] & 0x02U) != 0U)
         {
             needed = (uint16_t)(needed + 2U);   /* serial CRC16-Modbus trailer */
         }
 
-        if((needed > HOST_USB_MUX_EE_MAX) || (hostUsbEe[1] != 0x00U))
+        if((needed > HOST_MUX_EE_MAX) || (mux->ee[1] != 0x00U))
         {
-            hostUsbEeActive = 0U;
-            hostUsbEeLength = 0U;
-            hostUsbLineStart = 1U;
+            mux->eeActive = 0U;
+            mux->eeLength = 0U;
+            mux->lineStart = 1U;
             return 1U;
         }
 
-        if(hostUsbEeLength >= needed)
+        if(mux->eeLength >= needed)
         {
-            Configuration_Port_HandleUsbRequest(hostUsbEe, hostUsbEeLength);
-            hostUsbEeActive = 0U;
-            hostUsbEeLength = 0U;
-            hostUsbLineStart = 1U;
+            Configuration_Port_HandleLinkRequest(mux->link, mux->ee, mux->eeLength);
+            mux->eeActive = 0U;
+            mux->eeLength = 0U;
+            mux->lineStart = 1U;
         }
         return 1U;
     }
 
-    if((hostUsbLineStart != 0U) && (hostUsbPrefixLength == 0U))
+    if((mux->lineStart != 0U) && (mux->prefixLength == 0U))
     {
         if(byte == 0xFFU)
         {
-            if(Module_Bridge_BeginUsb(&byte, 1U) != 0U)
+            if(Module_Bridge_BeginLink(mux->link, &byte, 1U) != 0U)
             {
                 return 1U;
             }
         }
         else if(byte == 0xEEU)
         {
-            hostUsbEe[0] = byte;
-            hostUsbEeLength = 1U;
-            hostUsbEeActive = 1U;
+            mux->ee[0] = byte;
+            mux->eeLength = 1U;
+            mux->eeActive = 1U;
             return 1U;
         }
     }
 
-    if((hostUsbLineStart != 0U) || (hostUsbPrefixLength != 0U))
+    if((mux->lineStart != 0U) || (mux->prefixLength != 0U))
     {
-        hostUsbPrefix[hostUsbPrefixLength++] = byte;
+        mux->prefix[mux->prefixLength++] = byte;
 
-        for(i = 0U; i < (sizeof(hostUsbVendorTokens) / sizeof(hostUsbVendorTokens[0])); i++)
+        for(i = 0U; i < (sizeof(hostVendorTokens) / sizeof(hostVendorTokens[0])); i++)
         {
-            size_t tokenLength = strlen(hostUsbVendorTokens[i]);
+            size_t tokenLength = strlen(hostVendorTokens[i]);
 
             if(
-                (hostUsbPrefixLength <= tokenLength) &&
-                (memcmp(hostUsbVendorTokens[i], hostUsbPrefix, hostUsbPrefixLength) == 0)
+                (mux->prefixLength <= tokenLength) &&
+                (memcmp(hostVendorTokens[i], mux->prefix, mux->prefixLength) == 0)
             )
             {
                 anyPrefix = 1U;
 
-                if(hostUsbPrefixLength == tokenLength)
+                if(mux->prefixLength == tokenLength)
                 {
-                    uint8_t length = hostUsbPrefixLength;
+                    uint8_t length = mux->prefixLength;
 
-                    hostUsbPrefixLength = 0U;
+                    mux->prefixLength = 0U;
 
-                    if(Module_Bridge_BeginUsb(hostUsbPrefix, length) != 0U)
+                    if(Module_Bridge_BeginLink(mux->link, mux->prefix, length) != 0U)
                     {
                         return 1U;
                     }
 
-                    /* Bridge busy (TCP session): hand the text back. */
-                    HOST_UsbMux_Release(hostUsbPrefix, length);
-                    hostUsbLineStart = 0U;
+                    /* Bridge busy (another session): hand the text back. */
+                    HOST_Mux_Release(mux, mux->prefix, length);
+                    mux->lineStart = 0U;
                     return 1U;
                 }
                 break;
@@ -220,13 +252,32 @@ static uint8_t HOST_UsbMux_Byte(uint8_t byte)
         }
 
         /* Not a vendor token: give the held bytes to the legacy parser. */
-        HOST_UsbMux_Release(hostUsbPrefix, hostUsbPrefixLength);
-        hostUsbPrefixLength = 0U;
-        hostUsbLineStart = ((byte == '\r') || (byte == '\n')) ? 1U : 0U;
+        HOST_Mux_Release(mux, mux->prefix, mux->prefixLength);
+        mux->prefixLength = 0U;
+        mux->lineStart = ((byte == '\r') || (byte == '\n')) ? 1U : 0U;
         return 1U;
     }
 
-    hostUsbLineStart = ((byte == '\r') || (byte == '\n')) ? 1U : 0U;
+    mux->lineStart = ((byte == '\r') || (byte == '\n')) ? 1U : 0U;
+    return 0U;
+}
+
+/* Next byte held back by a router (not vendor traffic), if any. */
+static uint8_t HOST_Mux_TakeReleased(uint8_t *source, uint8_t *byte)
+{
+    HOST_VendorMux_t *const muxes[2] = { &hostUsbMux, &hostSerialMux };
+    uint8_t i;
+
+    for(i = 0U; i < 2U; i++)
+    {
+        if(muxes[i]->releasePos < muxes[i]->releaseLength)
+        {
+            *byte = muxes[i]->release[muxes[i]->releasePos++];
+            *source = muxes[i]->link;
+            return 1U;
+        }
+    }
+
     return 0U;
 }
 
@@ -249,6 +300,9 @@ void HOST_Transport_Init(void)
 
     hostTagTransport =
         HOST_TRANSPORT_NONE;
+
+    HOST_Mux_Init(&hostUsbMux, HOST_TRANSPORT_USB);
+    HOST_Mux_Init(&hostSerialMux, HOST_TRANSPORT_SERIAL);
 }
 
 
@@ -267,7 +321,8 @@ void HOST_Transport_PushByte(
 
     if(
         (source != HOST_TRANSPORT_USB) &&
-        (source != HOST_TRANSPORT_ETHERNET)
+        (source != HOST_TRANSPORT_ETHERNET) &&
+        (source != HOST_TRANSPORT_SERIAL)
     )
     {
         return;
@@ -345,20 +400,16 @@ uint8_t HOST_Transport_ReadByte(
         return 0U;
     }
 
-    HOST_UsbMux_CheckTimeout();
+    HOST_Mux_CheckTimeout(&hostUsbMux);
+    HOST_Mux_CheckTimeout(&hostSerialMux);
 
     for(;;)
     {
         uint8_t queuedSource;
         uint8_t queuedByte;
+        HOST_VendorMux_t *mux;
 
-        if(hostUsbReleasePos < hostUsbReleaseLength)
-        {
-            /* Bytes held back by the USB router (not vendor traffic). */
-            queuedByte = hostUsbRelease[hostUsbReleasePos++];
-            queuedSource = HOST_TRANSPORT_USB;
-        }
-        else
+        if(HOST_Mux_TakeReleased(&queuedSource, &queuedByte) == 0U)
         {
             if(hostRxHead == hostRxTail)
             {
@@ -379,9 +430,11 @@ uint8_t HOST_Transport_ReadByte(
                 hostRxTail = 0U;
             }
 
+            mux = HOST_Mux_ForLink(queuedSource);
+
             if(
-                (queuedSource == HOST_TRANSPORT_USB) &&
-                (HOST_UsbMux_Byte(queuedByte) != 0U)
+                (mux != NULL) &&
+                (HOST_Mux_Byte(mux, queuedByte) != 0U)
             )
             {
                 continue;
@@ -403,6 +456,21 @@ uint8_t HOST_Transport_ReadByte(
             == HOST_TRANSPORT_NONE
         )
         {
+            /*
+             * Only a printable character can claim the parser.
+             * On a UART the LF ending a RELEASE line arrives after
+             * the release has flushed the queue, and an RS485
+             * bus can carry noise; neither may lock the other
+             * transports out.
+             */
+            if(
+                (queuedByte < 0x20U) ||
+                (queuedByte > 0x7EU)
+            )
+            {
+                continue;
+            }
+
             hostActiveTransport =
                 queuedSource;
         }
@@ -455,7 +523,8 @@ void HOST_Transport_SetTagTransport(
 {
     if(
         (transport == HOST_TRANSPORT_USB) ||
-        (transport == HOST_TRANSPORT_ETHERNET)
+        (transport == HOST_TRANSPORT_ETHERNET) ||
+        (transport == HOST_TRANSPORT_SERIAL)
     )
     {
         hostTagTransport = transport;
@@ -539,23 +608,51 @@ void HOST_Transport_SendString(uint8_t transport,const char *text
             length
         );
     }
-    else if(
-        transport
-        == HOST_TRANSPORT_USB
+    else
+    {
+        (void)HOST_Transport_LinkSend(
+            transport,
+            (const uint8_t *)text,
+            length
+        );
+    }
+}
+
+
+uint16_t HOST_Transport_LinkSend(
+    uint8_t link,
+    const uint8_t *data,
+    uint16_t length
+)
+{
+    if(link == HOST_TRANSPORT_SERIAL)
+    {
+        return Serial_Port_Send(data, length);
+    }
+
+    if(
+        (link == HOST_TRANSPORT_USB) &&
+        (USB_CDC_Transport_IsReady() != 0U)
     )
     {
-        /* Native USB CDC is preferred once the PC has configured it. */
-        if(USB_CDC_Transport_IsReady())
-        {
-            (void)USB_CDC_Transport_Send(
-                (const uint8_t *)text,
-                length
-            );
-        }
-        else
-        {
-            /* Preserve F429 ST-LINK VCP fallback before USB enumeration. */
-            VCP_SendString(text);
-        }
+        return USB_CDC_Transport_Send(data, length);
     }
+
+    return 0U;
+}
+
+
+uint16_t HOST_Transport_LinkGetFreeSpace(uint8_t link)
+{
+    if(link == HOST_TRANSPORT_SERIAL)
+    {
+        return Serial_Port_GetFreeSpace();
+    }
+
+    if(link == HOST_TRANSPORT_USB)
+    {
+        return USB_CDC_Transport_GetFreeSpace();
+    }
+
+    return 0U;
 }

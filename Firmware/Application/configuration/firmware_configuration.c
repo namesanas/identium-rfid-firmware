@@ -15,7 +15,7 @@
 
 #include "../Host/host_interface.h"
 
-#include "../../Services/VCP/vcp_transport.h"
+#include "../../Services/serial/serial_port.h"
 #include "../../Services/Time/time_service.h"
 
 #include "../../Devices/w5500/w5500.h"
@@ -206,11 +206,15 @@ Status_t  Firmware_Configuration_Init(void)
 
     /*
      * --------------------------------------------------------
-     * VCP
+     * HOST SERIAL PORT (RS232 / RS485)
+     *
+     * On the F429 Discovery this USART is wired to the ST-LINK
+     * virtual COM port.
      * --------------------------------------------------------
      */
-    VCP_Transport_Init(
-        &usart1
+    Serial_Port_Init(
+        &usart1,
+        PRODUCT_SERIAL_DEFAULT_MODE
     );
 
 

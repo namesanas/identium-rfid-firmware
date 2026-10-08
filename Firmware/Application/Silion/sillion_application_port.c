@@ -537,7 +537,7 @@ int SILION_WaitForTxComplete(uint32_t timeoutMs)
  * ============================================================
  * WEAK FALLBACK HOST OUTPUT
  *
- * Real implementations are supplied by the host/VCP layers.
+ * Real implementations are supplied by the host layer.
  * ============================================================
  */
 
@@ -549,7 +549,7 @@ void HOST_SendString(const char *text)
 
 
 __attribute__((weak))
-void VCP_SendTag(const SILION_Tag_t *tag)
+void HOST_SendTag(const SILION_Tag_t *tag)
 {
     (void)tag;
 }

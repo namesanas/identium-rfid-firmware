@@ -9,7 +9,7 @@
 #include "../../Devices/w5500/w5500.h"
 #include "../../Protocols/silion/silion_protocol.h"
 #include "../../Services/GPIO/gpio_service.h"
-#include "../../Services/USB/usb_cdc_transport.h"
+#include "../../Services/host/host_transport.h"
 #include "../../Services/Time/time_service.h"
 
 #include <stddef.h>
@@ -51,12 +51,14 @@
 #define MODULE_BRIDGE_IPSET_APPLY_MS     1500U
 
 /* A COM port gives no "closed" event (the tools do not use DTR), so a
- * USB session ends after this long without traffic in either direction.
- * The next module frame or board command simply starts a new one. */
-#define MODULE_BRIDGE_USB_IDLE_MS        30000U
+ * session on a serial link (USB CDC or RS232/RS485) ends after this long
+ * without traffic in either direction. The next module frame or board
+ * command simply starts a new one. */
+#define MODULE_BRIDGE_LINK_IDLE_MS       30000U
 
-#define MODULE_BRIDGE_TRANSPORT_TCP      0U
-#define MODULE_BRIDGE_TRANSPORT_USB      1U
+/* g_transport holds this for the TCP configuration port, otherwise the
+ * HOST_TRANSPORT_USB / HOST_TRANSPORT_SERIAL link of the session. */
+#define MODULE_BRIDGE_TRANSPORT_TCP      0xFFU
 
 static const uint8_t g_stopAsyncFrame[19] =
 {
@@ -99,11 +101,11 @@ static void Module_Bridge_SendToHost(const uint8_t *data, uint16_t length)
 
     g_lastActivityMs = Time_GetTickMs();
 
-    if(g_transport == MODULE_BRIDGE_TRANSPORT_USB)
+    if(g_transport != MODULE_BRIDGE_TRANSPORT_TCP)
     {
-        /* Queued; sent by USB_CDC_Transport_Task(). The relay never
-         * reads more than the queue can take. */
-        (void)USB_CDC_Transport_Send(data, length);
+        /* Queued on the link and sent in the background. The relay
+         * never reads more than the queue can take. */
+        (void)HOST_Transport_LinkSend(g_transport, data, length);
         return;
     }
 
@@ -117,9 +119,9 @@ static void Module_Bridge_SendToHost(const uint8_t *data, uint16_t length)
 
 static uint16_t Module_Bridge_HostTxFree(void)
 {
-    if(g_transport == MODULE_BRIDGE_TRANSPORT_USB)
+    if(g_transport != MODULE_BRIDGE_TRANSPORT_TCP)
     {
-        return USB_CDC_Transport_GetFreeSpace();
+        return HOST_Transport_LinkGetFreeSpace(g_transport);
     }
 
     return W5500_Socket1_GetTxFreeSize();
@@ -582,7 +584,7 @@ static uint8_t Module_Bridge_BeginOn(uint8_t transport, const uint8_t *data, uin
 {
     if((length > sizeof(g_hostRx)) || (g_sessionActive != 0U))
     {
-        return 0U;   /* one tool session at a time (TCP or USB) */
+        return 0U;   /* one tool session at a time (TCP or a serial link) */
     }
 
     if(g_moduleOwned == 0U)
@@ -624,21 +626,35 @@ uint8_t Module_Bridge_Begin(const uint8_t *data, uint16_t length)
     return Module_Bridge_BeginOn(MODULE_BRIDGE_TRANSPORT_TCP, data, length);
 }
 
-uint8_t Module_Bridge_BeginUsb(const uint8_t *data, uint16_t length)
+static uint8_t Module_Bridge_IsSerialLink(uint8_t link)
 {
-    return Module_Bridge_BeginOn(MODULE_BRIDGE_TRANSPORT_USB, data, length);
+    return ((link == HOST_TRANSPORT_USB) || (link == HOST_TRANSPORT_SERIAL)) ? 1U : 0U;
 }
 
-uint8_t Module_Bridge_IsUsbActive(void)
+uint8_t Module_Bridge_BeginLink(uint8_t link, const uint8_t *data, uint16_t length)
 {
-    return ((g_sessionActive != 0U) && (g_transport == MODULE_BRIDGE_TRANSPORT_USB)) ? 1U : 0U;
+    if(Module_Bridge_IsSerialLink(link) == 0U)
+    {
+        return 0U;
+    }
+
+    return Module_Bridge_BeginOn(link, data, length);
 }
 
-void Module_Bridge_PushUsbBytes(const uint8_t *data, uint16_t length)
+uint8_t Module_Bridge_IsLinkActive(uint8_t link)
+{
+    return (
+        (g_sessionActive != 0U) &&
+        (Module_Bridge_IsSerialLink(link) != 0U) &&
+        (g_transport == link)
+    ) ? 1U : 0U;
+}
+
+void Module_Bridge_PushLinkBytes(uint8_t link, const uint8_t *data, uint16_t length)
 {
     uint16_t space;
 
-    if(Module_Bridge_IsUsbActive() == 0U)
+    if(Module_Bridge_IsLinkActive(link) == 0U)
     {
         return;
     }
@@ -711,11 +727,11 @@ uint8_t Module_Bridge_IsActive(void)
 
 void Module_Bridge_Poll(void)
 {
-    if(Module_Bridge_IsUsbActive() != 0U)
+    if(Module_Bridge_IsLinkActive(g_transport) != 0U)
     {
         Module_Bridge_Task();
 
-        if((Time_GetTickMs() - g_lastActivityMs) >= MODULE_BRIDGE_USB_IDLE_MS)
+        if((Time_GetTickMs() - g_lastActivityMs) >= MODULE_BRIDGE_LINK_IDLE_MS)
         {
             Module_Bridge_End();
         }

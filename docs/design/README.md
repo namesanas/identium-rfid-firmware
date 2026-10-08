@@ -15,3 +15,4 @@ Numbered records of the protocol and configuration design, in the order the chan
 - [0011 — Protocol Hardening](0011-protocol-hardening.md)
 - [0012 — ActiveMode Expansion](0012-activemode-expansion.md)
 - [0013 — Vendor Tool Compatibility (Reader Manager / ReaderSense)](0013-vendor-tool-compatibility.md)
+- [0014 — Host Serial Port (RS232 / RS485)](0014-host-serial-port.md)

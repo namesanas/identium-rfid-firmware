@@ -5,7 +5,7 @@
 #include "reader_settings.h"
 #include "vendor_config.h"
 #include "discovery_service.h"
-#include "../USB/usb_cdc_transport.h"
+#include "../host/host_transport.h"
 #include "../../Config/product_config.h"
 #include "../../Devices/w5500/w5500.h"
 #include "../../Services/Time/time_service.h"
@@ -29,8 +29,10 @@ static uint16_t g_rxLength = 0U;
 static uint8_t g_started = 0U;
 static uint8_t g_waitingForClientClose = 0U;
 
-/* Where EE replies go: TCP socket 1, or the USB CDC port (COM route). */
-static uint8_t g_replyToUsb = 0U;
+/* Where EE replies go: TCP socket 1, or the serial link (USB CDC or
+ * RS232/RS485) the request arrived on (COM route). */
+#define CONFIGURATION_PORT_REPLY_TCP  0xFFU
+static uint8_t g_replyLink = CONFIGURATION_PORT_REPLY_TCP;
 
 static uint8_t Configuration_Port_SendResponse(
     uint8_t commandId,
@@ -74,9 +76,11 @@ static uint8_t Configuration_Port_SendResponse(
 
     totalLength = (uint16_t)(10U + contentLength);
 
-    if(g_replyToUsb != 0U)
+    if(g_replyLink != CONFIGURATION_PORT_REPLY_TCP)
     {
-        return (USB_CDC_Transport_Send(response, totalLength) == totalLength) ? 1U : 0U;
+        return (
+            HOST_Transport_LinkSend(g_replyLink, response, totalLength) == totalLength
+        ) ? 1U : 0U;
     }
 
     return (
@@ -383,7 +387,8 @@ void Configuration_Port_Task(void)
     }
 }
 
-void Configuration_Port_HandleUsbRequest(
+void Configuration_Port_HandleLinkRequest(
+    uint8_t link,
     const uint8_t *frame,
     uint16_t length
 )
@@ -401,7 +406,12 @@ void Configuration_Port_HandleUsbRequest(
         return;
     }
 
-    g_replyToUsb = 1U;
+    if((link != HOST_TRANSPORT_USB) && (link != HOST_TRANSPORT_SERIAL))
+    {
+        return;
+    }
+
+    g_replyLink = link;
     Configuration_Port_Dispatch(frame, dataLength);
-    g_replyToUsb = 0U;
+    g_replyLink = CONFIGURATION_PORT_REPLY_TCP;
 }

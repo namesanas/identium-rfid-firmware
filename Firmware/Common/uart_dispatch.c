@@ -1,7 +1,7 @@
 #include "uart_dispatch.h"
 #include <stddef.h>
 #include "../Application/Silion/sillion_application_port.h"
-#include "../Services/VCP/vcp_transport.h"
+#include "../Services/serial/serial_port.h"
 
 static USART_Handle_t *g_rfidUart = NULL;
 static USART_Handle_t *g_hostUart = NULL;
@@ -27,7 +27,7 @@ void USART_ApplicationEventCallback(
         receivedByte
     );
 
-    VCP_Transport_UartEvent(
+    Serial_Port_UartEvent(
         pUSARTHandle,
         AppEvent,
         receivedByte

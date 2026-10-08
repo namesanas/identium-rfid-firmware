@@ -56,6 +56,13 @@
  * command simply starts a new one. */
 #define MODULE_BRIDGE_LINK_IDLE_MS       30000U
 
+/* Only one session (TCP or a serial link) owns the module. A session on
+ * another transport takes it over once the PC of the current session has
+ * sent nothing for this long: the tools poll continuously while
+ * connected, so only an abandoned session goes quiet. Module output is
+ * not counted, so a tag stream left running does not hold the session. */
+#define MODULE_BRIDGE_TAKEOVER_IDLE_MS   3000U
+
 /* g_transport holds this for the TCP configuration port, otherwise the
  * HOST_TRANSPORT_USB / HOST_TRANSPORT_SERIAL link of the session. */
 #define MODULE_BRIDGE_TRANSPORT_TCP      0xFFU
@@ -76,6 +83,7 @@ static uint8_t g_consumeFirstStop = 0U;
 static uint32_t g_sessionEndMs = 0U;
 static uint8_t g_transport = MODULE_BRIDGE_TRANSPORT_TCP;
 static uint32_t g_lastActivityMs = 0U;
+static uint32_t g_lastHostByteMs = 0U;
 
 /* Module -> PC frame tracker (where frame boundaries are). */
 typedef enum
@@ -582,9 +590,29 @@ static void Module_Bridge_RelayModuleBytes(void)
 
 static uint8_t Module_Bridge_BeginOn(uint8_t transport, const uint8_t *data, uint16_t length)
 {
-    if((length > sizeof(g_hostRx)) || (g_sessionActive != 0U))
+    if(length > sizeof(g_hostRx))
     {
-        return 0U;   /* one tool session at a time (TCP or a serial link) */
+        return 0U;
+    }
+
+    if(g_sessionActive != 0U)
+    {
+        if(
+            (transport == g_transport) ||
+            ((Time_GetTickMs() - g_lastHostByteMs) < MODULE_BRIDGE_TAKEOVER_IDLE_MS)
+        )
+        {
+            return 0U;   /* the current session is still in use */
+        }
+
+        /* Abandoned session: drop it. A TCP client is disconnected; the
+         * configuration port reopens the listening socket. */
+        if(g_transport == MODULE_BRIDGE_TRANSPORT_TCP)
+        {
+            (void)W5500_Socket1_Close();
+        }
+
+        Module_Bridge_End();
     }
 
     if(g_moduleOwned == 0U)
@@ -613,6 +641,7 @@ static uint8_t Module_Bridge_BeginOn(uint8_t transport, const uint8_t *data, uin
     g_sessionActive = 1U;
     g_transport = transport;
     g_lastActivityMs = Time_GetTickMs();
+    g_lastHostByteMs = g_lastActivityMs;
     g_trackState = MODULE_TRACK_IDLE;
     g_injectLength = 0U;
 
@@ -660,8 +689,9 @@ void Module_Bridge_PushLinkBytes(uint8_t link, const uint8_t *data, uint16_t len
     }
 
     g_lastActivityMs = Time_GetTickMs();
+    g_lastHostByteMs = g_lastActivityMs;
 
-    space = (uint16_t)(sizeof(g_hostRx) - g_hostLength);
+    space =(uint16_t)(sizeof(g_hostRx) - g_hostLength);
     if(length > space)
     {
         length = space;
@@ -691,6 +721,11 @@ void Module_Bridge_Task(void)
         );
 
         g_hostLength = (uint16_t)(g_hostLength + received);
+
+        if(received > 0U)
+        {
+            g_lastHostByteMs = Time_GetTickMs();
+        }
     }
 
     Module_Bridge_ProcessHostBytes();

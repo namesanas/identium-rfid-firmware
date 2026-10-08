@@ -32,6 +32,7 @@ Replaces the F429-only `Services/VCP/vcp_transport.c`.
 ### Other
 
 - `module_bridge.c`: sessions run on TCP or on either serial link (`Module_Bridge_BeginLink` / `PushLinkBytes` / `IsLinkActive`), with the 30 s idle end applying to both serial links.
+- Session takeover: only one session owns the module, but a session on another transport takes it over once the PC of the current one has sent nothing for 3 s (module output is not counted). A COM port gives no close event, so without this a tool left connected on one port locked Reader Manager out of the others, including Ethernet. A taken-over TCP client is disconnected.
 - `configuration_port.c`: `Configuration_Port_HandleLinkRequest(link, …)` replies on the requesting link.
 - The legacy ASCII tag line moved from the VCP module to `host_interface.c` as `HOST_SendTag()`.
 

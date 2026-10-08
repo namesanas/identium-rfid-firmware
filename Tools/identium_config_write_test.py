@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Automated Step-6 configuration write test for the F429 Identium firmware.
+Automated configuration write test for the F429 Identium firmware.
 
 The firmware acts as a TCP client toward the test server on port 9000.
 Configuration readback is checked through the separate TCP configuration
@@ -152,7 +152,7 @@ def assert_equal(actual: Any, expected: Any, label: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="F429 Identium Step-6 configuration write test")
+    parser = argparse.ArgumentParser(description="F429 Identium configuration write test")
     parser.add_argument("--reader-ip", required=True, help="Reader IP address used for config port 8080")
     args = parser.parse_args()
 
@@ -335,7 +335,7 @@ def main() -> int:
             assert_equal(final_static["protocol"]["gen2"]["session"], 0, "final session")
             log("PASS: reset returned the supported configuration fields to defaults")
 
-            print("\nSTEP 6 CONFIGURATION WRITE TEST: PASS")
+            print("\nCONFIGURATION WRITE TEST: PASS")
             return 0
         finally:
             try:

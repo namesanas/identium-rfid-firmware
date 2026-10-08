@@ -1,8 +1,8 @@
-# Protocol Migration Step 3 Fix 1
+# 0004 — Hardware I/O Command Fixes
 
 ## Why this fix exists
 
-The first Step 3 hardware test found two bugs:
+The first hardware test of design 0003 found two bugs:
 
 1. `set_gpo` returned `20004 / "set_gpo field missing"` even though `gpo`, `state`, and `duration` were present.
 2. `gpi_changed` emitted `"timestamp":lu` instead of a numeric timestamp.

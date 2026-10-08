@@ -1,4 +1,4 @@
-# Protocol Migration Step 5 Fix 4
+# 0009 — Configuration Port Reconnect
 
 ## Fixed issues
 

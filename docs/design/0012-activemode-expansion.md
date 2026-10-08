@@ -1,8 +1,8 @@
-# Identium Protocol — Step 8 ActiveMode Expansion
+# 0012 — ActiveMode Expansion
 
 ## Purpose
 
-Step 8 expands the working F429 Identium configuration service from the small Step-6 subset to the safe ActiveMode fields that can be implemented without changing the reader's network identity or unverified RF behavior.
+This change expands the working F429 Identium configuration service from the small design 0010 subset to the safe ActiveMode fields that can be implemented without changing the reader's network identity or unverified RF behavior.
 
 The implementation remains based on the supplied company protocol specification. Configuration commands are still partial updates: only keys supplied by the server are changed and the candidate is validated before anything is committed.
 
@@ -51,7 +51,7 @@ The active protocol now checks the configured `events` array before emitting:
 
 ### Data buffering
 
-Step 7's bounded raw-tag queue remains in place. Step 8 makes the queue consumers use the configured ActiveMode values for:
+The bounded raw-tag queue from design 0011 remains in place. This change makes the queue consumers use the configured ActiveMode values for:
 
 - `s_buf_size`
 - `data_aggr.mode`
@@ -62,11 +62,11 @@ Step 7's bounded raw-tag queue remains in place. Step 8 makes the queue consumer
 
 ### Persistence
 
-The configuration record is upgraded to V2. Step-6 V1 records are still readable and are migrated when the next permanent configuration save occurs.
+The configuration record is upgraded to V2. V1 records (design 0010) are still readable and are migrated when the next permanent configuration save occurs.
 
 The same two Flash sectors and alternating-record strategy remain in use. The record contains a magic, version, data size, monotonic sequence, payload and CRC32. A corrupted newest slot falls back to the older valid slot.
 
-## Deliberate non-support in Step 8
+## Deliberate non-support
 
 The following are not accepted as writable runtime configuration in this step:
 
@@ -100,12 +100,12 @@ Network addressing, RF region, RF power, tag filtering, serial configuration, GP
 
 ## Expected hardware sequence
 
-1. Build and flash the Step-8 package on the STM32F429.
-2. Run the existing Step-6 regression test first.
+1. Build and flash the firmware on the STM32F429.
+2. Run the existing configuration-write regression test first.
 3. Run `Tools/identium_active_mode_test.py --reader-ip 192.168.150.50`.
 4. Confirm the final ActiveMode readback returns the normal profile.
 5. Do not change the reader IP, gateway, RF region or TCP target while this step is under test.
 
-## Remaining protocol work after Step 8
+## Remaining protocol work
 
-Step 8 does not claim the entire Identium feature set is complete. Remaining areas include `update_fw_by_http`, the unsupported event/configuration groups listed above, and final legacy-ASCII retirement. ReaderSense packet-level interoperability is being investigated separately from this configuration expansion using a packet capture so that no transport assumptions are invented.
+This change does not claim the entire Identium feature set is complete. Remaining areas include `update_fw_by_http`, the unsupported event/configuration groups listed above, and final legacy-ASCII retirement. ReaderSense packet-level interoperability is being investigated separately from this configuration expansion using a packet capture so that no transport assumptions are invented.

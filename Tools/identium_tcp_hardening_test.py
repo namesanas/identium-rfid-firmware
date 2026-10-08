@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step 7 JSON-over-TCP hardening test for the STM32F429 Identium reader.
+JSON-over-TCP hardening test for the STM32F429 Identium reader.
 
 The reader must dial this PC on TCP port 9000.
 
@@ -303,7 +303,7 @@ def main() -> int:
             if not session.stop.is_set():
                 session.close()
 
-    print("\nSTEP 7 TCP HARDENING TEST: PASS")
+    print("\nTCP HARDENING TEST: PASS")
     return 0
 
 

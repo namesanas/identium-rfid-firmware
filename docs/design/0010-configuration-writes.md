@@ -1,4 +1,4 @@
-# Identium Protocol Configuration Writes — Step 6
+# 0010 — Configuration Writes
 
 ## Scope
 

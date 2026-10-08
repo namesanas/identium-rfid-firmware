@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Step-8 ActiveMode interoperability test for the STM32F429 Identium firmware.
+ActiveMode interoperability test for the STM32F429 Identium firmware.
 
 The reader uploads JSON-over-TCP to this PC on port 9000. ActiveMode and
 StaticModel readback are obtained from the reader's configuration port 8080.
 
-The test exercises the Step-8 fields that are actually implemented by the
+The test exercises the ActiveMode fields that are actually implemented by the
 F429 firmware:
   * glob_params: s_buf_size, watchdogs, remote_cmd_reply
   * upload: recv_timeout, clr_r_buf_time, data_aggr
@@ -14,7 +14,7 @@ F429 firmware:
   * validation of unsupported client_ack/crc_enable/hw_inf combinations
   * sync_time_req on a new connection
 
-It restores the default Step-8 ActiveMode profile before exiting successfully.
+It restores the default ActiveMode profile before exiting successfully.
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ def expect_error(conn: socket.socket, command_type: str, command_data: Any) -> N
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="F429 Step-8 ActiveMode test")
+    parser = argparse.ArgumentParser(description="F429 ActiveMode test")
     parser.add_argument("--reader-ip", required=True)
     args = parser.parse_args()
 
@@ -191,11 +191,11 @@ def main() -> int:
                         "data_aggr": {"mode": 1, "timeval": 2000},
                     },
                     "events": [1, 2, 3],
-                    "cus_param": "STEP8-TEST",
+                    "cus_param": "ACTIVEMODE-TEST",
                 },
             )
             if reply.get("err_code") != 0:
-                raise AssertionError(f"valid Step-8 update rejected: {reply}")
+                raise AssertionError(f"valid ActiveMode update rejected: {reply}")
             conn.close()
             conn = wait_for_reader(server)
 
@@ -206,7 +206,7 @@ def main() -> int:
             assert active["upload"]["clr_r_buf_time"] == 9
             assert active["upload"]["data_aggr"] == {"mode": 1, "timeval": 2000}
             assert active["events"] == [1, 2, 3]
-            assert active["cus_param"] == "STEP8-TEST"
+            assert active["cus_param"] == "ACTIVEMODE-TEST"
             assert active["upload"]["client_ack"] == 0
             assert active["upload"]["crc_enable"] == 0
             log("PASS: extended ActiveMode fields persisted and read back correctly")
@@ -337,7 +337,7 @@ def main() -> int:
             assert final_active["cus_param"] == ""
             assert final_static["protocol"]["gen2"]["session"] == baseline_static["protocol"]["gen2"]["session"]
 
-            print("\nSTEP 8 ACTIVE MODE TEST: PASS")
+            print("\nACTIVE MODE TEST: PASS")
             return 0
         finally:
             try:

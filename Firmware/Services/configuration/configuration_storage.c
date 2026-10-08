@@ -18,7 +18,7 @@
 #define CONFIG_STORAGE_VERSION_V1     1U
 #define CONFIG_STORAGE_VERSION_V2     2U
 
-/* Exact Step-6 payload retained for backwards-compatible migration. */
+/* Exact V1 payload retained for backwards-compatible migration. */
 typedef struct
 {
     uint32_t heartbeatSeconds;
@@ -119,7 +119,7 @@ static uint8_t Configuration_Storage_ValidateData(
         (data->startInventoryAtBoot > 1U) ||
         (data->remoteCmdReply > 1U) ||
         /* Non-zero application acknowledgement is a binary-TCP feature;
-         * Step 8 is JSON-over-TCP, so keep it disabled. */
+         * Upload is JSON-over-TCP, so keep it disabled. */
         (data->clientAck != 0U) ||
         (data->crcEnable != 0U) ||
         (data->dataAggregationMode > 1U) ||
@@ -142,7 +142,7 @@ static uint8_t Configuration_Storage_ValidateData(
 
     for(i = 0U; i < data->eventCount; i++)
     {
-        /* Step 8 can emit 1, 2, 3 and 6.  Events 4 and 5 require
+        /* The firmware can emit 1, 2, 3 and 6.  Events 4 and 5 require
          * reader-side semantics not yet established by the supplied
          * implementation evidence. */
         if(
@@ -398,7 +398,7 @@ uint8_t Configuration_Storage_Load(
         return 1U;
     }
 
-    /* Backwards compatibility with the Step-6 configuration record. */
+    /* Backwards compatibility with the V1 configuration record. */
     validA1 = Configuration_Storage_ValidateRecordV1(
         CONFIG_STORAGE_ADDRESS_A,
         &recordA1

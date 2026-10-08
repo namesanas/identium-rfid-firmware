@@ -1,0 +1,17 @@
+# Design Records
+
+Numbered records of the protocol and configuration design, in the order the changes were made.
+
+- [0001 — Identium Protocol Transport](0001-identium-protocol-transport.md)
+- [0002 — Command Dispatcher and Time Sync](0002-command-dispatcher-and-time-sync.md)
+- [0003 — Hardware I/O Commands](0003-hardware-io-commands.md)
+- [0004 — Hardware I/O Command Fixes](0004-hardware-io-command-fixes.md)
+- [0005 — Tag Reporting Separation](0005-tag-reporting-separation.md)
+- [0006 — Configuration Port (TCP 8080)](0006-configuration-port.md)
+- [0007 — Configuration Port JSON Responses](0007-configuration-port-json-responses.md)
+- [0008 — Configuration Port ActiveMode Reset](0008-configuration-port-activemode-reset.md)
+- [0009 — Configuration Port Reconnect](0009-configuration-port-reconnect.md)
+- [0010 — Configuration Writes](0010-configuration-writes.md)
+- [0011 — Protocol Hardening](0011-protocol-hardening.md)
+- [0012 — ActiveMode Expansion](0012-activemode-expansion.md)
+- [0013 — Vendor Tool Compatibility (Reader Manager / ReaderSense)](0013-vendor-tool-compatibility.md)

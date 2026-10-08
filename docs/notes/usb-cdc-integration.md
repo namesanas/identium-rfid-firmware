@@ -1,14 +1,14 @@
-# Native USB CDC integration — batched steps 2–6
+# Native USB CDC Integration
 
 This source snapshot is based on the current F429 firmware plus the already-tested CubeMX USB CDC stack.
 
 ## Batched changes
 
-**Step 2 — Native RX path**
+**1. Native RX path**
 - CDC OUT callback forwards every received byte to `HOST_Transport_PushByte(HOST_TRANSPORT_USB, ...)`.
 - RX OUT endpoint is always re-armed, even if the host RX queue is full.
 
-**Step 3 — Native TX queue**
+**2. Native TX queue**
 - Added `Services/USB/usb_cdc_transport.c/.h`.
 - 4096-byte application TX queue.
 - Full-speed CDC data is sent in 64-byte chunks.
@@ -16,15 +16,15 @@ This source snapshot is based on the current F429 firmware plus the already-test
 - USB TX completion callback releases the in-flight state.
 - TX overflow is counted.
 
-**Step 4 — Host transport output routing**
+**3. Host transport output routing**
 - `HOST_Transport_SendString()` now prefers native CDC once enumerated/configured.
 - The existing F429 ST-LINK VCP path remains a fallback before native USB enumeration, preserving the existing prototype debug path.
 
-**Step 5 — USB initialization**
+**4. USB initialization**
 - `USB_CDC_Transport_Init()` + `MX_USB_DEVICE_Init()` are called from `Firmware_Configuration_Init()` after `Board_F429_Init()`.
 - CubeMX `main.c`, `HAL_Init()`, `SystemClock_Config()` and CubeMX GPIO init are intentionally NOT merged.
 
-**Step 6 — Runtime service / IRQ**
+**5. Runtime service / IRQ**
 - `USB_CDC_Transport_Task()` is called by the existing `HOST_Interface_Task()`.
 - Dedicated `USB_DEVICE/Target/usb_irq.c` provides `OTG_HS_IRQHandler()` so the existing UART IRQ dispatch remains untouched.
 

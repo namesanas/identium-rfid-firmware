@@ -1,8 +1,8 @@
-# Identium Protocol Hardening — Step 7
+# 0011 — Protocol Hardening
 
 ## Scope
 
-Step 7 hardens the working STM32F429 JSON-over-TCP implementation without changing the Step 6 command/configuration semantics.
+This change hardens the working STM32F429 JSON-over-TCP implementation without changing the design 0010 command/configuration semantics.
 
 The implementation follows the supplied protocol specification's hardening requirements: persistent TCP framing, bounded buffering, complete-message transmission, stale tag disposal, capped reconnect backoff, and optional network/inventory recovery timers. The current F429 ActiveMode profile keeps the recovery timers disabled and data aggregation in immediate mode, matching the existing configuration readback.
 
@@ -40,7 +40,7 @@ These fields are not yet writable by `set_runtime_conf`; they simply prevent the
 
 ## Deliberately unchanged
 
-- Step 6 configuration service and Flash persistence.
+- Configuration service (design 0010) and Flash persistence.
 - Native USB CDC.
 - Legacy VCP.
 - RFID module command sequence.
@@ -52,7 +52,7 @@ These fields are not yet writable by `set_runtime_conf`; they simply prevent the
 ## Verification
 
 1. Build and flash this package on the STM32F429.
-2. Re-run `Tools/identium_config_write_test.py` and require the exact Step 6 PASS result.
+2. Re-run `Tools/identium_config_write_test.py` and require the exact PASS result.
 3. Run `Tools/identium_tcp_hardening_test.py` for fragmented frames, multiple frames in one write, garbage resynchronization, oversized-line recovery, whitespace handling and reconnect.
 4. With tags present, observe `tag_read` JSON remains valid across a short server outage and that stale queued reads are not replayed after the 8-second stale-data window.
 5. Keep the current recovery timers at 0 during bench testing; recovery timers are a later configurable feature and are not enabled by this step.

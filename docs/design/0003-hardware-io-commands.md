@@ -1,4 +1,4 @@
-# Identium Protocol Migration — Step 3
+# 0003 — Hardware I/O Commands
 
 ## Goal
 

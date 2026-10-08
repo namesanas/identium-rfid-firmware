@@ -8,7 +8,7 @@
 
 /*
  * Persistent Identium configuration owned by the F429 prototype.
- * Only fields that have a real runtime consumer in Step 8 belong here.
+ * Only fields that have a real runtime consumer belong here.
  */
 typedef struct
 {

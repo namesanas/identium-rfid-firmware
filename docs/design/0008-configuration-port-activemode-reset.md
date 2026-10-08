@@ -1,4 +1,4 @@
-# Protocol Migration Step 5 Fix 3
+# 0008 — Configuration Port ActiveMode Reset
 
 ## Issue
 

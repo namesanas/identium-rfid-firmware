@@ -1512,7 +1512,7 @@ static uint8_t Configuration_Service_ParseRuntimeEvents(
         return 0U;
     }
 
-    /* Step 8 implements event codes 1, 2, 3 and 6.  Codes 4 and 5 are
+    /* The firmware implements event codes 1, 2, 3 and 6.  Codes 4 and 5 are
      * deliberately rejected until their reader-side semantics are available. */
     for(i = 0U; i < count; i++)
     {

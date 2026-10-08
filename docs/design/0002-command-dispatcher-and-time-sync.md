@@ -1,4 +1,4 @@
-# Identium Protocol Migration — Step 2
+# 0002 — Command Dispatcher and Time Sync
 
 ## Scope
 

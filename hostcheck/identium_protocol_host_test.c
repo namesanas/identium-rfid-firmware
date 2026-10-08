@@ -169,6 +169,6 @@ int main(void)
     test_framing();
     test_tag_queue();
     test_disconnect_buffer_and_stale();
-    printf("STEP 7 HOST PROTOCOL TEST: PASS\n");
+    printf("HOST PROTOCOL TEST: PASS\n");
     return 0;
 }

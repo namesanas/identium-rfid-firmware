@@ -1,4 +1,4 @@
-# Identium Protocol Migration — Step 1
+# 0001 — Identium Protocol Transport
 
 ## Scope
 

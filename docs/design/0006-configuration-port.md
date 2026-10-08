@@ -1,4 +1,4 @@
-# Protocol Migration Step 5
+# 0006 — Configuration Port (TCP 8080)
 
 ## Goal
 Add the company's local configuration port (TCP 8080) and a live configuration readback model without removing the working JSON-over-TCP control path or legacy ASCII path.

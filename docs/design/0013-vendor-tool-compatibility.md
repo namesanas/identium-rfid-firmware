@@ -1,8 +1,8 @@
-# Identium Protocol — Step 9 Vendor Tool Compatibility (Reader Manager / ReaderSense)
+# 0013 — Vendor Tool Compatibility (Reader Manager / ReaderSense)
 
 ## Purpose
 
-Make the F429 usable from the vendor PC tools — Reader Manager 2.2 and ReaderSense 4.0.0 (client edition) — without changing the Identium JSON-over-TCP upload protocol from Steps 1–8.
+Make the F429 usable from the vendor PC tools — Reader Manager 2.2 and ReaderSense 4.0.0 (client edition) — without changing the Identium JSON-over-TCP upload protocol from designs 0001–0012.
 
 Both tools use `ModuleAPI.dll`. On TCP 8080 they talk to an "ARM7 mainboard": Silion module frames (`FF …`) are passed through to the RFID module, a few ASCII commands are answered by the mainboard, and `EE` configuration requests use separate one-shot connections. The wire formats below were taken from the decompiled `ModuleAPI.dll` (both versions), `ReaderManager.exe` and ReaderSense's `ModuleBridge.exe`.
 
@@ -46,7 +46,7 @@ Reader Manager always uses fast (async) inventory for E310 modules: the module s
 |---|---|---|
 | 0x22 | get work state | from persistent settings (1 passive, 3 active) |
 | 0x24 / 0x1E | get Active / Static JSON | **no NUL padding any more** — ReaderSense passes the content to `JSON.parse` |
-| 0x25 | set ActiveModeJson | supported fields applied through the Step-8 runtime parser; `glob_params.name` and `upload.tcp.ser_ip/ser_port` stored in reader settings; sets work state active |
+| 0x25 | set ActiveModeJson | supported fields applied through the ActiveMode runtime parser (design 0012); `glob_params.name` and `upload.tcp.ser_ip/ser_port` stored in reader settings; sets work state active |
 | 0x1F | set StaticModelJson | `ethernet.ip/nm/gw/dns`, `rf.region`, `rf.tx_powers[0].rp/wp`, `protocol.gen2.session`; `reboot:1` restarts |
 | 0x20 | clear | Identium configuration reset to defaults, work state passive |
 | 0x23 | switch | toggles passive ↔ active |

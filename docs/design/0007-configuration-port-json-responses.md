@@ -1,4 +1,4 @@
-# Protocol Migration Step 5 Fix 2
+# 0007 — Configuration Port JSON Responses
 
 ## Issue observed on hardware
 

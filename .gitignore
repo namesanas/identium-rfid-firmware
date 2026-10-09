@@ -24,3 +24,8 @@ __pycache__/
 # Vendor PC tools (large third-party binaries; store outside the repo)
 reader_manager/
 *.exe
+
+# TAGlink desktop application: PyInstaller output and review screenshots
+TAGlink/build/
+TAGlink/dist/
+TAGlink/screenshots/

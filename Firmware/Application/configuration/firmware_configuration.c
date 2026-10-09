@@ -148,6 +148,8 @@ static void Firmware_Configuration_UART_Start(void)
 
 Status_t  Firmware_Configuration_Init(void)
 {
+    uint8_t rfidAttempt;
+
     /*
      * --------------------------------------------------------
      * TIME
@@ -363,10 +365,17 @@ Status_t  Firmware_Configuration_Init(void)
      * --------------------------------------------------------
      */
 
-    if(
-        SILION_Application_ConfigureReader()
-        == 0U
+    /* A failed start-up halts the reader for good (Error_Handler), so
+     * a module that answered garbage once gets another chance. */
+    for(
+        rfidAttempt = 0U;
+        (rfidAttempt < 3U) && (SILION_Application_ConfigureReader() == 0U);
+        rfidAttempt++
     )
+    {
+    }
+
+    if(rfidAttempt >= 3U)
     {
         System_Fault_Set(
             ERROR_RFID_INIT

@@ -201,6 +201,29 @@ uint8_t SILION_Application_ConfigureReader(void)
 
     /*
      * --------------------------------------------------------
+     * STOP AN INVENTORY LEFT RUNNING
+     *
+     * An MCU reset does not reset the module: after a reset in
+     * active mode it is still streaming async tag frames, which
+     * break every transaction below. Stop it first; a module
+     * that is not inventorying just answers with an error,
+     * dropped with the rest of its output.
+     * --------------------------------------------------------
+     */
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+
+    txComplete = 0U;
+
+    if(SILION_StopAsyncInventory(pSilion) != 0U)
+    {
+        (void)SILION_WaitForTxComplete(100U);
+    }
+
+    SILION_Application_DelayMs(300U);
+
+    /*
+     * --------------------------------------------------------
      * CLEAR ANY BYTES RECEIVED DURING RFID STARTUP
      * --------------------------------------------------------
      */

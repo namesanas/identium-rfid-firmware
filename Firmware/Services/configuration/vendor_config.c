@@ -521,7 +521,7 @@ static uint8_t VendorConfig_CheckHttpUrl(VendorJsonSpan_t root)
     return VendorConfig_GetHttpUrl(root, &present, NULL, 0U, NULL);
 }
 
-static uint32_t VendorConfig_SetActive(const char *json, uint16_t length)
+static uint32_t VendorConfig_SetActive(const char *json, uint16_t length, uint8_t switchToActive)
 {
     static VendorFilter_t filter;
     VendorJsonSpan_t root = { json, json + length };
@@ -779,18 +779,25 @@ static uint32_t VendorConfig_SetActive(const char *json, uint16_t length)
         }
     }
 
-    /* Setting the active-mode document switches the reader to active
-     * mode (that is what both tools expect after "Set"). */
-    settings.workState = READER_SETTINGS_WORK_ACTIVE;
+    /* Setting the active-mode document from the vendor tools switches the
+     * reader to active mode (that is what both tools expect after "Set");
+     * the host SET_HTTP command only stores the settings. */
+    if(switchToActive != 0U)
+    {
+        settings.workState = READER_SETTINGS_WORK_ACTIVE;
+    }
     if(
-        ((settingsChanged != 0U) || (ReaderSettings_Get()->workState != READER_SETTINGS_WORK_ACTIVE)) &&
+        ((settingsChanged != 0U) || (ReaderSettings_Get()->workState != settings.workState)) &&
         (ReaderSettings_Save(&settings) == 0U)
     )
     {
         return VENDOR_CONFIG_STATUS_FAILED;
     }
 
-    (void)VendorConfig_SetWorkState(READER_SETTINGS_WORK_ACTIVE);
+    if(switchToActive != 0U)
+    {
+        (void)VendorConfig_SetWorkState(READER_SETTINGS_WORK_ACTIVE);
+    }
 
     if(serverChanged != 0U)
     {
@@ -1063,13 +1070,14 @@ static char g_pendingJson[VENDOR_CONFIG_MAX_REQUEST + 1U];
 static uint16_t g_pendingLength = 0U;
 static uint8_t g_pendingCommand = 0U;
 static uint8_t g_pendingValid = 0U;
+static uint8_t g_pendingKeepWorkState = 0U;
 
 static uint32_t VendorConfig_Execute(uint8_t commandId, const char *json, uint16_t length)
 {
     switch(commandId)
     {
         case VENDOR_CONFIG_CMD_SET_ACTIVE:
-            return VendorConfig_SetActive(json, length);
+            return VendorConfig_SetActive(json, length, (g_pendingKeepWorkState == 0U) ? 1U : 0U);
 
         case VENDOR_CONFIG_CMD_SET_STATIC:
             return VendorConfig_SetStatic(json, length);
@@ -1162,8 +1170,23 @@ uint32_t VendorConfig_Handle(
     }
 
     g_pendingCommand = commandId;
+    g_pendingKeepWorkState = 0U;
     g_pendingValid = 1U;
     return VENDOR_CONFIG_STATUS_OK;
+}
+
+uint32_t VendorConfig_HandleActiveSettings(const char *json, uint16_t length)
+{
+    uint8_t replyByte;
+    uint32_t status;
+
+    status = VendorConfig_Handle(VENDOR_CONFIG_CMD_SET_ACTIVE, json, length, &replyByte);
+    if(status == VENDOR_CONFIG_STATUS_OK)
+    {
+        g_pendingKeepWorkState = 1U;
+    }
+
+    return status;
 }
 
 void VendorConfig_Task(void)

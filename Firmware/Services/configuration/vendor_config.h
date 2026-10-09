@@ -31,6 +31,11 @@ uint32_t VendorConfig_Handle(
     uint8_t *replyByte
 );
 
+/* As VendorConfig_Handle(VENDOR_CONFIG_CMD_SET_ACTIVE, ...), but the
+ * work state is left alone: the settings are stored for the next active
+ * session instead of switching the reader to active mode. */
+uint32_t VendorConfig_HandleActiveSettings(const char *json, uint16_t length);
+
 /* Applies a request accepted by VendorConfig_Handle(). Call from the
  * main loop after the reply has been sent. */
 void VendorConfig_Task(void);

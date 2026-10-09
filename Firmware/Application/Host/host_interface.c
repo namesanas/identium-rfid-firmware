@@ -260,6 +260,26 @@ uint8_t HOST_IsTagTransportEthernet(void)
 }
 
 
+/* Stop async inventory, retrying a STOP whose reply was lost in a fast
+ * tag stream. Returns 1 when the reader is idle afterwards (also when it
+ * was idle already). */
+static uint8_t HOST_EnsureInventoryStopped(void)
+{
+    uint8_t attempt;
+
+    for(
+        attempt = 0U;
+        (attempt < 3U) && (SILION_Application_IsInventoryRunning() != 0U);
+        attempt++
+    )
+    {
+        (void)SILION_Application_StopInventory();
+    }
+
+    return (SILION_Application_IsInventoryRunning() == 0U) ? 1U : 0U;
+}
+
+
 void HOST_Interface_Task(void)
 	{
 	    USB_CDC_Transport_Task();
@@ -498,8 +518,11 @@ void HOST_Interface_Task(void)
              */
             else if(strcmp(hostRxBuffer, "STOP") == 0)
             {
+                /* Idempotent: an idle reader answers OK, so a host that
+                 * lost track of the state (e.g. active mode stopped by
+                 * SET_WORK_MODE) can always recover with STOP. */
             	if(
-            	    SILION_Application_StopInventory()
+            	    HOST_EnsureInventoryStopped()
             	    == 1U
             	)
             	{
@@ -1707,21 +1730,80 @@ void HOST_Interface_Task(void)
                     HOST_SendString("ERROR,SET_GPO\r\n");
                 }
             }
-            /* SET_HTTP,url,timeoutSeconds,active,startAtBoot: applied through
-             * the same path as a Reader Manager set-active request. */
+            /* Work state: PASSIVE = answer host commands only, ACTIVE = the
+             * configured autonomous inventory and upload. */
+            else if(strcmp(hostRxBuffer, "GET_WORK_MODE") == 0)
+            {
+                HOST_SendString(
+                    (ReaderSettings_GetWorkState() == READER_SETTINGS_WORK_ACTIVE)
+                        ? "WORK_MODE,ACTIVE\r\n"
+                        : "WORK_MODE,PASSIVE\r\n"
+                );
+            }
+            /* SET_WORK_MODE,PASSIVE|ACTIVE -- persisted; changes nothing else.
+             * PASSIVE answers OK only once inventory has really stopped. */
+            else if(strncmp(hostRxBuffer, "SET_WORK_MODE,", 14U) == 0)
+            {
+                const char *mode = &hostRxBuffer[14U];
+                uint8_t workState = 0U;
+
+                if(strcmp(mode, "PASSIVE") == 0)
+                {
+                    workState = READER_SETTINGS_WORK_PASSIVE;
+                }
+                else if(strcmp(mode, "ACTIVE") == 0)
+                {
+                    workState = READER_SETTINGS_WORK_ACTIVE;
+                }
+
+                if(
+                    (workState != 0U) &&
+                    (VendorConfig_SetWorkState(workState) != 0U) &&
+                    ((workState != READER_SETTINGS_WORK_PASSIVE) ||
+                     (HOST_EnsureInventoryStopped() != 0U))
+                )
+                {
+                    HOST_SendString("OK,SET_WORK_MODE\r\n");
+                }
+                else
+                {
+                    HOST_SendString("ERROR,SET_WORK_MODE\r\n");
+                }
+            }
+            /* SET_HTTP,url,timeoutSeconds,startAtBoot -- HTTP upload settings
+             * only, stored for the next active session; the work state is
+             * left alone (use SET_WORK_MODE).
+             * The older SET_HTTP,url,timeoutSeconds,active,startAtBoot form
+             * also sets the work state. Both are applied like a Reader
+             * Manager set-active request. */
             else if(strncmp(hostRxBuffer, "SET_HTTP,", 9U) == 0)
             {
                 char url[READER_SETTINGS_URL_MAX + 1U];
                 char json[256];
-                unsigned int timeout;
-                unsigned int active;
+                unsigned int timeout = 0U;
+                unsigned int field3 = 0U;
+                unsigned int field4 = 0U;
+                unsigned int active = 0U;
                 unsigned int startAtBoot;
-                uint8_t replyByte = 0U;
+                uint8_t setWorkState;
+                int fields;
                 int jsonLength;
                 uint8_t ok = 0U;
 
+                fields = sscanf(&hostRxBuffer[9U], "%127[^,],%u,%u,%u", url, &timeout, &field3, &field4);
+                setWorkState = (fields == 4) ? 1U : 0U;
+                if(setWorkState != 0U)
+                {
+                    active = field3;
+                    startAtBoot = field4;
+                }
+                else
+                {
+                    startAtBoot = field3;
+                }
+
                 if(
-                    (sscanf(&hostRxBuffer[9U], "%127[^,],%u,%u,%u", url, &timeout, &active, &startAtBoot) == 4) &&
+                    ((fields == 3) || (fields == 4)) &&
                     (timeout <= 65535U) && (active <= 1U) && (startAtBoot <= 1U) &&
                     (strchr(url, '"') == NULL) && (strchr(url, '\\') == NULL)
                 )
@@ -1739,11 +1821,9 @@ void HOST_Interface_Task(void)
                     if(
                         (jsonLength > 0) &&
                         (jsonLength < (int)sizeof(json)) &&
-                        (VendorConfig_Handle(
-                            VENDOR_CONFIG_CMD_SET_ACTIVE,
+                        (VendorConfig_HandleActiveSettings(
                             json,
-                            (uint16_t)jsonLength,
-                            &replyByte
+                            (uint16_t)jsonLength
                         ) == 0U)
                     )
                     {
@@ -1751,11 +1831,13 @@ void HOST_Interface_Task(void)
                          * state, so active mode starts with them. */
                         VendorConfig_Task();
 
-                        ok = VendorConfig_SetWorkState(
-                            (active != 0U)
-                                ? READER_SETTINGS_WORK_ACTIVE
-                                : READER_SETTINGS_WORK_PASSIVE
-                        );
+                        ok = (setWorkState == 0U)
+                            ? 1U
+                            : VendorConfig_SetWorkState(
+                                  (active != 0U)
+                                      ? READER_SETTINGS_WORK_ACTIVE
+                                      : READER_SETTINGS_WORK_PASSIVE
+                              );
                     }
                 }
 

@@ -38,6 +38,15 @@ static uint16_t g_replyOffset;
 static uint64_t g_restartAtMs;
 static uint8_t g_cachedStatus[ESP32_LINK_STATUS_PAYLOAD_SIZE];
 
+/* The last executed request and its reply. The master resends a request
+ * with the same sequence number when it lost the reply; replaying the reply
+ * keeps SOCK_SEND / SOCK_RECV from being executed twice. */
+static uint8_t g_lastValid;
+static uint8_t g_lastSequence;
+static uint8_t g_lastCommand;
+static uint8_t g_lastSocket;
+static uint8_t g_lastReply[ESP32_LINK_RESPONSE_SIZE];
+
 static uint64_t I2cLink_NowMs(void)
 {
     return (uint64_t)(esp_timer_get_time() / 1000LL);
@@ -98,6 +107,13 @@ static void I2cLink_BuildReply(uint8_t sequence, uint8_t command, uint8_t socket
     g_replyFrame[crcIndex + 1U] = (uint8_t)(crc >> 8U);
     g_replyPending = 1U;
     g_replyOffset = 0U;
+
+    /* A NOT_READY reply is not replayed: the request was not executed. */
+    g_lastValid = ((flags & ESP32_LINK_FLAG_NOT_READY) == 0U) ? 1U : 0U;
+    g_lastSequence = sequence;
+    g_lastCommand = command;
+    g_lastSocket = socketId;
+    memcpy(g_lastReply, g_replyFrame, sizeof(g_lastReply));
 }
 
 static void I2cLink_SetStatusOnly(uint8_t sequence, uint8_t command, uint8_t socketId,
@@ -122,6 +138,15 @@ static void I2cLink_HandleRequest(const uint8_t *frame, uint16_t payloadLength)
     uint16_t replyLength = 1U;
     uint8_t status = ESP32_LINK_RESULT_OK;
     uint8_t flags = 0U;
+
+    if((g_lastValid != 0U) && (sequence == g_lastSequence) &&
+       (command == g_lastCommand) && (socketId == g_lastSocket))
+    {
+        memcpy(g_replyFrame, g_lastReply, sizeof(g_replyFrame));
+        g_replyPending = 1U;
+        g_replyOffset = 0U;
+        return;
+    }
 
     memset(reply, 0, sizeof(reply));
     reply[0] = ESP32_LINK_RESULT_OK;
@@ -369,6 +394,7 @@ esp_err_t I2cLink_Init(void)
     g_replyPending = 0U;
     g_replyOffset = 0U;
     g_restartAtMs = 0U;
+    g_lastValid = 0U;
     memset(g_cachedStatus, 0, sizeof(g_cachedStatus));
     I2cLink_RefreshCachedStatus();
     ESP_LOGI(TAG, "I2C slave address 0x%02X, SCL=%d SDA=%d",

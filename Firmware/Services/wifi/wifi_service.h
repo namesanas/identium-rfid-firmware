@@ -7,6 +7,20 @@
 
 typedef void (*WiFi_RxByteCallback_t)(uint8_t receivedByte);
 
+typedef struct
+{
+    uint8_t linkOnline;      /* ESP answered HELLO and is configured */
+    uint8_t wifiState;       /* ESP32_LINK_WIFI_* */
+    uint8_t ip[4];
+    int8_t rssi;
+    uint8_t hostConnected;   /* a client is on the WiFi host port */
+    uint8_t uploadConnected; /* active-mode upload connection is up */
+    uint32_t linkErrors;     /* failed I2C transactions since start-up */
+} WiFi_Status_t;
+
+/* Snapshot for GET_WIFI. */
+void WiFi_Service_GetStatus(WiFi_Status_t *status);
+
 void WiFi_Service_Init(WiFi_RxByteCallback_t rxCallback);
 void WiFi_Service_Task(void);
 uint8_t WiFi_Service_IsAvailable(void);

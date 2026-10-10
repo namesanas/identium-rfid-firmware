@@ -42,6 +42,8 @@
 #define BOARD_ESP_EN_PIN               15U
 #define BOARD_ESP_I2C_EVENT_IRQ        I2C3_EV_IRQn
 #define BOARD_ESP_I2C_ERROR_IRQ        I2C3_ER_IRQn
+#define BOARD_ESP_I2C_EV_HANDLER       I2C3_EV_IRQHandler
+#define BOARD_ESP_I2C_ER_HANDLER       I2C3_ER_IRQHandler
 
 /* ---------------- W5500 ---------------- */
 #define BOARD_W5500_SPI               SPI1

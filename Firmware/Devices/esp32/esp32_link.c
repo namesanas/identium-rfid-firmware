@@ -17,9 +17,13 @@
 #define ESP32_LINK_TRANSFER_TIMEOUT_MS  80U
 #define ESP32_LINK_RESPONSE_DELAY_MS     2U
 #define ESP32_LINK_RETRY_LIMIT           2U
+/* Reads of one request's reply before it is sent again. A read may return
+ * an older reply still queued in the slave, or nothing yet; reading again
+ * drains the old one and waits for the new one. */
+#define ESP32_LINK_READ_RETRY_LIMIT      4U
 #define ESP32_LINK_FAILURE_RESET_LIMIT   3U
 #define ESP32_LINK_RESET_LOW_MS         15U
-#define ESP32_LINK_BOOT_DELAY_MS       250U
+#define ESP32_LINK_BOOT_DELAY_MS       800U
 #define ESP32_LINK_BUS_RECOVERY_PULSES   9U
 
 #define ESP32_LINK_SUPPORTED BOARD_ESP_LINK_ENABLED
@@ -56,6 +60,7 @@ static uint8_t g_requestCommand;
 static uint8_t g_requestSocket;
 static uint8_t g_sequence;
 static uint8_t g_retryCount;
+static uint8_t g_readRetryCount;
 static uint8_t g_failureCount;
 static uint8_t g_resetRequested;
 static uint8_t g_busRecoveryPulse;
@@ -203,9 +208,11 @@ uint8_t ESP32_Link_Init(void)
     gpio.GPIO_PinConfig.GPIO_PinMode = GPIO_DRV_MODE_OUT;
     gpio.GPIO_PinConfig.GPIO_PinSpeed = GPIO_DRV_SPEED_FAST;
     gpio.GPIO_PinConfig.GPIO_PuPdControl = GPIO_NO_PUPD;
-    gpio.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
+    /* Open drain: the ESP has its own EN pull-up, and on the Discovery the
+     * pin is shared with an on-board interrupt output. */
+    gpio.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_OD;
     GPIO_Init(&gpio);
-    GPIO_WriteToOutputPin(ESP32_EN_GPIO, ESP32_EN_PIN, GPIO_PIN_SET);
+    GPIO_WriteToOutputPin(ESP32_EN_GPIO, ESP32_EN_PIN, GPIO_PIN_RESET);
 
     ESP32_Link_SetPinsToAlternate();
 
@@ -225,7 +232,9 @@ uint8_t ESP32_Link_Init(void)
     I2C_IRQInterruptConfig((uint8_t)ESP32_I2C_EVENT_IRQn, ENABLE);
     I2C_IRQInterruptConfig((uint8_t)ESP32_I2C_ERROR_IRQn, ENABLE);
     g_initialized = 1U;
-    g_ioState = ESP32_LINK_IO_RESET_WAIT;
+    /* Start from a freshly reset ESP so its socket and reply state match
+     * this (just restarted) side. */
+    g_ioState = ESP32_LINK_IO_RESET_LOW;
     g_stateAtMs = Time_GetTickMs();
     g_resetRequested = 0U;
     g_failureCount = 0U;
@@ -273,6 +282,7 @@ uint8_t ESP32_Link_Submit(uint8_t command, uint8_t socket,
     g_requestSocket = socket;
     g_resultLength = 0U;
     g_retryCount = 0U;
+    g_readRetryCount = 0U;
     g_retryPendingTransmit = 0U;
     if (ESP32_Link_BuildFrame(command, socket, payload, length) == 0U)
     {
@@ -306,12 +316,11 @@ static uint8_t ESP32_Link_ValidateResponse(void)
     uint16_t expectedCrc;
     uint16_t actualCrc;
 
+    /* 0 = not a frame, 1 = reply, 2 = reply NOT_READY,
+     * 3 = intact reply to an earlier request. */
     if ((g_rxFrame[0] != ESP32_LINK_MAGIC_0) ||
         (g_rxFrame[1] != ESP32_LINK_MAGIC_1) ||
         (g_rxFrame[2] != ESP32_LINK_PROTOCOL_VERSION) ||
-        (g_rxFrame[3] != g_sequence) ||
-        (g_rxFrame[4] != g_requestCommand) ||
-        (g_rxFrame[5] != g_requestSocket) ||
         ((g_rxFrame[8] & ESP32_LINK_FLAG_RESPONSE) == 0U))
     {
         return 0U;
@@ -329,6 +338,12 @@ static uint8_t ESP32_Link_ValidateResponse(void)
     if (actualCrc != expectedCrc)
     {
         return 0U;
+    }
+    if ((g_rxFrame[3] != g_sequence) ||
+        (g_rxFrame[4] != g_requestCommand) ||
+        (g_rxFrame[5] != g_requestSocket))
+    {
+        return 3U;
     }
     g_resultLength = payloadLength;
     if (payloadLength > 0U)
@@ -446,6 +461,25 @@ void ESP32_Link_Task(void)
             else if ((validated == 2U) && (g_retryCount < ESP32_LINK_RETRY_LIMIT))
             {
                 g_retryCount++;
+                g_readRetryCount = 0U;
+                g_retryPendingTransmit = 1U;
+                g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
+                g_stateAtMs = now + 1U;
+            }
+            else if (((validated == 0U) || (validated == 3U)) &&
+                     (g_readRetryCount < ESP32_LINK_READ_RETRY_LIMIT))
+            {
+                /* Stale or not staged yet: read again, do not resend. */
+                g_readRetryCount++;
+                g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
+                g_stateAtMs = now + ESP32_LINK_RESPONSE_DELAY_MS;
+            }
+            else if ((validated != 2U) && (g_retryCount < ESP32_LINK_RETRY_LIMIT))
+            {
+                /* Reply lost: resend with the same sequence number. The ESP
+                 * replays its saved reply instead of executing it twice. */
+                g_retryCount++;
+                g_readRetryCount = 0U;
                 g_retryPendingTransmit = 1U;
                 g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
                 g_stateAtMs = now + 1U;
@@ -575,12 +609,12 @@ void I2C_ApplicationEventCallback(I2C_Handle_t *pI2CHandle, uint8_t event)
 }
 
 #if ESP32_LINK_SUPPORTED
-void I2C3_EV_IRQHandler(void)
+void BOARD_ESP_I2C_EV_HANDLER(void)
 {
     I2C_EV_IRQHandling(&g_i2c);
 }
 
-void I2C3_ER_IRQHandler(void)
+void BOARD_ESP_I2C_ER_HANDLER(void)
 {
     I2C_ER_IRQHandling(&g_i2c);
 }

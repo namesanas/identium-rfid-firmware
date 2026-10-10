@@ -831,3 +831,15 @@ uint8_t WiFi_Service_CloseUploadSocket(void)
     return WiFi_Submit(ESP32_LINK_CMD_SOCK_CLOSE, ESP32_LINK_SOCKET_UPLOAD,
                        NULL, 0U, WIFI_COMMAND_CLOSE_UPLOAD);
 }
+
+void WiFi_Service_GetStatus(WiFi_Status_t *status)
+{
+    if (status == NULL) return;
+    status->linkOnline = (uint8_t)((g_linkOnline != 0U) && (g_configured != 0U));
+    status->wifiState = g_wifiState;
+    memcpy(status->ip, g_ip, sizeof(status->ip));
+    status->rssi = g_rssi;
+    status->hostConnected = WiFi_Service_IsHostConnected();
+    status->uploadConnected = WiFi_Service_IsUploadConnected();
+    status->linkErrors = ESP32_Link_GetErrorCount();
+}

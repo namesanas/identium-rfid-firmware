@@ -100,7 +100,7 @@ The reader settings record is version 3. Version 2 settings are loaded using the
 | Command | Reply |
 |---|---|
 | `GET_WIFI` | `WIFI,LINK=ONLINE\|OFFLINE,STATE=DISABLED\|IDLE\|CONNECTING\|CONNECTED\|AP\|ERROR,IP=…,RSSI=…,HOST=0\|1,UPLOAD=0\|1,ENABLE=0\|1,MODE=STA\|AP,SSID=…,IF=ETH\|WIFI\|AUTO,ERRORS=n` |
-| `SET_WIFI,<0\|1>,<STA\|AP>,<ssid>,<password>` | `OK,SET_WIFI` / `ERROR,SET_WIFI`. Persisted and applied at once. The SSID may not contain a comma. The password is the rest of the line: empty for an open network, otherwise 8–64 characters. `****` keeps the stored password. In AP mode the SSID and password are the reader's own AP. |
+| `SET_WIFI,<0\|1>,<STA\|AP>,<ssid>,<password>` | `OK,SET_WIFI` / `ERROR,SET_WIFI`. Persisted and applied at once. The SSID may not contain a comma. The password is the rest of the line: empty for an open network, otherwise 8–64 characters. `****` keeps the stored password. In AP mode the SSID and password are the reader's own AP. `SET_WIFI,0,STA,,` disables WiFi and clears the station credentials. |
 | `SET_UPLOAD_IF,ETH\|WIFI\|AUTO` | `OK,SET_UPLOAD_IF` / `ERROR,SET_UPLOAD_IF` |
 
 `ERRORS` counts failed I2C transactions since start-up. A steadily rising count means a wiring or pull-up problem.

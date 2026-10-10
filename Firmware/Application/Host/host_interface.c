@@ -96,6 +96,7 @@ static void HOST_SendWifiStatus(void)
  * SET_WIFI,<0|1>,<STA|AP>,<ssid>,<password>
  * The SSID may not contain a comma; the password is the rest of the line
  * (empty = open network / open AP). "****" keeps the stored password.
+ * SET_WIFI,0,STA,, disables WiFi and clears the station SSID and password.
  * In AP mode the SSID and password are those of the reader's own AP.
  */
 static uint8_t HOST_SetWifi(char *args)
@@ -141,7 +142,8 @@ static uint8_t HOST_SetWifi(char *args)
     }
 
     if(
-        (strlen(ssid) == 0U) ||
+        /* An empty SSID is only accepted when WiFi is being disabled. */
+        ((strlen(ssid) == 0U) && (settings.wifiEnabled != 0U)) ||
         (strlen(ssid) > READER_SETTINGS_WIFI_SSID_MAX) ||
         (strlen(password) > READER_SETTINGS_WIFI_PASSWORD_MAX) ||
         /* WPA2 keys are 8..63 characters; the ESP rejects shorter AP keys. */

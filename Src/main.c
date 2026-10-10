@@ -7,7 +7,7 @@
   * @attention
   *
   * Copyright (c) 2026 STMicroelectronics.
-//  * All rights reserved. why are you acting so dumb i am not we will do small edits per step i am saying when theres a lot of changes in the file you can give the whole file ubut when there is just small changes you can just tell me the location and where is that really that hard to understand?
+  * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
   * in the root directory of this software component.
@@ -31,6 +31,9 @@
 #include "../Firmware/Services/watchdog/watchdog.h"
 #include "../Firmware/Protocol/identium_protocol.h"
 #include "../Firmware/Services/GPIO/gpio_service.h"
+#include "../Firmware/Services/system/fault_record.h"
+#include "../Firmware/Services/system/loop_monitor.h"
+#include "../Firmware/Services/system/stack_monitor.h"
   //#include "../Firmware/Services/cloud/cloud_service.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -67,7 +70,7 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-/* USER CODE END 0 working lets go ahead now and lets take bigger steps now that our code is working */
+/* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
@@ -102,6 +105,11 @@ int main(void)
 
   Status_t firmwareStatus;
 
+  /* First: take over the previous run's fault record, then paint the
+   * stack and arm its overflow guard while the stack is still shallow. */
+  Fault_Record_Init();
+  Stack_Monitor_Init();
+
   firmwareStatus =
       Firmware_Runtime_Init();
 
@@ -116,19 +124,23 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+  Loop_Monitor_Init();
+
   while(1)
   {
 	//  Cloud_Service_Task();
       /* Company protocol Ethernet session is independent of legacy USB ASCII. */
-      Ethernet_Service_Task();
-      Configuration_Port_Task();
-      Identium_Protocol_Task();
-      GPIO_Service_Task();
+      LOOP_MONITOR_RUN(LOOP_TASK_ETHERNET, Ethernet_Service_Task());
+      LOOP_MONITOR_RUN(LOOP_TASK_CONFIG_PORT, Configuration_Port_Task());
+      LOOP_MONITOR_RUN(LOOP_TASK_PROTOCOL, Identium_Protocol_Task());
+      LOOP_MONITOR_RUN(LOOP_TASK_GPIO, GPIO_Service_Task());
 
-      SILION_Application_Task();
+      LOOP_MONITOR_RUN(LOOP_TASK_RFID, SILION_Application_Task());
 
       /* Legacy ASCII parser remains on native USB during migration. */
-      HOST_Interface_Task();
+      LOOP_MONITOR_RUN(LOOP_TASK_HOST, HOST_Interface_Task());
+
+      Loop_Monitor_PassEnd();
 
 
       /*
@@ -203,7 +215,9 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* Recorded for GET_DIAG after the next reset; the reader stays halted
+   * (a start-up failure must not turn into a reset loop). */
+  Fault_Record_SaveErrorHandler((uint32_t)__builtin_return_address(0));
   __disable_irq();
   while (1)
   {

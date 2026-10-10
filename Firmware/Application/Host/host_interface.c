@@ -11,6 +11,7 @@
 #include "../../Services/ethernet/host_tcp_server.h"
 
 #include "../../Services/system/system_fault.h"
+#include "../../Services/system/diagnostics.h"
 #include "../../Services/GPIO/gpio_service.h"
 #include "../../Services/configuration/configuration_port.h"
 #include "../../Services/configuration/reader_settings.h"
@@ -651,6 +652,45 @@ void HOST_Interface_Task(void)
                     );
                 }
             }
+
+
+            /*
+             * =================================================
+             * GET DIAG / CLEAR DIAG
+             * =================================================
+             */
+            else if(strcmp(hostRxBuffer, "GET_DIAG") == 0)
+            {
+                static char diagLine[DIAGNOSTICS_LINE_MAX];
+
+                (void)Diagnostics_Format(
+                    diagLine,
+                    sizeof(diagLine)
+                );
+
+                HOST_SendString(diagLine);
+            }
+
+            else if(strcmp(hostRxBuffer, "CLEAR_DIAG") == 0)
+            {
+                Diagnostics_Clear();
+
+                HOST_SendString(
+                    "OK,CLEAR_DIAG\r\n"
+                );
+            }
+
+#ifdef DEBUG
+            else if(strncmp(hostRxBuffer, "DEBUG_FAULT,", 12U) == 0)
+            {
+                if(Diagnostics_TriggerFault(&hostRxBuffer[12]) == 0U)
+                {
+                    HOST_SendString(
+                        "ERROR,DEBUG_FAULT\r\n"
+                    );
+                }
+            }
+#endif
 
 
             /*

@@ -34,6 +34,7 @@
 #include "../../Common/status.h"
 
 #include "../../Services/system/reset_cause.h"
+#include "../../Services/system/brownout.h"
 
 #include "../../Services/watchdog/watchdog.h"
 #include "../../Config/product_config.h"
@@ -157,6 +158,7 @@ Status_t  Firmware_Configuration_Init(void)
      */
     Time_Service_Init();
     Reset_Cause_Init();
+    (void)Brownout_Init();
     System_Fault_Init();
     HOST_Transport_Init();
     Identium_Protocol_Init();

@@ -17,3 +17,4 @@ Numbered records of the protocol and configuration design, in the order the chan
 - [0013 — Vendor Tool Compatibility (Reader Manager / ReaderSense)](0013-vendor-tool-compatibility.md)
 - [0014 — Host Serial Port (RS232 / RS485)](0014-host-serial-port.md)
 - [0015 — Work Mode Control and Start-up Recovery](0015-work-mode-and-startup-recovery.md)
+- [0017 — Fault Handling and Runtime Diagnostics](0017-fault-handling-and-runtime-diagnostics.md)

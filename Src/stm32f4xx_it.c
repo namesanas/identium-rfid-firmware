@@ -24,6 +24,7 @@
 #include "../Firmware/Services/Time/time_service.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "../Firmware/Services/system/fault_record.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,6 +54,16 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/*
+ * The fault handlers are naked: FAULT_RECORD_ENTER() must read the
+ * exception frame before a compiler prologue moves the stack pointer.
+ * Each saves a fault record and resets the MCU (see fault_record.h).
+ */
+void NMI_Handler(void) __attribute__((naked));
+void HardFault_Handler(void) __attribute__((naked));
+void MemManage_Handler(void) __attribute__((naked));
+void BusFault_Handler(void) __attribute__((naked));
+void UsageFault_Handler(void) __attribute__((naked));
 
 /* USER CODE END 0 */
 
@@ -71,7 +82,7 @@
 void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
+  FAULT_RECORD_ENTER(FAULT_TYPE_NMI);
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
    while (1)
@@ -86,7 +97,7 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  FAULT_RECORD_ENTER(FAULT_TYPE_HARD);
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -101,7 +112,7 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  FAULT_RECORD_ENTER(FAULT_TYPE_MEM_MANAGE);
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -116,7 +127,7 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  FAULT_RECORD_ENTER(FAULT_TYPE_BUS);
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -131,7 +142,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  FAULT_RECORD_ENTER(FAULT_TYPE_USAGE);
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {

@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# Lightweight wrapper launcher; downloads the pinned Gradle distribution when needed.
+set -eu
+GRADLE_VERSION="8.7"
+CACHE_ROOT="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/gradle-${GRADLE_VERSION}-bin/taglink"
+GRADLE_HOME="$CACHE_ROOT/gradle-${GRADLE_VERSION}"
+if [ -x "$GRADLE_HOME/bin/gradle" ]; then
+  exec "$GRADLE_HOME/bin/gradle" "$@"
+fi
+if command -v gradle >/dev/null 2>&1; then
+  exec gradle "$@"
+fi
+mkdir -p "$CACHE_ROOT"
+ARCHIVE="$CACHE_ROOT/gradle-${GRADLE_VERSION}-bin.zip"
+if command -v curl >/dev/null 2>&1; then
+  curl -fL --retry 2 "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o "$ARCHIVE"
+elif command -v wget >/dev/null 2>&1; then
+  wget "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -O "$ARCHIVE"
+else
+  echo "Gradle ${GRADLE_VERSION} is not installed and curl/wget is unavailable." >&2
+  exit 1
+fi
+python3 - "$ARCHIVE" "$CACHE_ROOT" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: z.extractall(sys.argv[2])
+PY
+exec "$GRADLE_HOME/bin/gradle" "$@"

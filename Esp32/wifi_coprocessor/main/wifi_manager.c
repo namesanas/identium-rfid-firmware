@@ -41,6 +41,7 @@ static uint8_t g_scanComplete;
 static uint8_t g_scanCount;
 static WifiManager_ScanResult_t g_scanResults[WIFI_MANAGER_SCAN_LIMIT];
 static int64_t g_nextReconnectUs;
+static uint8_t g_staAssociated;
 
 static void WifiManager_EventHandler(void *argument, esp_event_base_t eventBase,
                                      int32_t eventId, void *eventData)
@@ -56,10 +57,12 @@ static void WifiManager_EventHandler(void *argument, esp_event_base_t eventBase,
         }
         else if(eventId == WIFI_EVENT_STA_CONNECTED)
         {
+            g_staAssociated = 1U;
             g_events |= WIFI_MANAGER_EVENT_LINK;
         }
         else if(eventId == WIFI_EVENT_STA_DISCONNECTED)
         {
+            g_staAssociated = 0U;
             memset(g_currentIp, 0, sizeof(g_currentIp));
             g_rssi = 0;
             g_events |= WIFI_MANAGER_EVENT_LINK;
@@ -258,6 +261,9 @@ uint8_t WifiManager_Connect(void)
         config.sta.threshold.authmode = WIFI_AUTH_OPEN;
         config.sta.pmf_cfg.capable = true;
         config.sta.pmf_cfg.required = false;
+        /* A connect attempt still in progress makes set_config fail;
+         * cancel it first (an error just means none was running). */
+        if(g_wifiStarted != 0U) (void)esp_wifi_disconnect();
         if(g_dhcp == 0U)
         {
             result = WifiManager_SetStaticNetwork();
@@ -300,7 +306,10 @@ uint8_t WifiManager_Connect(void)
     if(g_mode == ESP32_LINK_MODE_STA)
     {
         g_state = ESP32_LINK_WIFI_CONNECTING;
-        g_nextReconnectUs = esp_timer_get_time() + WIFI_MANAGER_RECONNECT_US;
+        g_staAssociated = 0U;
+        /* An attempt (scan + auth) takes a few seconds; the retry below
+         * only runs after a disconnect event re-arms it. */
+        g_nextReconnectUs = INT64_MAX;
         result = esp_wifi_connect();
         if((result != ESP_OK) && (result != ESP_ERR_WIFI_CONN))
             ESP_LOGW(TAG, "Initial connect: %s", esp_err_to_name(result));
@@ -326,10 +335,10 @@ void WifiManager_Task(void)
 {
     wifi_ap_record_t ap;
     if((g_wifiStarted != 0U) && (g_mode == ESP32_LINK_MODE_STA) &&
-       (g_state == ESP32_LINK_WIFI_CONNECTING) &&
+       (g_state == ESP32_LINK_WIFI_CONNECTING) && (g_staAssociated == 0U) &&
        (esp_timer_get_time() >= g_nextReconnectUs))
     {
-        g_nextReconnectUs = esp_timer_get_time() + WIFI_MANAGER_RECONNECT_US;
+        g_nextReconnectUs = INT64_MAX;
         (void)esp_wifi_connect();
     }
     if((g_state == ESP32_LINK_WIFI_CONNECTED) && (esp_wifi_sta_get_ap_info(&ap) == ESP_OK))

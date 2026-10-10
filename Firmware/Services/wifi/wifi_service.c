@@ -81,6 +81,11 @@ static uint8_t g_hostWasConnected;
 static uint32_t g_nextHelloMs;
 static uint32_t g_nextStatusMs;
 static uint32_t g_nextUploadOpenMs;
+/* CONFIG / CONNECT / DISCONNECT rejected by the ESP: retry after this,
+ * and keep polling status meanwhile. */
+static uint32_t g_nextControlMs;
+static uint8_t g_lastRejectedCommand;
+static uint8_t g_lastRejectedResult;
 static uint32_t g_linkFailureCount;
 static uint8_t g_available;
 static uint8_t g_needsConfiguration = 1U;
@@ -264,6 +269,17 @@ static uint8_t WiFi_TargetSameAsOpened(void)
            (memcmp(ip, g_uploadTargetIp, sizeof(ip)) == 0);
 }
 
+/* The host router stays locked to a transport until it is released.
+ * Release it when the WiFi client it is locked to is gone. */
+static void WiFi_ReleaseHostIfGone(void)
+{
+    if ((HOST_Transport_GetActive() == HOST_TRANSPORT_WIFI) &&
+        ((g_linkOnline == 0U) || ((g_connectedBitmap & 0x01U) == 0U)))
+    {
+        HOST_Transport_Release();
+    }
+}
+
 static uint8_t WiFi_Submit(uint8_t command, uint8_t socket,
                            const uint8_t *payload, uint16_t length,
                            WiFi_CommandPurpose_t purpose)
@@ -308,7 +324,14 @@ static void WiFi_HandleCompletedCommand(void)
 
     state = ESP32_Link_GetResult(&command, &socket, g_response, &length,
                                  sizeof(g_response));
-    if (state == ESP32_LINK_STATE_BUSY || state == ESP32_LINK_STATE_IDLE) return;
+    if (state == ESP32_LINK_STATE_BUSY) return;
+
+    /* IDLE with a request outstanding: the link was reset (EN pulse) and
+     * the request and its result are gone. Handle it as a failure. */
+    if (state == ESP32_LINK_STATE_IDLE)
+    {
+        state = ESP32_LINK_STATE_FAILED;
+    }
 
     if (state == ESP32_LINK_STATE_FAILED)
     {
@@ -369,6 +392,14 @@ static void WiFi_HandleCompletedCommand(void)
     g_responseLength = length;
     if ((length == 0U) || (g_response[0] != ESP32_LINK_RESULT_OK))
     {
+        if ((g_commandPurpose == WIFI_COMMAND_CONFIG) ||
+            (g_commandPurpose == WIFI_COMMAND_CONNECT) ||
+            (g_commandPurpose == WIFI_COMMAND_DISCONNECT))
+        {
+            g_lastRejectedCommand = command;
+            g_lastRejectedResult = (length != 0U) ? g_response[0] : ESP32_LINK_RESULT_FAILED;
+            g_nextControlMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+        }
         if (g_commandPurpose == WIFI_COMMAND_HELLO)
         {
             g_linkOnline = 0U;
@@ -450,6 +481,21 @@ static void WiFi_HandleCompletedCommand(void)
                 g_connectedBitmap = g_response[ESP32_LINK_STATUS_CONNECTED];
                 g_rxPendingBitmap = g_response[ESP32_LINK_STATUS_RX_PENDING];
                 g_eventBitmap = g_response[ESP32_LINK_STATUS_EVENTS];
+                /* An ESP that restarted on its own (power glitch, its USB
+                 * monitor) comes back unconfigured and reports DISABLED
+                 * although WiFi is enabled and was started: configure again. */
+                if ((g_wifiState == ESP32_LINK_WIFI_DISABLED) &&
+                    (g_wifiConnectIssued == 1U) &&
+                    (ReaderSettings_Get()->wifiEnabled != 0U))
+                {
+                    g_needsConfiguration = 1U;
+                    g_configured = 0U;
+                    g_settingsSnapshotValid = 0U;
+                    g_wifiConnectIssued = 0U;
+                    g_hostSocketOpened = 0U;
+                    g_uploadSocketOpened = 0U;
+                    g_uploadTargetValid = 0U;
+                }
                 memcpy(g_mac, &g_response[ESP32_LINK_STATUS_MAC], sizeof(g_mac));
                 g_hostWasConnected = (uint8_t)((previousConnected & 0x01U) != 0U);
                 g_uploadWasConnected = (uint8_t)((previousConnected & 0x02U) != 0U);
@@ -639,9 +685,14 @@ void WiFi_Service_Task(void)
         g_hostSocketOpened = 0U;
         g_uploadSocketOpened = 0U;
         g_uploadTargetValid = 0U;
+        g_wifiState = ESP32_LINK_WIFI_DISABLED;
+        g_connectedBitmap = 0U;
+        g_rxPendingBitmap = 0U;
+        WiFi_ReleaseHostIfGone();
         return;
     }
     g_available = 1U;
+    WiFi_ReleaseHostIfGone();
 
     if ((g_linkOnline == 0U) && ((int32_t)(now - g_nextHelloMs) >= 0))
     {
@@ -673,6 +724,18 @@ void WiFi_Service_Task(void)
                 return;
             }
         }
+    }
+
+    if (((g_needsConfiguration != 0U) || (g_configured != 0U)) &&
+        ((int32_t)(now - g_nextControlMs) < 0))
+    {
+        /* A control command was rejected: only poll status until retry. */
+        if ((int32_t)(now - g_nextStatusMs) >= 0)
+        {
+            (void)WiFi_Submit(ESP32_LINK_CMD_GET_STATUS, ESP32_LINK_SOCKET_HOST,
+                              NULL, 0U, WIFI_COMMAND_STATUS);
+        }
+        return;
     }
 
     if (g_needsConfiguration != 0U)
@@ -842,4 +905,6 @@ void WiFi_Service_GetStatus(WiFi_Status_t *status)
     status->hostConnected = WiFi_Service_IsHostConnected();
     status->uploadConnected = WiFi_Service_IsUploadConnected();
     status->linkErrors = ESP32_Link_GetErrorCount();
+    status->rejectedCommand = g_lastRejectedCommand;
+    status->rejectedResult = g_lastRejectedResult;
 }

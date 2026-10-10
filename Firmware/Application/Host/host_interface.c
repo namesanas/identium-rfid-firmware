@@ -73,7 +73,7 @@ static void HOST_SendWifiStatus(void)
         line,
         sizeof(line),
         "WIFI,LINK=%s,STATE=%s,IP=%u.%u.%u.%u,RSSI=%d,HOST=%u,UPLOAD=%u,"
-        "ENABLE=%u,MODE=%s,SSID=%s,IF=%s,ERRORS=%lu\r\n",
+        "ENABLE=%u,MODE=%s,SSID=%s,IF=%s,ERRORS=%lu,REJECTED=%02X/%u\r\n",
         (status.linkOnline != 0U) ? "ONLINE" : "OFFLINE",
         HOST_WifiStateName(status.wifiState),
         status.ip[0], status.ip[1], status.ip[2], status.ip[3],
@@ -85,7 +85,9 @@ static void HOST_SendWifiStatus(void)
         (settings->wifiMode == READER_SETTINGS_WIFI_AP)
             ? settings->wifiApSsid : settings->wifiSsid,
         uploadIf,
-        (unsigned long)status.linkErrors
+        (unsigned long)status.linkErrors,
+        (unsigned int)status.rejectedCommand,
+        (unsigned int)status.rejectedResult
     );
 
     HOST_SendString(line);

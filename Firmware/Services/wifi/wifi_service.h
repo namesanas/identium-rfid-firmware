@@ -16,6 +16,8 @@ typedef struct
     uint8_t hostConnected;   /* a client is on the WiFi host port */
     uint8_t uploadConnected; /* active-mode upload connection is up */
     uint32_t linkErrors;     /* failed I2C transactions since start-up */
+    uint8_t rejectedCommand; /* last CONFIG/CONNECT/DISCONNECT the ESP refused (0 = none) */
+    uint8_t rejectedResult;  /* its ESP32_LINK_RESULT_* code */
 } WiFi_Status_t;
 
 /* Snapshot for GET_WIFI. */

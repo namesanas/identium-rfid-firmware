@@ -17,10 +17,16 @@
 #define ESP32_LINK_TRANSFER_TIMEOUT_MS  80U
 #define ESP32_LINK_RESPONSE_DELAY_MS     2U
 #define ESP32_LINK_RETRY_LIMIT           2U
-/* Reads of one request's reply before it is sent again. A read may return
- * an older reply still queued in the slave, or nothing yet; reading again
- * drains the old one and waits for the new one. */
-#define ESP32_LINK_READ_RETRY_LIMIT      4U
+/* How long to keep reading for one request's reply before sending the
+ * request again. A read may return an older reply still queued in the
+ * slave, or nothing yet; reading again drains the old one and waits for
+ * the new one. The ESP answers only after executing a request, and WiFi
+ * start / stop / reconfiguration take a few hundred milliseconds. */
+#define ESP32_LINK_REPLY_WINDOW_MS    1500U
+/* Fast re-reads first (normal replies take ~2 ms), then slower ones so a
+ * busy ESP is not flooded. */
+#define ESP32_LINK_FAST_READS            4U
+#define ESP32_LINK_SLOW_READ_MS         10U
 #define ESP32_LINK_FAILURE_RESET_LIMIT   3U
 #define ESP32_LINK_RESET_LOW_MS         15U
 #define ESP32_LINK_BOOT_DELAY_MS       800U
@@ -68,6 +74,7 @@ static uint8_t g_busRecoveryPhase;
 static uint8_t g_transferEvent;
 static uint32_t g_stateAtMs;
 static uint32_t g_transferStartedMs;
+static uint32_t g_requestSentMs;
 static uint32_t g_errorCount;
 static ESP32_LinkIoState_t g_ioState = ESP32_LINK_IO_IDLE;
 static uint8_t g_retryPendingTransmit;
@@ -140,6 +147,24 @@ static void ESP32_Link_FinishBusRecovery(void)
     g_ioState = ESP32_LINK_IO_RESET_LOW;
     GPIO_WriteToOutputPin(ESP32_EN_GPIO, ESP32_EN_PIN, GPIO_PIN_RESET);
     g_stateAtMs = Time_GetTickMs();
+#endif
+}
+
+static void ESP32_Link_AbortTransfer(void)
+{
+#if ESP32_LINK_SUPPORTED
+    if ((g_i2c.pI2Cx->SR2 & I2C_SR2_MSL_Msk) != 0U)
+    {
+        I2C_GenerateStopCondition(g_i2c.pI2Cx);
+    }
+    if (g_i2c.TxRxState == I2C_BUSY_IN_RX)
+    {
+        I2C_CloseReceiveData(&g_i2c);
+    }
+    else if (g_i2c.TxRxState == I2C_BUSY_IN_TX)
+    {
+        I2C_CloseSendData(&g_i2c);
+    }
 #endif
 }
 
@@ -218,7 +243,10 @@ uint8_t ESP32_Link_Init(void)
 
     g_i2c.pI2Cx = ESP32_I2C_INSTANCE;
     g_i2c.I2C_Config.I2C_SCLSpeed = I2C_SCL_SPEED_FM4K;
-    g_i2c.I2C_Config.I2C_DeviceAddress = 0U;
+    /* The STM32 is only a master here, but the F4 I2C block always also
+     * answers its own address. 0x7F is reserved and used by no device, so
+     * a bus glitch cannot turn this side into a receiver. */
+    g_i2c.I2C_Config.I2C_DeviceAddress = 0x7FU;
     g_i2c.I2C_Config.I2C_ACKControl = I2C_ACK_ENABLE;
     g_i2c.I2C_Config.I2C_FMDutyCycle = I2C_FM_DUTY_2;
     if (I2C_InitEx(&g_i2c) != I2C_STATUS_OK)
@@ -420,24 +448,46 @@ void ESP32_Link_Task(void)
 
     if ((g_ioState == ESP32_LINK_IO_TX) || (g_ioState == ESP32_LINK_IO_RX))
     {
-        if ((uint32_t)(now - g_transferStartedMs) > ESP32_LINK_TRANSFER_TIMEOUT_MS)
+        uint8_t timedOut =
+            ((uint32_t)(now - g_transferStartedMs) > ESP32_LINK_TRANSFER_TIMEOUT_MS) ? 1U : 0U;
+
+        if ((timedOut != 0U) || (g_transferEvent == ESP32_LINK_EVENT_ERROR))
         {
-            g_errorCount++;
-            g_failureCount++;
-            g_ioState = ESP32_LINK_IO_FAILED;
-            if (g_failureCount >= ESP32_LINK_FAILURE_RESET_LIMIT)
+            if (timedOut != 0U)
             {
-                g_resetRequested = 1U;
+                /* The interrupt transfer is still open: end it, or every
+                 * later submit finds the driver busy. */
+                ESP32_Link_AbortTransfer();
             }
-        }
-        else if (g_transferEvent == ESP32_LINK_EVENT_ERROR)
-        {
+            g_transferEvent = ESP32_LINK_EVENT_NONE;
             g_errorCount++;
-            g_failureCount++;
-            g_ioState = ESP32_LINK_IO_FAILED;
-            if (g_failureCount >= ESP32_LINK_FAILURE_RESET_LIMIT)
+
+            if ((g_ioState == ESP32_LINK_IO_RX) &&
+                ((uint32_t)(now - g_requestSentMs) < ESP32_LINK_REPLY_WINDOW_MS))
             {
-                g_resetRequested = 1U;
+                /* The request was delivered; only the read failed. */
+                g_readRetryCount++;
+                g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
+                g_stateAtMs = now + ESP32_LINK_SLOW_READ_MS;
+            }
+            else if (g_retryCount < ESP32_LINK_RETRY_LIMIT)
+            {
+                /* NACK or bus error while sending (the ESP was busy):
+                 * send again with the same sequence number. */
+                g_retryCount++;
+                g_readRetryCount = 0U;
+                g_retryPendingTransmit = 1U;
+                g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
+                g_stateAtMs = now + ESP32_LINK_SLOW_READ_MS;
+            }
+            else
+            {
+                g_failureCount++;
+                g_ioState = ESP32_LINK_IO_FAILED;
+                if (g_failureCount >= ESP32_LINK_FAILURE_RESET_LIMIT)
+                {
+                    g_resetRequested = 1U;
+                }
             }
         }
         else if ((g_ioState == ESP32_LINK_IO_TX) &&
@@ -445,6 +495,8 @@ void ESP32_Link_Task(void)
         {
             g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
             g_stateAtMs = now + ESP32_LINK_RESPONSE_DELAY_MS;
+            g_requestSentMs = now;
+            g_readRetryCount = 0U;
             g_transferEvent = ESP32_LINK_EVENT_NONE;
         }
         else if ((g_ioState == ESP32_LINK_IO_RX) &&
@@ -467,12 +519,13 @@ void ESP32_Link_Task(void)
                 g_stateAtMs = now + 1U;
             }
             else if (((validated == 0U) || (validated == 3U)) &&
-                     (g_readRetryCount < ESP32_LINK_READ_RETRY_LIMIT))
+                     ((uint32_t)(now - g_requestSentMs) < ESP32_LINK_REPLY_WINDOW_MS))
             {
                 /* Stale or not staged yet: read again, do not resend. */
                 g_readRetryCount++;
                 g_ioState = ESP32_LINK_IO_WAIT_RESPONSE;
-                g_stateAtMs = now + ESP32_LINK_RESPONSE_DELAY_MS;
+                g_stateAtMs = now + ((g_readRetryCount < ESP32_LINK_FAST_READS) ?
+                    ESP32_LINK_RESPONSE_DELAY_MS : ESP32_LINK_SLOW_READ_MS);
             }
             else if ((validated != 2U) && (g_retryCount < ESP32_LINK_RETRY_LIMIT))
             {
@@ -590,6 +643,20 @@ void I2C_ApplicationEventCallback(I2C_Handle_t *pI2CHandle, uint8_t event)
     {
         return;
     }
+    /* Addressed as a slave anyway (glitch, lost arbitration): RXNE / TXE
+     * stay set until DR is accessed and would re-enter the event IRQ
+     * forever, starving the main loop until the watchdog resets. */
+    if (event == I2C_EV_DATA_RCV)
+    {
+        (void)I2C_SlaveReceiverData(pI2CHandle->pI2Cx);
+        return;
+    }
+    if (event == I2C_EV_DATA_REQ)
+    {
+        I2C_SlaveSendData(pI2CHandle->pI2Cx, 0xFFU);
+        return;
+    }
+
     if (event == I2C_EV_TX_CMPLT)
     {
         g_transferEvent = ESP32_LINK_EVENT_TX_DONE;

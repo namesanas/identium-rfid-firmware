@@ -85,6 +85,24 @@ The STM32 pulses EN once at start-up. Both sides then begin with empty buffers a
 
 The ESP32 keeps `GET_STATUS` data pre-staged/cached so the master poll is inexpensive. Socket RX/TX queues are bounded ring buffers. Only one host TCP client is accepted at a time. The ESP receives configuration after every successful handshake and does not intentionally persist WiFi credentials in NVS.
 
+## Bench findings (F429 Discovery + ESP32 DevKit, 2026-10-10)
+
+The first runs with real hardware found these problems. Each is fixed as described.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Reader hung and the IWDG reset it (`RESET=IWDG`) after a few WiFi commands | The STM32 I2C block (own address 0) was addressed as a slave after a bus glitch. `RXNE` was never read, so the I2C3 event IRQ re-entered forever and starved the main loop. Captured by halting the CPU: IPSR = I2C3_EV, SR1.RXNE = 1, SR2.MSL = 0. | Own address 0x7F (reserved). Slave-mode `DATA_RCV` / `DATA_REQ` events are drained in the link callback. |
+| Host commands and status frozen after the ESP was reset | The link reset discarded a failed result before the WiFi service read it, and the service waited for it forever. | Link IDLE while a request is outstanding counts as a failed request. |
+| ESP reset in a loop while starting WiFi | The ESP executes WiFi start / config (~100–300 ms) before replying. The master gave up after ~30 ms and, after 3 failures, pulsed EN. | Replies are awaited for up to 1.5 s (fast re-reads first, then every 10 ms). A NACK or bus error retries the request instead of counting as a failure. A timed-out interrupt transfer is aborted. |
+| `REJECTED=11/1`: `WIFI_CONNECT` refused | `esp_wifi_set_config()` fails while an earlier connect attempt is running. The rejected command was resent on every loop pass, which also starved the status poll. | ESP cancels a running attempt first. A rejected CONFIG / CONNECT / DISCONNECT is retried after 1 s while status polling continues. `GET_WIFI` shows `REJECTED=<cmd>/<result>`. |
+| `request CRC mismatch` on the ESP; link errors under WiFi traffic, EN resets every 100–350 commands | The classic ESP32 slave cannot stretch the clock. Its I2C interrupt ran on CPU 0 next to WiFi and missed FIFO deadlines. | The link runs in its own task pinned to CPU 1, which installs the driver, so its interrupt is on CPU 1. |
+| ESP restarted on its own and stayed unconfigured (`STATE=DISABLED`) | — | Status `DISABLED` while WiFi is enabled and started triggers a reconfiguration. |
+| USB / serial host deaf after a WiFi client disappeared | The host lock stayed on `HOST_TRANSPORT_WIFI`. | Released when the link is down or no WiFi client is connected. |
+
+After the fixes, 1000 of 1000 commands over WiFi TCP were answered in 40 s with 0 I2C errors and no ESP reset. Round trip: median 31 ms, 95th percentile 80 ms.
+
+Flashing the DevKit: its auto-reset does not enter download mode (hold BOOT, tap EN, release BOOT). Disconnect the PA15–EN wire while flashing, otherwise the STM32 resets the ESP mid-flash when it stops answering.
+
 ## Recovery and concurrent Ethernet
 
 After successive I2C errors or timeouts, the STM32 generates a STOP, clocks SCL up to nine times to release a stuck bus, reinitializes its I2C peripheral, pulses ESP EN low, waits for boot, and starts the handshake again. After handshake it re-sends current settings and reopens the applicable sockets. An absent/dead ESP must not stop the main loop.

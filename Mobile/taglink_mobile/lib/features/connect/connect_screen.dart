@@ -157,7 +157,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
       socket.add(utf8.encode('GET_VERSION\r\n'));
       sentVersionCommand = true;
       await socket.flush();
-      final line = await firstLine.future.timeout(const Duration(milliseconds: 800), onTimeout: () => null);
+      // GET_VERSION queries the RFID module and crosses the WiFi coprocessor
+      // link: usually ~100 ms, occasionally over a second.
+      final line = await firstLine.future.timeout(const Duration(seconds: 2), onTimeout: () => null);
       return line != null && line.startsWith('VERSION,');
     } catch (_) {
       return false;

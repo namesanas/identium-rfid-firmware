@@ -5,6 +5,7 @@
 #include "../Time/time_service.h"
 #include "../configuration/reader_settings.h"
 #include "http_upload.h"
+#include "../upload/active_upload_transport.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -75,6 +76,19 @@ void Ethernet_Service_Task(void)
 
     socketStatus = W5500_Socket0_GetStatus();
     now = Time_GetTickMs();
+
+    /* Socket 0 is reserved for active uploads. Host TCP commands use socket 3
+     * and remain available regardless of the selected upload interface. */
+    if(ActiveUpload_Transport_GetSelected() != ACTIVE_UPLOAD_INTERFACE_ETH)
+    {
+        if(socketStatus != W5500_Sn_SR_CLOSED)
+            (void)W5500_Socket0_Close();
+        if(ethernetClientConnected != 0U)
+            Ethernet_Service_ConnectionLost();
+        ethernetReconnectDelayMs = ETHERNET_RECONNECT_MIN_MS;
+        ethernetNextConnectAttemptMs = now + ETHERNET_RECONNECT_MIN_MS;
+        return;
+    }
 
     /* Passive work state (set by the vendor tools): no upload connection. */
     if(ReaderSettings_GetWorkState() != READER_SETTINGS_WORK_ACTIVE)

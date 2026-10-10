@@ -521,6 +521,282 @@ static uint8_t VendorConfig_CheckHttpUrl(VendorJsonSpan_t root)
     return VendorConfig_GetHttpUrl(root, &present, NULL, 0U, NULL);
 }
 
+static int VendorConfig_HexValue(char value)
+{
+    if((value >= '0') && (value <= '9')) return value - '0';
+    if((value >= 'a') && (value <= 'f')) return value - 'a' + 10;
+    if((value >= 'A') && (value <= 'F')) return value - 'A' + 10;
+    return -1;
+}
+
+static uint8_t VendorConfig_AppendUtf8(uint32_t codepoint, char *out,
+                                       size_t capacity, size_t *used)
+{
+    uint8_t bytes[4];
+    size_t count;
+    if(codepoint <= 0x7FU)
+    {
+        bytes[0] = (uint8_t)codepoint; count = 1U;
+    }
+    else if(codepoint <= 0x7FFU)
+    {
+        bytes[0] = (uint8_t)(0xC0U | (codepoint >> 6U));
+        bytes[1] = (uint8_t)(0x80U | (codepoint & 0x3FU)); count = 2U;
+    }
+    else if((codepoint >= 0xD800U) && (codepoint <= 0xDFFFU))
+    {
+        return 0U;
+    }
+    else if(codepoint <= 0xFFFFU)
+    {
+        bytes[0] = (uint8_t)(0xE0U | (codepoint >> 12U));
+        bytes[1] = (uint8_t)(0x80U | ((codepoint >> 6U) & 0x3FU));
+        bytes[2] = (uint8_t)(0x80U | (codepoint & 0x3FU)); count = 3U;
+    }
+    else if(codepoint <= 0x10FFFFU)
+    {
+        bytes[0] = (uint8_t)(0xF0U | (codepoint >> 18U));
+        bytes[1] = (uint8_t)(0x80U | ((codepoint >> 12U) & 0x3FU));
+        bytes[2] = (uint8_t)(0x80U | ((codepoint >> 6U) & 0x3FU));
+        bytes[3] = (uint8_t)(0x80U | (codepoint & 0x3FU)); count = 4U;
+    }
+    else return 0U;
+
+    if((*used + count) >= capacity) return 0U;
+    memcpy(&out[*used], bytes, count);
+    *used += count;
+    return 1U;
+}
+
+static uint8_t VendorConfig_DecodeJsonString(VendorJsonSpan_t value,
+                                              char *out, size_t capacity)
+{
+    const char *p;
+    const char *end;
+    size_t used = 0U;
+    if((value.start >= value.end) || (*value.start != '"') ||
+       (value.end[-1] != '"') || (capacity == 0U)) return 0U;
+
+    p = value.start + 1;
+    end = value.end - 1;
+    while(p < end)
+    {
+        uint32_t codepoint;
+        if((unsigned char)*p < 0x20U) return 0U;
+        if(*p != '\\')
+        {
+            if((used + 1U) >= capacity) return 0U;
+            out[used++] = *p++;
+            continue;
+        }
+        p++;
+        if(p >= end) return 0U;
+        switch(*p++)
+        {
+            case '"': codepoint = '"'; break;
+            case '\\': codepoint = '\\'; break;
+            case '/': codepoint = '/'; break;
+            case 'b': codepoint = '\b'; break;
+            case 'f': codepoint = '\f'; break;
+            case 'n': codepoint = '\n'; break;
+            case 'r': codepoint = '\r'; break;
+            case 't': codepoint = '\t'; break;
+            case 'u':
+            {
+                int h0, h1, h2, h3;
+                if((end - p) < 4) return 0U;
+                h0 = VendorConfig_HexValue(p[0]); h1 = VendorConfig_HexValue(p[1]);
+                h2 = VendorConfig_HexValue(p[2]); h3 = VendorConfig_HexValue(p[3]);
+                if((h0 < 0) || (h1 < 0) || (h2 < 0) || (h3 < 0)) return 0U;
+                codepoint = ((uint32_t)h0 << 12U) | ((uint32_t)h1 << 8U) |
+                            ((uint32_t)h2 << 4U) | (uint32_t)h3;
+                p += 4;
+                if((codepoint >= 0xD800U) && (codepoint <= 0xDBFFU))
+                {
+                    uint32_t low;
+                    if(((end - p) < 6) || (p[0] != '\\') || (p[1] != 'u')) return 0U;
+                    h0 = VendorConfig_HexValue(p[2]); h1 = VendorConfig_HexValue(p[3]);
+                    h2 = VendorConfig_HexValue(p[4]); h3 = VendorConfig_HexValue(p[5]);
+                    if((h0 < 0) || (h1 < 0) || (h2 < 0) || (h3 < 0)) return 0U;
+                    low = ((uint32_t)h0 << 12U) | ((uint32_t)h1 << 8U) |
+                          ((uint32_t)h2 << 4U) | (uint32_t)h3;
+                    if((low < 0xDC00U) || (low > 0xDFFFU)) return 0U;
+                    p += 6;
+                    codepoint = 0x10000U + (((codepoint - 0xD800U) << 10U) | (low - 0xDC00U));
+                }
+                break;
+            }
+            default: return 0U;
+        }
+        if((codepoint < 0x20U) || (VendorConfig_AppendUtf8(codepoint, out, capacity, &used) == 0U))
+            return 0U;
+    }
+    out[used] = '\0';
+    return 1U;
+}
+
+static uint8_t VendorConfig_ApplyWifiString(VendorJsonSpan_t wifi,
+                                            const char *key,
+                                            char *destination,
+                                            size_t destinationSize,
+                                            uint8_t isPassword,
+                                            uint8_t *settingsChanged)
+{
+    VendorJsonSpan_t value;
+    char text[READER_SETTINGS_WIFI_PASSWORD_MAX + 1U];
+
+    if(VendorJson_FindKey(wifi, key, &value) == 0U)
+    {
+        return 1U;
+    }
+    if((VendorConfig_DecodeJsonString(value, text, sizeof(text)) == 0U) ||
+       (strlen(text) >= destinationSize))
+    {
+        return 0U;
+    }
+
+    /* Readback masks stored secrets. A masked round-trip must not overwrite
+     * the real credential with four asterisks. */
+    if((isPassword != 0U) && (strcmp(text, "****") == 0))
+    {
+        return 1U;
+    }
+    if(strcmp(destination, text) != 0)
+    {
+        memset(destination, 0, destinationSize);
+        memcpy(destination, text, strlen(text));
+        *settingsChanged = 1U;
+    }
+    return 1U;
+}
+
+static uint8_t VendorConfig_ApplyWifiNumber(VendorJsonSpan_t wifi,
+                                            const char *key,
+                                            uint8_t *destination,
+                                            uint32_t maximum,
+                                            uint8_t *settingsChanged)
+{
+    VendorJsonSpan_t value;
+    uint32_t number;
+
+    if(VendorJson_FindKey(wifi, key, &value) == 0U)
+    {
+        return 1U;
+    }
+    if((VendorJson_GetUnsigned(value, &number) == 0U) || (number > maximum))
+    {
+        return 0U;
+    }
+    if(*destination != (uint8_t)number)
+    {
+        *destination = (uint8_t)number;
+        *settingsChanged = 1U;
+    }
+    return 1U;
+}
+
+static uint8_t VendorConfig_ApplyWifiIp(VendorJsonSpan_t wifi,
+                                        const char *key,
+                                        uint8_t destination[4],
+                                        uint8_t *settingsChanged)
+{
+    VendorJsonSpan_t value;
+    uint8_t address[4];
+
+    if(VendorJson_FindKey(wifi, key, &value) == 0U)
+    {
+        return 1U;
+    }
+    if(VendorJson_GetIp(value, address) == 0U)
+    {
+        return 0U;
+    }
+    if(memcmp(destination, address, sizeof(address)) != 0)
+    {
+        memcpy(destination, address, sizeof(address));
+        *settingsChanged = 1U;
+    }
+    return 1U;
+}
+
+static uint8_t VendorConfig_ApplyWifiSettings(VendorJsonSpan_t upload,
+                                              ReaderSettings_t *settings,
+                                              uint8_t *settingsChanged,
+                                              uint8_t *uploadTargetChanged)
+{
+    VendorJsonSpan_t value;
+    VendorJsonSpan_t wifi;
+    char interfaceName[8];
+    uint8_t interfaceValue;
+
+    if(VendorJson_FindKey(upload, "interface", &value) != 0U)
+    {
+        if(VendorJson_GetString(value, interfaceName, sizeof(interfaceName)) == 0U)
+        {
+            return 0U;
+        }
+        if(strcmp(interfaceName, "eth") == 0)
+            interfaceValue = READER_SETTINGS_UPLOAD_IF_ETH;
+        else if(strcmp(interfaceName, "wifi") == 0)
+            interfaceValue = READER_SETTINGS_UPLOAD_IF_WIFI;
+        else if(strcmp(interfaceName, "auto") == 0)
+            interfaceValue = READER_SETTINGS_UPLOAD_IF_AUTO;
+        else
+            return 0U;
+        if(settings->uploadInterface != interfaceValue)
+        {
+            settings->uploadInterface = interfaceValue;
+            *settingsChanged = 1U;
+            *uploadTargetChanged = 1U;
+        }
+    }
+
+    if(VendorJson_FindKey(upload, "wifi", &wifi) == 0U)
+    {
+        return 1U;
+    }
+    if(*wifi.start != '{')
+    {
+        return 0U;
+    }
+
+    if(!VendorConfig_ApplyWifiNumber(wifi, "enable", &settings->wifiEnabled, 1U, settingsChanged) ||
+       !VendorConfig_ApplyWifiNumber(wifi, "dhcp", &settings->wifiDhcp, 1U, settingsChanged) ||
+       !VendorConfig_ApplyWifiNumber(wifi, "ap_channel", &settings->wifiApChannel, 13U, settingsChanged) ||
+       !VendorConfig_ApplyWifiString(wifi, "ssid", settings->wifiSsid, sizeof(settings->wifiSsid), 0U, settingsChanged) ||
+       !VendorConfig_ApplyWifiString(wifi, "password", settings->wifiPassword, sizeof(settings->wifiPassword), 1U, settingsChanged) ||
+       !VendorConfig_ApplyWifiString(wifi, "ap_ssid", settings->wifiApSsid, sizeof(settings->wifiApSsid), 0U, settingsChanged) ||
+       !VendorConfig_ApplyWifiString(wifi, "ap_password", settings->wifiApPassword, sizeof(settings->wifiApPassword), 1U, settingsChanged) ||
+       !VendorConfig_ApplyWifiIp(wifi, "ip", settings->wifiStaticIp, settingsChanged) ||
+       !VendorConfig_ApplyWifiIp(wifi, "nm", settings->wifiNetmask, settingsChanged) ||
+       !VendorConfig_ApplyWifiIp(wifi, "gw", settings->wifiGateway, settingsChanged) ||
+       !VendorConfig_ApplyWifiIp(wifi, "dns", settings->wifiDns, settingsChanged))
+    {
+        return 0U;
+    }
+
+    if(VendorJson_FindKey(wifi, "mode", &value) != 0U)
+    {
+        char mode[8];
+        uint8_t modeValue;
+        if(VendorJson_GetString(value, mode, sizeof(mode)) == 0U)
+            return 0U;
+        if(strcmp(mode, "sta") == 0)
+            modeValue = READER_SETTINGS_WIFI_STA;
+        else if(strcmp(mode, "ap") == 0)
+            modeValue = READER_SETTINGS_WIFI_AP;
+        else
+            return 0U;
+        if(settings->wifiMode != modeValue)
+        {
+            settings->wifiMode = modeValue;
+            *settingsChanged = 1U;
+        }
+    }
+
+    return (settings->wifiApChannel != 0U) ? 1U : 0U;
+}
+
 static uint32_t VendorConfig_SetActive(const char *json, uint16_t length, uint8_t switchToActive)
 {
     static VendorFilter_t filter;
@@ -654,6 +930,12 @@ static uint32_t VendorConfig_SetActive(const char *json, uint16_t length, uint8_
                 settingsChanged = 1U;
                 serverChanged = 1U;
             }
+        }
+
+        if(VendorConfig_ApplyWifiSettings(section, &settings, &settingsChanged,
+                                          &serverChanged) == 0U)
+        {
+            return VENDOR_CONFIG_STATUS_INVALID;
         }
 
         /* Upload transport: the tools send exactly one of tcp / http /

@@ -24,6 +24,7 @@
 #include "../../Services/configuration/configuration_service.h"
 #include "../../Services/configuration/configuration_port.h"
 #include "../../Services/ethernet/host_tcp_server.h"
+#include "../../Services/wifi/wifi_service.h"
 #include "../../Services/host/host_transport.h"
 #include "../../Protocol/identium_protocol.h"
 #include "../../BSP/industrial_io.h"
@@ -354,6 +355,9 @@ Status_t  Firmware_Configuration_Init(void)
 
         return STATUS_ERROR;
     }
+
+    /* WiFi is optional: a missing ESP32 never prevents normal reader boot. */
+    WiFi_Service_Init(Identium_Protocol_PushTcpByte);
 
 
 

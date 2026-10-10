@@ -721,6 +721,46 @@ static uint8_t Configuration_Service_AppendEscapedName(
     return Configuration_Service_AppendEscapedString(cursor, remaining, source);
 }
 
+static uint8_t Configuration_Service_AppendWifiSettings(
+    char **cursor,
+    size_t *remaining,
+    const ReaderSettings_t *settings
+)
+{
+    const char *interfaceName;
+    const char *modeName;
+
+    if(settings->uploadInterface == READER_SETTINGS_UPLOAD_IF_ETH)
+        interfaceName = "eth";
+    else if(settings->uploadInterface == READER_SETTINGS_UPLOAD_IF_WIFI)
+        interfaceName = "wifi";
+    else
+        interfaceName = "auto";
+
+    modeName = (settings->wifiMode == READER_SETTINGS_WIFI_AP) ? "ap" : "sta";
+
+    if(!Configuration_Service_Append(cursor, remaining,
+        ",\"interface\":\"%s\",\"wifi\":{\"enable\":%u,\"mode\":\"%s\",\"ssid\":\"",
+        interfaceName, (unsigned int)settings->wifiEnabled, modeName) ||
+       !Configuration_Service_AppendEscapedString(cursor, remaining, settings->wifiSsid) ||
+       !Configuration_Service_AppendLiteral(cursor, remaining, "\",\"password\":\"****\",\"dhcp\":") ||
+       !Configuration_Service_AppendUnsigned(cursor, remaining, settings->wifiDhcp) ||
+       !Configuration_Service_Append(cursor, remaining,
+        ",\"ip\":\"%u.%u.%u.%u\",\"nm\":\"%u.%u.%u.%u\",\"gw\":\"%u.%u.%u.%u\",\"dns\":\"%u.%u.%u.%u\",\"ap_ssid\":\"",
+        settings->wifiStaticIp[0], settings->wifiStaticIp[1], settings->wifiStaticIp[2], settings->wifiStaticIp[3],
+        settings->wifiNetmask[0], settings->wifiNetmask[1], settings->wifiNetmask[2], settings->wifiNetmask[3],
+        settings->wifiGateway[0], settings->wifiGateway[1], settings->wifiGateway[2], settings->wifiGateway[3],
+        settings->wifiDns[0], settings->wifiDns[1], settings->wifiDns[2], settings->wifiDns[3]) ||
+       !Configuration_Service_AppendEscapedString(cursor, remaining, settings->wifiApSsid) ||
+       !Configuration_Service_AppendLiteral(cursor, remaining, "\",\"ap_password\":\"****\",\"ap_channel\":") ||
+       !Configuration_Service_AppendUnsigned(cursor, remaining, settings->wifiApChannel) ||
+       !Configuration_Service_AppendLiteral(cursor, remaining, "}"))
+    {
+        return 0U;
+    }
+    return 1U;
+}
+
 uint16_t Configuration_Service_BuildActiveJson(
     char *buffer,
     uint16_t bufferSize
@@ -903,8 +943,14 @@ uint16_t Configuration_Service_BuildActiveJson(
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.dataAggregationMode) ||
        !Configuration_Service_AppendLiteral(&cursor, &remaining, ",\"timeval\":") ||
        !Configuration_Service_AppendUnsigned(&cursor, &remaining, g_liveConfiguration.dataAggregationTimeMs) ||
-       !Configuration_Service_AppendLiteral(&cursor, &remaining, "}},\"gpo_act\":[],\"events\":[")
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "}")
     )
+    {
+        return 0U;
+    }
+
+    if(!Configuration_Service_AppendWifiSettings(&cursor, &remaining, ReaderSettings_Get()) ||
+       !Configuration_Service_AppendLiteral(&cursor, &remaining, "},\"gpo_act\":[],\"events\":["))
     {
         return 0U;
     }

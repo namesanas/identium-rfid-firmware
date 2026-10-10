@@ -19,3 +19,4 @@ ios/.symlinks/
 ios/Flutter/ephemeral/
 .DS_Store
 *.iml
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java

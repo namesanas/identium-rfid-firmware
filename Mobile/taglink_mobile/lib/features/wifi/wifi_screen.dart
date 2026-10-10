@@ -87,6 +87,8 @@ class _WifiScreenState extends State<WifiScreen> {
       sectionTitle('Configure network', subtitle: 'This may disconnect your phone from the reader. The password is not stored by this app.'),
       SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Wi-Fi enabled'), value: _enabled, onChanged: _loading ? null : (value) => setState(() => _enabled = value)),
       const SizedBox(height: 8),
+      // `value` (not initialValue): the field must follow _mode when GET_WIFI arrives.
+      // ignore: deprecated_member_use
       DropdownButtonFormField<String>(value: _mode, decoration: const InputDecoration(labelText: 'Mode', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'STA', child: Text('Station (join a Wi-Fi network)')), DropdownMenuItem(value: 'AP', child: Text('Access point (reader creates Wi-Fi)'))], onChanged: _loading ? null : (value) { if (value != null) setState(() => _mode = value); }),
       const SizedBox(height: 12),
       TextField(controller: _ssid, decoration: const InputDecoration(labelText: 'SSID (no commas)', border: OutlineInputBorder()), autocorrect: false, textCapitalization: TextCapitalization.none),

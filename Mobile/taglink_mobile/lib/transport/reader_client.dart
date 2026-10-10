@@ -305,9 +305,9 @@ class ReaderClient {
     // Keep inventory ownership through reconnect; a successful IDLE status or explicit
     // disconnect clears it. This allows background cleanup to STOP inventory after a drop.
     final active = _activeCommand;
-    if (active != null) _finishError(active, SocketException('Reader connection lost'));
+    if (active != null) _finishError(active, const SocketException('Reader connection lost'));
     for (final item in _queue.toList()) {
-      if (!identical(item, active)) _finishError(item, SocketException('Reader connection lost'));
+      if (!identical(item, active)) _finishError(item, const SocketException('Reader connection lost'));
     }
     connectionMessage.value = 'Disconnected';
     if (!_intentionalDisconnect && _hasConnectedBefore && !_reconnecting) _scheduleReconnect();

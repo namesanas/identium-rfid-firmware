@@ -47,7 +47,7 @@ class _LogsScreenState extends State<LogsScreen> {
       Expanded(child: shown.isEmpty ? const Center(child: Text('No protocol traffic yet.')) : ListView.builder(itemCount: shown.length, itemBuilder: (context, index) {
         final entry = shown[index];
         final sent = entry.direction == 'TX';
-        return Container(color: sent ? Theme.of(context).colorScheme.primary.withOpacity(0.045) : null, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        return Container(color: sent ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.045) : null, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(width: 64, child: Text('${entry.time.hour.toString().padLeft(2, '0')}:${entry.time.minute.toString().padLeft(2, '0')}:${entry.time.second.toString().padLeft(2, '0')}.${entry.time.millisecond.toString().padLeft(3, '0')}', style: Theme.of(context).textTheme.labelSmall)),
           SizedBox(width: 28, child: Text(entry.direction, style: TextStyle(color: sent ? Theme.of(context).colorScheme.primary : Colors.teal, fontWeight: FontWeight.bold, fontSize: 11))),
           Expanded(child: SelectableText(entry.line, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),

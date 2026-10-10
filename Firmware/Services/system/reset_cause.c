@@ -52,7 +52,7 @@ void Reset_Cause_Init(void)
      * Determine the primary cause.
      *
      * Watchdog/software causes are checked before
-     * power/pin causes.
+     * power/pin causes (the pin flag is set by every reset).
      */
     if(
         (g_resetFlags & RCC_CSR_IWDGRSTF) != 0U
@@ -75,19 +75,23 @@ void Reset_Cause_Init(void)
         g_resetCause =
             RESET_CAUSE_SOFTWARE;
     }
-    else if(
-        (g_resetFlags & RCC_CSR_BORRSTF) != 0U
-    )
-    {
-        g_resetCause =
-            RESET_CAUSE_BROWN_OUT;
-    }
+    /*
+     * A power-on reset sets BORRSTF as well as PORRSTF, so POR is
+     * checked first; BORRSTF alone is a real brown-out.
+     */
     else if(
         (g_resetFlags & RCC_CSR_PORRSTF) != 0U
     )
     {
         g_resetCause =
             RESET_CAUSE_POWER_ON;
+    }
+    else if(
+        (g_resetFlags & RCC_CSR_BORRSTF) != 0U
+    )
+    {
+        g_resetCause =
+            RESET_CAUSE_BROWN_OUT;
     }
     else if(
         (g_resetFlags & RCC_CSR_PINRSTF) != 0U

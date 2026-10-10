@@ -1,9 +1,12 @@
-import queue, threading, socket, select
+import queue, threading, socket, select, time
 from serial import Serial, SerialException
 
 ETHERNET_OPTION = "__ETHERNET__"
 ETHERNET_HOST = "192.168.150.50"
 ETHERNET_PORT = 5000
+# The reader's WiFi host port (ESP32 coprocessor) uses the same text
+# protocol and port as Ethernet; only the address differs.
+WIFI_OPTION = "__WIFI__"
 from serial.tools import list_ports
 from PySide6.QtCore import QObject, Signal
 
@@ -28,6 +31,74 @@ class SerialManager(QObject):
     @staticmethod
     def ports():
         return list(list_ports.comports())
+
+    @staticmethod
+    def local_subnets():
+        """/24 prefixes of this PC's IPv4 addresses (e.g. '192.168.1.')."""
+        addresses = set()
+        try:
+            for address in socket.gethostbyname_ex(socket.gethostname())[2]:
+                addresses.add(address)
+        except OSError:
+            pass
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.connect(('8.8.8.8', 80))   # no packet is sent for UDP connect
+            addresses.add(probe.getsockname()[0])
+            probe.close()
+        except OSError:
+            pass
+        return sorted({a.rsplit('.', 1)[0] + '.' for a in addresses
+                       if not a.startswith(('127.', '169.254.'))})
+
+    @staticmethod
+    def scan_tcp(skip=(), port=ETHERNET_PORT, connect_timeout=0.8):
+        """Find readers that answer text commands on TCP `port` in the local
+        /24 networks (WiFi readers have no UDP discovery). Each open port
+        gets GET_VERSION; a reader that answers is released again. A port
+        that is open but silent belongs to a reader whose command interface
+        is held by another link (or by this program): it is listed as busy."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def probe(ip):
+            try:
+                sock = socket.create_connection((ip, port), timeout=connect_timeout)
+            except OSError:
+                return None
+            reader = {'ip': ip, 'mac': '', 'port': port, 'board': '',
+                      'firmware': '', 'mode': 'Busy', 'link': 'tcp'}
+            try:
+                sock.settimeout(0.2)
+                sock.sendall(b'GET_VERSION\r\n')
+                buffer = b''
+                deadline = time.monotonic() + 1.5
+                while b'VERSION,' not in buffer and time.monotonic() < deadline:
+                    try:
+                        chunk = sock.recv(512)
+                        if not chunk:
+                            break
+                        buffer += chunk
+                    except socket.timeout:
+                        pass
+                for line in buffer.decode('ascii', 'replace').splitlines():
+                    if line.startswith('VERSION,'):
+                        fields = dict(part.split('=', 1) for part in line.split(',')[1:] if '=' in part)
+                        reader['firmware'] = fields.get('FWVER', '')
+                        reader['mode'] = 'TCP'
+                        sock.sendall(b'RELEASE\r\n')
+                        time.sleep(0.1)
+                        break
+            except OSError:
+                pass
+            finally:
+                sock.close()
+            return reader
+
+        targets = [prefix + str(host) for prefix in SerialManager.local_subnets()
+                   for host in range(1, 255)]
+        targets = [ip for ip in targets if ip not in skip]
+        with ThreadPoolExecutor(max_workers=64) as pool:
+            return [r for r in pool.map(probe, targets) if r]
 
     @staticmethod
     def discover(timeout=0.75):
@@ -125,7 +196,7 @@ class SerialManager(QObject):
     def _open(self, p, b, host=None):
         self._close()
 
-        if p == ETHERNET_OPTION:
+        if p in (ETHERNET_OPTION, WIFI_OPTION):
             self._open_ethernet(host or ETHERNET_HOST)
             return
 

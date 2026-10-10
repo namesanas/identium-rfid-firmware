@@ -54,6 +54,8 @@ for line in (
     'NETWORK,IP=192.168.1.50,MASK=255.255.255.0,GATEWAY=192.168.1.1,DNS=0.0.0.0,PORT=8080,MAC=02:1D:62:9C:F3:7E',
     'FREQ,902750,915250,927250',
     'WORK_MODE,PASSIVE',
+    'WIFI,LINK=ONLINE,STATE=CONNECTED,IP=192.168.1.17,RSSI=-32,HOST=1,UPLOAD=0,ENABLE=1,MODE=STA,SSID=OfficeNet,IF=AUTO,ERRORS=0,REJECTED=00/0',
+    'DIAG,RESET=PIN,UPTIME_MS=55367,FAULTS=0,LAST_FAULT=NONE,LOOP_MAX_US=1410,PASSES=492514,ETH_US=54,WIFI_US=474,CFG_US=1351,PROTO_US=46,GPIO_US=15,RFID_US=5,HOST_US=866,STACK_USED=1564,STACK_SIZE=16352,BOR=2',
     'ERROR,INVALID_COMMAND',
 ):
     window.on_line(line)
@@ -81,6 +83,26 @@ assert window.work_mode == 'ACTIVE' and window.work_mode_active.isChecked()
 window.pending = ['GET_WORK_MODE', 0]; window.on_line('WORK_MODE,PASSIVE')
 assert window.work_mode == 'PASSIVE'
 assert window.vswr_series.count() == 3
+# WiFi: status fills the card and the WiFi address; the form queues SET_WIFI.
+assert window.wifi_host.text() == '192.168.1.17'
+assert window.wifi_ssid.text() == 'OfficeNet' and window.wifi_enable.isChecked()
+assert 'connected' in window.wifi_status.text() and '-32 dBm' in window.wifi_status.text()
+window.on_ports_ready([])
+assert window.port.findData(namespace['WIFI_OPTION']) >= 0
+assert window.diag_table.rowCount() == 16
+window.port.setCurrentIndex(window.port.findData(namespace['ETHERNET_OPTION']))
+window.queue = []; window.pending = ['GET_STATUS', 0]
+window.apply_wifi_settings()
+assert window.queue[-1] == 'SET_WIFI,1,STA,OfficeNet,****', window.queue
+window.wifi_ssid.setText('Bad,Name'); window.queue = []
+namespace['QMessageBox'].warning = staticmethod(lambda *a, **k: None)
+window.apply_wifi_settings(); assert window.queue == []
+window.wifi_ssid.setText('OfficeNet')
+window.upload_interface.setCurrentIndex(window.upload_interface.findData('WIFI')); window.apply_upload_interface()
+assert window.queue[-1] == 'SET_UPLOAD_IF,WIFI'
+window.port.setCurrentIndex(window.port.findData(namespace['WIFI_OPTION']))
+assert window.tcp_host() == '192.168.1.17'
+window.queue = []; window.pending = None
 window.select_feature(4)
 assert window.log_badge.isHidden()
 window.select_feature(0)

@@ -542,6 +542,21 @@ def build_ui(window):
     window.discovery_table.setMinimumHeight(110); window.discovery_table.setToolTip("Readers found by Discover readers; select one to use its IP")
     network_form.addRow(window.discovery_table)
 
+    wifi_card = QFrame(); wifi_card.setObjectName("Card"); wifi_form = QFormLayout(wifi_card); wifi_form.setContentsMargins(16, 14, 16, 14); wifi_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow); wifi_form.addRow(window.sec("WiFi"))
+    window.wifi_status = QLabel("Not read yet"); window.wifi_status.setObjectName("Sub"); window.wifi_status.setWordWrap(True); wifi_form.addRow("Status", window.wifi_status)
+    window.wifi_host = QLineEdit(); window.wifi_host.setPlaceholderText("Reader WiFi IP, e.g. 192.168.1.17"); window.wifi_host.setToolTip("Address used when the connection is set to WiFi. Filled by Discover readers and by the reader's WiFi status.")
+    wifi_form.addRow("Reader WiFi IP", _field(window.wifi_host))
+    window.wifi_enable = QCheckBox("WiFi enabled")
+    window.wifi_mode = QComboBox(); window.wifi_mode.addItem("Join a network (station)", "STA"); window.wifi_mode.addItem("Reader's own access point", "AP")
+    window.wifi_ssid = QLineEdit(); window.wifi_ssid.setPlaceholderText("Network name (2.4 GHz)")
+    window.wifi_password = QLineEdit(); window.wifi_password.setEchoMode(QLineEdit.Password); window.wifi_password.setPlaceholderText("Leave empty to keep the stored password")
+    window.wifi_open = QCheckBox("Open network (no password)")
+    wifi_form.addRow("", window.wifi_enable); wifi_form.addRow("Mode", _field(window.wifi_mode)); wifi_form.addRow("Network name", _field(window.wifi_ssid)); wifi_form.addRow("Password", _field(window.wifi_password)); wifi_form.addRow("", window.wifi_open)
+    window.upload_interface = QComboBox(); window.upload_interface.addItem("Auto (Ethernet first)", "AUTO"); window.upload_interface.addItem("Ethernet", "ETH"); window.upload_interface.addItem("WiFi", "WIFI"); window.upload_interface.setToolTip("Interface used for active-mode uploads (TCP / HTTP)")
+    wifi_form.addRow("Upload over", _field(window.upload_interface))
+    wifi_buttons = QHBoxLayout(); window.wifi_refresh = _button("Refresh", lambda: window.request("GET_WIFI")); window.wifi_apply = _button("Apply WiFi", window.apply_wifi_settings, "Primary"); window.upload_if_apply = _button("Apply upload interface", window.apply_upload_interface)
+    wifi_buttons.addWidget(window.wifi_refresh); wifi_buttons.addWidget(window.wifi_apply); wifi_buttons.addWidget(window.upload_if_apply); wifi_form.addRow("", wifi_buttons)
+
     peripherals_card = QFrame(); peripherals_card.setObjectName("Card"); peripherals_grid = QGridLayout(peripherals_card); peripherals_grid.setContentsMargins(16, 14, 16, 14); peripherals_grid.addWidget(window.sec("Peripherals"), 0, 0, 1, 4)
     window.gpi_labels = []
     for index in range(4):
@@ -566,7 +581,7 @@ def build_ui(window):
     window.dedupe = QCheckBox("One row per EPC (always)"); window.dedupe.setChecked(True); window.dedupe.setEnabled(False)
     window.auto = QCheckBox("Auto-scroll inventory"); window.auto.setChecked(True); window.clear_start = QCheckBox("Clear inventory on Start"); window.reconnect = QCheckBox("Auto reconnect"); window.reconnect.setChecked(True)
     interface_form.addRow("", window.dedupe); interface_form.addRow("", window.auto); interface_form.addRow("", window.clear_start); interface_form.addRow("", window.reconnect)
-    settings_grid.addWidget(reader_card, 0, 0); settings_grid.addWidget(rf_card, 0, 1); settings_grid.addWidget(network_card, 1, 0); settings_grid.addWidget(peripherals_card, 1, 1); settings_grid.addWidget(interface_card, 2, 0, 1, 2); settings_grid.setColumnStretch(0, 1); settings_grid.setColumnStretch(1, 1); settings_grid.setRowStretch(3, 1)
+    settings_grid.addWidget(reader_card, 0, 0); settings_grid.addWidget(rf_card, 0, 1); settings_grid.addWidget(network_card, 1, 0); settings_grid.addWidget(peripherals_card, 1, 1); settings_grid.addWidget(wifi_card, 2, 0); settings_grid.addWidget(interface_card, 2, 1); settings_grid.setColumnStretch(0, 1); settings_grid.setColumnStretch(1, 1); settings_grid.setRowStretch(3, 1)
     window.stack.addWidget(settings_page)
 
     # Diagnostics workspace with a live QtCharts plot.
@@ -596,7 +611,12 @@ def build_ui(window):
         info_row.addWidget(_button(label, lambda checked=False, cmd=command: window.request(cmd)))
     info_row.addStretch(); info_layout.addLayout(info_row)
     info_fields = QHBoxLayout(); info_fields.addWidget(QLabel("Module")); window.module_model = QLineEdit("Not discovered"); window.module_model.setReadOnly(True); info_fields.addWidget(window.module_model); info_fields.addWidget(QLabel("Firmware")); window.module_firmware = QLineEdit("Not discovered"); window.module_firmware.setReadOnly(True); info_fields.addWidget(window.module_firmware); info_layout.addLayout(info_fields)
-    diag_split.addWidget(info_card); diag_split.setStretchFactor(0, 4); diag_split.setStretchFactor(1, 1); diagnostics_layout.addWidget(diag_split, 1)
+    health_card = QFrame(); health_card.setObjectName("Card"); health_layout = QVBoxLayout(health_card); health_layout.setContentsMargins(16, 14, 16, 14); health_layout.setSpacing(10); health_layout.addWidget(window.sec("Reader health"))
+    health_row = QHBoxLayout(); window.diag_refresh = _button("Refresh", lambda: window.request("GET_DIAG")); window.diag_clear = _button("Clear loop timing", lambda: window.request("CLEAR_DIAG")); health_row.addWidget(window.diag_refresh); health_row.addWidget(window.diag_clear); health_row.addStretch(); health_layout.addLayout(health_row)
+    window.diag_table = QTableWidget(0, 2); _table(window.diag_table, ["Item", "Value"], 1); window.diag_table.setMinimumHeight(140); window.diag_table.setToolTip("GET_DIAG: reset cause, last fault, main-loop timing, stack use, brown-out level")
+    health_layout.addWidget(window.diag_table)
+
+    diag_split.addWidget(info_card); diag_split.addWidget(health_card); diag_split.setStretchFactor(0, 4); diag_split.setStretchFactor(1, 1); diag_split.setStretchFactor(2, 1); diagnostics_layout.addWidget(diag_split, 1)
     window.stack.addWidget(diagnostics_page)
 
     # Log workspace.

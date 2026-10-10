@@ -28,7 +28,7 @@ def parse_line(line: str):
         'STATUS','VERSION','SERIAL','TEMP','REGION','ANTENNA','POWER',
         'PROTOCOL','SESSION','FREQ','REGIONS','READ_DATA','CAPABILITIES',
         'HARDWARE','GPI','GPO','HTTP','NETWORK','VSWR','VSWR_POINT',
-        'VSWR_DONE','FIRMWARE','DISCOVERY','WORK_MODE'
+        'VSWR_DONE','FIRMWARE','DISCOVERY','WORK_MODE','WIFI','DIAG'
     }:
         values={'_csv':[]}
         for p in [x.strip() for x in tail.split(',') if x.strip()]:

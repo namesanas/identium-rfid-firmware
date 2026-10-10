@@ -3,13 +3,13 @@ from datetime import datetime
 from PySide6.QtCore import Qt,QTimer,QSettings,Signal
 from PySide6.QtGui import QAction,QFont
 from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QFormLayout,QFrame,QLabel,QPushButton,QComboBox,QLineEdit,QSpinBox,QDoubleSpinBox,QCheckBox,QTableWidget,QTableWidgetItem,QPlainTextEdit,QSplitter,QTabWidget,QFileDialog,QMessageBox,QHeaderView,QStatusBar,QScrollArea
-from serial_manager import SerialManager, ETHERNET_OPTION, ETHERNET_HOST, ETHERNET_PORT
+from serial_manager import SerialManager, ETHERNET_OPTION, WIFI_OPTION, ETHERNET_HOST, ETHERNET_PORT
 from protocol import parse_line
 from vswr_transport import VSWRBridge
 import theme
 from ui_builder import build_ui, refresh_theme, set_vswr_x_range
 
-INFO=["GET_VERSION","GET_SERIAL","GET_CAPABILITIES","GET_TEMPERATURE","GET_REGION","GET_ANTENNA","GET_POWER","GET_PROTOCOL","GET_SESSION","GET_FREQUENCY","GET_GPI","GET_NETWORK","GET_WORK_MODE"]
+INFO=["GET_VERSION","GET_SERIAL","GET_CAPABILITIES","GET_TEMPERATURE","GET_REGION","GET_ANTENNA","GET_POWER","GET_PROTOCOL","GET_SESSION","GET_FREQUENCY","GET_GPI","GET_NETWORK","GET_WORK_MODE","GET_WIFI"]
 
 class Main(QMainWindow):
     ports_ready = Signal(list)
@@ -27,6 +27,7 @@ class Main(QMainWindow):
         self.connection_generation=0
         self.manual_disconnect=False
         self.release_pending=False
+        self.wifi_form_dirty=False
         self.io=SerialManager()
         self.io.line_signal.connect(self.on_line)
         self.io.raw_signal.connect(self.on_raw)
@@ -35,6 +36,10 @@ class Main(QMainWindow):
         self.io.tx_signal.connect(self.on_tx)
         
         build_ui(self)
+        # A WiFi status refresh must not overwrite what the user is typing.
+        self.wifi_enable.toggled.connect(self.mark_wifi_dirty); self.wifi_mode.currentIndexChanged.connect(self.mark_wifi_dirty)
+        self.wifi_ssid.textEdited.connect(self.mark_wifi_dirty); self.wifi_password.textEdited.connect(self.mark_wifi_dirty)
+        self.wifi_open.toggled.connect(self.mark_wifi_dirty)
         self.set_controls(False)
         
         # Prevent diagnostic logs from endlessly growing and exhausting UI memory
@@ -53,7 +58,7 @@ class Main(QMainWindow):
         self.vswr_done_signal.connect(self.on_vswr_done)
         self.vswr_error_signal.connect(self.on_vswr_error)
 
-        self.restore(); self.apply_theme(); self.refresh_ports(); self.log("Application ready. Select USB or Ethernet.")
+        self.restore(); self.apply_theme(); self.refresh_ports(); self.log("Application ready. Select USB, Ethernet or WiFi.")
         self.port_timer=QTimer(self); self.port_timer.timeout.connect(self.refresh_ports); self.port_timer.start(2500)
         self.status_timer=QTimer(self); self.status_timer.timeout.connect(self.status_poll); self.status_timer.start(15000)
         self.timeout_timer=QTimer(self); self.timeout_timer.timeout.connect(self.check_timeout); self.timeout_timer.start(100)
@@ -82,6 +87,8 @@ class Main(QMainWindow):
         for w in getattr(self,'gpo_state',[]): w.setEnabled(on)
         for w in getattr(self,'gpo_duration',[]): w.setEnabled(on)
         for w in getattr(self,'gpo_buttons',[]): w.setEnabled(on)
+        for name in ('wifi_enable','wifi_mode','wifi_ssid','wifi_password','wifi_open','upload_interface','wifi_refresh','wifi_apply','upload_if_apply','diag_refresh','diag_clear'):
+            if hasattr(self,name): getattr(self,name).setEnabled(on)
         for w in (self.work_mode_passive,self.work_mode_active): w.setEnabled(on)
         self.return_passive.setVisible(on and self.work_mode == 'ACTIVE')
         self.write_tag_btn.setEnabled(on and not self.inventory)
@@ -119,10 +126,13 @@ class Main(QMainWindow):
 
             p=self.port.currentData()
             if p:
+                if p == WIFI_OPTION and not self.tcp_host():
+                    self.statusBar().showMessage('Enter the reader WiFi IP (Settings > WiFi) or use Discover readers.',5000)
+                    return
                 self.io.connect(
                     p,
                     int(self.baud.currentData()),
-                    self.ethernet_host()
+                    self.tcp_host()
                 )
     
     def force_disconnect(self):
@@ -149,7 +159,7 @@ class Main(QMainWindow):
     def try_reconnect(self,generation=None):
         if generation is not None and generation != self.connection_generation:
             return
-        if not self.connected and self.reconnect.isChecked() and self.port.currentData():self.io.connect(self.port.currentData(),int(self.baud.currentData()),self.ethernet_host())
+        if not self.connected and self.reconnect.isChecked() and self.port.currentData():self.io.connect(self.port.currentData(),int(self.baud.currentData()),self.tcp_host())
     
     def refresh_ports(self):
         def worker():
@@ -165,6 +175,9 @@ class Main(QMainWindow):
         if not ps:self.port.addItem("No VCP ports found",None)
         self.port.addItem("Ethernet",ETHERNET_OPTION)
         self.port.setItemData(self.port.count()-1, f"Ethernet — {self.ethernet_host()}:{ETHERNET_PORT}", Qt.ToolTipRole)
+        self.port.addItem("WiFi",WIFI_OPTION)
+        wifi_host = self.wifi_host.text().strip() if hasattr(self,'wifi_host') else ''
+        self.port.setItemData(self.port.count()-1, f"WiFi — {wifi_host or 'set the reader WiFi IP'}:{ETHERNET_PORT}", Qt.ToolTipRole)
 
         target=old or self.settings.value("port","",type=str)
         if target:
@@ -294,6 +307,8 @@ class Main(QMainWindow):
             'GET_NETWORK':'NETWORK',
             'GET_STATUS':'STATUS',
             'GET_WORK_MODE':'WORK_MODE',
+            'GET_WIFI':'WIFI',
+            'GET_DIAG':'DIAG',
         }.get(base)
 
         # All command-style operations complete with OK,<COMMAND>
@@ -373,6 +388,12 @@ class Main(QMainWindow):
                 self.vswr_scanning=False
                 self.vswr_scan_button.setEnabled(self.connected)
                 self.vswr_stop_button.setEnabled(False)
+            elif data=='SET_WIFI':
+                self.statusBar().showMessage('WiFi settings saved. The reader is reconnecting to WiFi.',6000)
+            elif data=='SET_UPLOAD_IF':
+                self.statusBar().showMessage('Upload interface saved.',4000)
+            elif data=='CLEAR_DIAG':
+                self.request('GET_DIAG')
             elif data=='SET_HTTP':
                 message='HTTP settings saved. They are used the next time the reader is in active mode.'
                 self.log(message); self.statusBar().showMessage(message,6000)
@@ -423,6 +444,10 @@ class Main(QMainWindow):
             self.log('GPO state updated.')
         elif kind=='NETWORK':
             self.apply_network(data)
+        elif kind=='WIFI':
+            self.apply_wifi(data)
+        elif kind=='DIAG':
+            self.apply_diag(data)
         elif kind=='WORK_MODE':
             values=data.get('_csv',[])
             if values:self.apply_work_mode(values[0].upper())
@@ -615,10 +640,116 @@ class Main(QMainWindow):
         self.statusBar().showMessage('Stopping inventory and switching the reader to passive...',4000)
         self.pump()
 
+    # ------------------------------------------------------------ WiFi
+    def tcp_host(self):
+        """Address for the selected TCP link: the WiFi IP for WiFi, the
+        Ethernet IP from Network & HTTP otherwise."""
+        if self.port.currentData() == WIFI_OPTION:
+            return self.wifi_host.text().strip() if hasattr(self,'wifi_host') else ''
+        return self.ethernet_host()
+
+    def apply_wifi(self, data):
+        if not isinstance(data, dict):
+            return
+        state = {'CONNECTED':'connected', 'CONNECTING':'connecting', 'AP':'access point on',
+                 'IDLE':'idle', 'DISABLED':'off', 'ERROR':'error'}.get(data.get('STATE',''), data.get('STATE','?').lower())
+        ip = data.get('IP','0.0.0.0')
+        parts = []
+        if data.get('LINK') != 'ONLINE':
+            parts.append('WiFi module not answering')
+        else:
+            parts.append(f"WiFi {state}")
+            if data.get('SSID'): parts.append(f"SSID {data.get('SSID')}")
+            if ip != '0.0.0.0': parts.append(ip)
+            if data.get('STATE') == 'CONNECTED' and data.get('RSSI'): parts.append(f"{data.get('RSSI')} dBm")
+            if data.get('HOST') == '1': parts.append('WiFi client connected')
+        errors = data.get('ERRORS','0')
+        if errors not in ('0',''): parts.append(f"link errors {errors}")
+        self.wifi_status.setText('  ·  '.join(parts))
+        if ip != '0.0.0.0':
+            self.wifi_host.setText(ip)
+        if not self.wifi_form_dirty:
+            self.wifi_enable.setChecked(data.get('ENABLE') == '1')
+            index = self.wifi_mode.findData(data.get('MODE','STA'))
+            if index >= 0: self.wifi_mode.setCurrentIndex(index)
+            self.wifi_ssid.setText(data.get('SSID',''))
+            self.wifi_password.clear(); self.wifi_open.setChecked(False)
+            index = self.upload_interface.findData(data.get('IF','AUTO'))
+            if index >= 0: self.upload_interface.setCurrentIndex(index)
+            self.wifi_form_dirty = False
+
+    def mark_wifi_dirty(self, *args):
+        self.wifi_form_dirty = True
+
+    def apply_wifi_settings(self):
+        if not self.connected:
+            self.statusBar().showMessage('Connect to a reader first.',3000)
+            return
+        enable = 1 if self.wifi_enable.isChecked() else 0
+        mode = self.wifi_mode.currentData()
+        ssid = self.wifi_ssid.text().strip()
+        if self.wifi_open.isChecked():
+            password = ''
+        else:
+            password = self.wifi_password.text() or '****'
+        if enable and not ssid:
+            QMessageBox.warning(self,'Network name missing','Enter the WiFi network name.')
+            return
+        if len(ssid) > 32 or any(c in ssid for c in ',\r\n'):
+            QMessageBox.warning(self,'Invalid network name','The network name can have at most 32 characters and no commas.')
+            return
+        if password not in ('', '****') and not (8 <= len(password) <= 64):
+            QMessageBox.warning(self,'Invalid password','A WiFi password has 8 to 64 characters. Tick "Open network" for a network without a password.')
+            return
+        if any(c in password for c in '\r\n'):
+            QMessageBox.warning(self,'Invalid password','The password cannot contain line breaks.')
+            return
+        if self.port.currentData() == WIFI_OPTION:
+            answer = QMessageBox.question(self,'Connected over WiFi',
+                'TAGlink is connected to the reader over WiFi. Changing the WiFi settings will drop this connection; reconnect afterwards (Discover readers finds the new address).\n\nApply the new settings?')
+            if answer != QMessageBox.Yes:
+                return
+        self.wifi_form_dirty = False
+        self.enqueue(f'SET_WIFI,{enable},{mode},{ssid},{password}')
+        QTimer.singleShot(6000, lambda: self.connected and self.request('GET_WIFI'))
+
+    def apply_upload_interface(self):
+        if not self.connected:
+            self.statusBar().showMessage('Connect to a reader first.',3000)
+            return
+        self.enqueue(f'SET_UPLOAD_IF,{self.upload_interface.currentData()}')
+
+    def apply_diag(self, data):
+        if not isinstance(data, dict):
+            return
+        names = {'RESET':'Last reset cause','UPTIME_MS':'Uptime (ms)','FAULTS':'Faults since power-on','LAST_FAULT':'Fault that ended the previous run',
+                 'PC':'Fault PC','LR':'Fault LR','CFSR':'CFSR','HFSR':'HFSR','MMFAR':'MMFAR','BFAR':'BFAR','AT_MS':'Fault at uptime (ms)',
+                 'LOOP_MAX_US':'Longest main-loop pass (µs)','PASSES':'Main-loop passes','STACK_USED':'Stack used (bytes)','STACK_SIZE':'Stack size (bytes)','BOR':'Brown-out level'}
+        self.diag_table.setRowCount(0)
+        for key, value in data.items():
+            if key == '_csv':
+                continue
+            label = names.get(key)
+            if label is None and key.endswith('_US'):
+                label = f"Longest {key[:-3].lower()} task (µs)"
+            row = self.diag_table.rowCount(); self.diag_table.insertRow(row)
+            self.diag_table.setItem(row,0,QTableWidgetItem(label or key)); self.diag_table.setItem(row,1,QTableWidgetItem(str(value)))
+
     def discover_readers(self):
         self.statusBar().showMessage('Searching for readers on the local network...',3000)
         def worker():
             readers = SerialManager.discover()
+            for reader in readers:
+                reader['link'] = 'udp'
+            # WiFi readers have no UDP discovery: scan for the text port.
+            known = {reader.get('ip') for reader in readers}
+            if self.connected and self.port.currentData() in (ETHERNET_OPTION, WIFI_OPTION):
+                # The reader serves one TCP client: show the one we use.
+                current = self.tcp_host()
+                if current and current not in known:
+                    readers.append({'ip': current, 'mac': '', 'port': ETHERNET_PORT, 'board': '', 'firmware': '', 'mode': 'Connected (this program)', 'link': 'tcp'})
+                    known.add(current)
+            readers += SerialManager.scan_tcp(skip=known)
             self.discovered_readers = readers
             self.discovery_ready_signal.emit(readers)
         threading.Thread(target=worker, daemon=True).start()
@@ -628,9 +759,15 @@ class Main(QMainWindow):
         for reader in readers:
             row = self.discovery_table.rowCount()
             self.discovery_table.insertRow(row)
-            values = [reader.get('ip',''), reader.get('mac',''), str(reader.get('port','')), reader.get('board',''), reader.get('firmware',''), reader.get('mode','')]
+            mode = reader.get('mode','')
+            if reader.get('link') == 'tcp' and mode == 'TCP':
+                mode = 'TCP 5000 (WiFi or Ethernet)'
+            elif reader.get('link') == 'tcp' and mode == 'Busy':
+                mode = 'Busy: another link holds the reader'
+            values = [reader.get('ip',''), reader.get('mac',''), str(reader.get('port','')), reader.get('board',''), reader.get('firmware',''), mode]
             for column, value in enumerate(values):
-                self.discovery_table.setItem(row,column,QTableWidgetItem(str(value)))
+                item = QTableWidgetItem(str(value)); item.setData(Qt.UserRole, reader.get('link','udp'))
+                self.discovery_table.setItem(row,column,item)
         self.statusBar().showMessage(f'{len(readers)} reader(s) discovered.',4000)
 
     def use_discovered_reader(self):
@@ -638,7 +775,11 @@ class Main(QMainWindow):
         if not rows:
             return
         ip = self.discovery_table.item(rows[0].row(),0)
-        if ip:
+        if ip and ip.data(Qt.UserRole) == 'tcp':
+            # Found by the TCP scan only: a WiFi address.
+            self.wifi_host.setText(ip.text())
+            self.port.setCurrentIndex(self.port.findData(WIFI_OPTION))
+        elif ip:
             self.net_ip.setText(ip.text())
             self.port.setCurrentIndex(self.port.findData(ETHERNET_OPTION))
 
@@ -657,6 +798,9 @@ class Main(QMainWindow):
             return
         if (self.vswr_stop.value() - self.vswr_start.value()) // self.vswr_step.value() + 1 > 78:
             QMessageBox.warning(self,'Too many points','One VSWR scan holds at most 78 frequencies. Increase the step.')
+            return
+        if self.port.currentData() == WIFI_OPTION:
+            QMessageBox.information(self,'Not available over WiFi','A VSWR scan uses the module bridge, which the reader offers over USB, serial and Ethernet only. Connect over one of those to run a scan.')
             return
         if self.port.currentData() == ETHERNET_OPTION and not self.net_ip.text().strip():
             QMessageBox.warning(self,'No module address','Enter the reader IP on Network & HTTP, or select a discovered reader.')
@@ -1173,11 +1317,11 @@ class Main(QMainWindow):
                     power_value /= 100.0
                 self.power.setValue(power_value)
             except:pass
-        self.dedupe.setChecked(True);self.read_bank.setCurrentIndex(max(0,self.read_bank.findData(self.settings.value('read_bank',2,type=int))));self.read_address.setValue(self.settings.value('read_address',0,type=int));self.read_words.setValue(self.settings.value('read_words',2,type=int));self.auto.setChecked(self.settings.value('auto',True,type=bool));self.clear_start.setChecked(self.settings.value('clear_start',False,type=bool));self.reconnect.setChecked(self.settings.value('reconnect',True,type=bool));self.filter_edit.setText(self.settings.value('filter','',type=str));self.filter_exact_cb.setChecked(self.settings.value('filter_exact',False,type=bool));self.http_url.setText(self.settings.value('http_url','',type=str));self.http_timeout.setValue(self.settings.value('http_timeout',10,type=int));self.http_active.setChecked(self.settings.value('http_active',False,type=bool));self.http_start_boot.setChecked(self.settings.value('http_start_boot',False,type=bool));self.inventory_antennas.setText(self.settings.value('inventory_antennas','1',type=str));self.net_ip.setText(self.settings.value('net_ip',self.net_ip.text(),type=str))
+        self.dedupe.setChecked(True);self.read_bank.setCurrentIndex(max(0,self.read_bank.findData(self.settings.value('read_bank',2,type=int))));self.read_address.setValue(self.settings.value('read_address',0,type=int));self.read_words.setValue(self.settings.value('read_words',2,type=int));self.auto.setChecked(self.settings.value('auto',True,type=bool));self.clear_start.setChecked(self.settings.value('clear_start',False,type=bool));self.reconnect.setChecked(self.settings.value('reconnect',True,type=bool));self.filter_edit.setText(self.settings.value('filter','',type=str));self.filter_exact_cb.setChecked(self.settings.value('filter_exact',False,type=bool));self.http_url.setText(self.settings.value('http_url','',type=str));self.http_timeout.setValue(self.settings.value('http_timeout',10,type=int));self.http_active.setChecked(self.settings.value('http_active',False,type=bool));self.http_start_boot.setChecked(self.settings.value('http_start_boot',False,type=bool));self.inventory_antennas.setText(self.settings.value('inventory_antennas','1',type=str));self.net_ip.setText(self.settings.value('net_ip',self.net_ip.text(),type=str));self.wifi_host.setText(self.settings.value('wifi_host','',type=str))
     def save(self):
         self.settings.setValue('dark',self.dark);self.settings.setValue('color_theme',self.theme_name);self.settings.setValue('port',self.port.currentData() or '');self.settings.setValue('baud',self.baud.currentData())
         for k,w in [('region',self.region),('tx',self.tx),('rx',self.rx),('power',self.power),('session',self.session)]:self.settings.setValue(k,w.text() if isinstance(w,QLineEdit) else w.value())
-        self.settings.setValue('dedupe',True);self.settings.setValue('read_bank',self.read_bank.currentData());self.settings.setValue('read_address',self.read_address.value());self.settings.setValue('read_words',self.read_words.value());self.settings.setValue('auto',self.auto.isChecked());self.settings.setValue('clear_start',self.clear_start.isChecked());self.settings.setValue('reconnect',self.reconnect.isChecked());self.settings.setValue('filter',self.filter_edit.text());self.settings.setValue('filter_exact',self.filter_exact_cb.isChecked());self.settings.setValue('http_url',self.http_url.text());self.settings.setValue('http_timeout',self.http_timeout.value());self.settings.setValue('http_active',self.http_active.isChecked());self.settings.setValue('http_start_boot',self.http_start_boot.isChecked());self.settings.setValue('inventory_antennas',self.inventory_antennas.text());self.settings.setValue('net_ip',self.net_ip.text().strip())
+        self.settings.setValue('dedupe',True);self.settings.setValue('read_bank',self.read_bank.currentData());self.settings.setValue('read_address',self.read_address.value());self.settings.setValue('read_words',self.read_words.value());self.settings.setValue('auto',self.auto.isChecked());self.settings.setValue('clear_start',self.clear_start.isChecked());self.settings.setValue('reconnect',self.reconnect.isChecked());self.settings.setValue('filter',self.filter_edit.text());self.settings.setValue('filter_exact',self.filter_exact_cb.isChecked());self.settings.setValue('http_url',self.http_url.text());self.settings.setValue('http_timeout',self.http_timeout.value());self.settings.setValue('http_active',self.http_active.isChecked());self.settings.setValue('http_start_boot',self.http_start_boot.isChecked());self.settings.setValue('inventory_antennas',self.inventory_antennas.text());self.settings.setValue('net_ip',self.net_ip.text().strip());self.settings.setValue('wifi_host',self.wifi_host.text().strip())
     def apply_theme(self):
         self.theme_name=theme.normalize(self.theme_name)
         QApplication.instance().setStyleSheet(theme.stylesheet(self.dark,self.theme_name))

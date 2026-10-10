@@ -1,6 +1,6 @@
 # TAGlink
 
-Desktop application for the Identium RFID controller. It drives the reader through the firmware's text host commands over USB, RS232 / RS485 or Ethernet (TCP 5000), and runs VSWR scans through the module bridge (TCP 8080 or the same serial link).
+Desktop application for the Identium RFID controller. It drives the reader through the firmware's text host commands over USB, RS232 / RS485, Ethernet or WiFi (TCP 5000), and runs VSWR scans through the module bridge (TCP 8080 or the same serial link).
 
 ## Workspaces
 
@@ -8,11 +8,13 @@ Desktop application for the Identium RFID controller. It drives the reader throu
 |---|---|
 | Inventory | Start / stop continuous inventory, single and sync polls, live tag table and analytics |
 | Tags | Read, write, EPC write, lock and kill |
-| Settings | RF settings, work mode (passive / active), GPIO, network and HTTP upload |
-| Diagnostics | VSWR (return loss) scan, module capabilities |
+| Settings | RF settings, work mode (passive / active), GPIO, network and HTTP upload, WiFi (join a network or run the reader's own access point, upload interface) |
+| Diagnostics | VSWR (return loss) scan, module capabilities, reader health (reset cause, last fault, loop timing, stack use) |
 | Log | Command, response and raw traffic logs |
 
 **Work mode.** Passive: the reader answers host commands only. Active: the reader runs its autonomous inventory and upload. While the reader is in active mode a *Return to passive* button is shown in the top bar; it stops the inventory and switches the reader to passive in one step. *Apply HTTP* only stores the upload settings for the next active session.
+
+**WiFi.** Choose *WiFi* as the connection and enter the reader's WiFi IP under Settings > WiFi, or press *Discover readers*. It finds Ethernet readers by UDP discovery and WiFi readers by scanning the local network for TCP port 5000; select a row to use it. A reader serves one link at a time, so a reader that another program or port is using is listed as *Busy*. The VSWR scan needs the module bridge, which is not available over WiFi.
 
 ## Running from source
 

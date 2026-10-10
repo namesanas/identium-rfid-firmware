@@ -1,0 +1,31 @@
+name: Firmware build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        config: [debug, release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Build (${{ matrix.config }})
+        run: make -j"$(nproc)" CONFIG=${{ matrix.config }} EXTRA_CFLAGS=-Werror
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.config }}
+          path: |
+            build/${{ matrix.config }}/rfid_controller.elf
+            build/${{ matrix.config }}/rfid_controller.hex
+            build/${{ matrix.config }}/rfid_controller.bin
+            build/${{ matrix.config }}/rfid_controller.map

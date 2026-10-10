@@ -29,3 +29,6 @@ reader_manager/
 TAGlink/build/
 TAGlink/dist/
 TAGlink/screenshots/
+
+# Command-line build output (Makefile)
+build/

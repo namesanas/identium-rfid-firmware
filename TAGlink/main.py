@@ -1,7 +1,7 @@
-import sys,csv,time,threading
+import os,sys,csv,time,threading
 from datetime import datetime
 from PySide6.QtCore import Qt,QTimer,QSettings,Signal
-from PySide6.QtGui import QAction,QFont
+from PySide6.QtGui import QAction,QFont,QIcon
 from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QFormLayout,QFrame,QLabel,QPushButton,QComboBox,QLineEdit,QSpinBox,QDoubleSpinBox,QCheckBox,QTableWidget,QTableWidgetItem,QPlainTextEdit,QSplitter,QTabWidget,QFileDialog,QMessageBox,QHeaderView,QStatusBar,QScrollArea
 from serial_manager import SerialManager, ETHERNET_OPTION, WIFI_OPTION, ETHERNET_HOST, ETHERNET_PORT
 from protocol import parse_line
@@ -1339,4 +1339,8 @@ class Main(QMainWindow):
             self.io.set_binary_mode(False)
         self.save();self.io.close();e.accept()
 
-app=QApplication(sys.argv);app.setStyle('Fusion');w=Main();w.show();sys.exit(app.exec())
+def resource_path(name):
+    # Bundled files live in sys._MEIPASS inside the PyInstaller executable.
+    return os.path.join(getattr(sys,'_MEIPASS',os.path.dirname(os.path.abspath(__file__))),name)
+
+app=QApplication(sys.argv);app.setStyle('Fusion');app.setWindowIcon(QIcon(resource_path('icon.ico')));w=Main();w.show();sys.exit(app.exec())

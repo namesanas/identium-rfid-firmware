@@ -13,6 +13,7 @@
 #include "../serial/serial_port.h"
 #include "../USB/usb_cdc_transport.h"
 #include "../ethernet/host_tcp_server.h"
+#include "../wifi/wifi_service.h"
 #include "../../Common/critical_section.h"
 #include "../configuration/module_bridge.h"
 #include "../configuration/configuration_port.h"
@@ -394,7 +395,8 @@ void HOST_Transport_PushByte(
     if(
         (source != HOST_TRANSPORT_USB) &&
         (source != HOST_TRANSPORT_ETHERNET) &&
-        (source != HOST_TRANSPORT_SERIAL)
+        (source != HOST_TRANSPORT_SERIAL) &&
+        (source != HOST_TRANSPORT_WIFI)
     )
     {
         return;
@@ -596,7 +598,8 @@ void HOST_Transport_SetTagTransport(
     if(
         (transport == HOST_TRANSPORT_USB) ||
         (transport == HOST_TRANSPORT_ETHERNET) ||
-        (transport == HOST_TRANSPORT_SERIAL)
+        (transport == HOST_TRANSPORT_SERIAL) ||
+        (transport == HOST_TRANSPORT_WIFI)
     )
     {
         hostTagTransport = transport;
@@ -670,15 +673,13 @@ void HOST_Transport_SendString(uint8_t transport,const char *text
         (uint16_t)strlen(text);
 
 
-    if(
-        transport
-        == HOST_TRANSPORT_ETHERNET
-    )
+    if(transport == HOST_TRANSPORT_ETHERNET)
     {
-        (void)Host_Tcp_Server_Send(
-            (const uint8_t *)text,
-            length
-        );
+        (void)Host_Tcp_Server_Send((const uint8_t *)text, length);
+    }
+    else if(transport == HOST_TRANSPORT_WIFI)
+    {
+        (void)WiFi_Service_HostSend((const uint8_t *)text, length);
     }
     else
     {

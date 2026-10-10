@@ -29,7 +29,7 @@ extern uint8_t W5500_Socket1_Close(void);
 #define READER_SETTINGS_ADDRESS        0x081A0000UL
 #define READER_SETTINGS_SECTOR_SIZE    0x00020000UL
 #define READER_SETTINGS_MAGIC          0x52535431UL /* "RST1" */
-#define READER_SETTINGS_VERSION        2U
+#define READER_SETTINGS_VERSION        3U
 
 typedef struct
 {
@@ -43,7 +43,7 @@ typedef struct
 
 /* Version 1 layout (before the HTTP upload fields). Its fields are the
  * leading part of ReaderSettings_t, so a v1 record is read once and the
- * next save erases the sector and starts a v2 log. */
+ * next save erases the sector and starts a v3 log. */
 typedef struct
 {
     uint8_t ip[4];
@@ -72,6 +72,42 @@ typedef struct
     ReaderSettings_V1_t data;
     uint32_t crc32;
 } ReaderSettings_RecordV1_t;
+
+/* Version 2 is the pre-WiFi ReaderSettings_t layout (HTTP upload included). */
+typedef struct
+{
+    uint8_t ip[4];
+    uint8_t netmask[4];
+    uint8_t gateway[4];
+    uint8_t dns[4];
+    uint8_t mac[6];
+    uint16_t configPort;
+    uint8_t serverIp[4];
+    uint16_t serverPort;
+    uint8_t workState;
+    uint8_t rfValid;
+    uint8_t region;
+    uint8_t reserved;
+    uint16_t readPower;
+    uint16_t writePower;
+    char name[READER_SETTINGS_NAME_MAX + 1U];
+    uint8_t uploadMode;
+    uint16_t httpTimeout;
+    char httpUrl[READER_SETTINGS_URL_MAX + 1U];
+} ReaderSettings_V2_t;
+
+typedef struct
+{
+    uint32_t magic;
+    uint16_t version;
+    uint16_t dataSize;
+    uint32_t sequence;
+    ReaderSettings_V2_t data;
+    uint32_t crc32;
+} ReaderSettings_RecordV2_t;
+
+#define READER_SETTINGS_V2_SLOT_COUNT \
+    (READER_SETTINGS_SECTOR_SIZE / sizeof(ReaderSettings_RecordV2_t))
 
 #define READER_SETTINGS_V1_SLOT_COUNT \
     (READER_SETTINGS_SECTOR_SIZE / sizeof(ReaderSettings_RecordV1_t))
@@ -155,6 +191,29 @@ static void ReaderSettings_GetDefaults(ReaderSettings_t *settings)
 
     settings->workState = READER_SETTINGS_WORK_ACTIVE;
 
+    settings->wifiEnabled = 0U;
+    settings->wifiMode = READER_SETTINGS_WIFI_STA;
+    settings->wifiDhcp = 1U;
+    settings->wifiApChannel = 1U;
+    settings->wifiStaticIp[0] = 192U;
+    settings->wifiStaticIp[1] = 168U;
+    settings->wifiStaticIp[2] = 150U;
+    settings->wifiStaticIp[3] = 51U;
+    settings->wifiNetmask[0] = 255U;
+    settings->wifiNetmask[1] = 255U;
+    settings->wifiNetmask[2] = 255U;
+    settings->wifiNetmask[3] = 0U;
+    settings->wifiGateway[0] = 192U;
+    settings->wifiGateway[1] = 168U;
+    settings->wifiGateway[2] = 150U;
+    settings->wifiGateway[3] = 1U;
+    settings->wifiDns[0] = 8U;
+    settings->wifiDns[1] = 8U;
+    settings->wifiDns[2] = 8U;
+    settings->wifiDns[3] = 8U;
+    (void)strncpy(settings->wifiApSsid, "RFID-Reader", READER_SETTINGS_WIFI_SSID_MAX);
+    settings->uploadInterface = READER_SETTINGS_UPLOAD_IF_AUTO;
+
     (void)strncpy(settings->name, PRODUCT_PROTOCOL_READER_NAME, READER_SETTINGS_NAME_MAX);
 }
 
@@ -201,7 +260,16 @@ static uint8_t ReaderSettings_IsSane(const ReaderSettings_t *settings)
         ((settings->mac[0] & 0x01U) != 0U) ||
         ((settings->workState != READER_SETTINGS_WORK_PASSIVE) &&
          (settings->workState != READER_SETTINGS_WORK_ACTIVE)) ||
-        (settings->uploadMode > READER_SETTINGS_UPLOAD_HTTP)
+        (settings->uploadMode > READER_SETTINGS_UPLOAD_HTTP) ||
+        (settings->wifiEnabled > 1U) ||
+        (settings->wifiMode > READER_SETTINGS_WIFI_AP) ||
+        (settings->wifiDhcp > 1U) ||
+        (settings->wifiApChannel == 0U) || (settings->wifiApChannel > 13U) ||
+        (settings->uploadInterface > READER_SETTINGS_UPLOAD_IF_AUTO) ||
+        (settings->wifiSsid[READER_SETTINGS_WIFI_SSID_MAX] != '\0') ||
+        (settings->wifiPassword[READER_SETTINGS_WIFI_PASSWORD_MAX] != '\0') ||
+        (settings->wifiApSsid[READER_SETTINGS_WIFI_SSID_MAX] != '\0') ||
+        (settings->wifiApPassword[READER_SETTINGS_WIFI_PASSWORD_MAX] != '\0')
     )
     {
         return 0U;
@@ -249,6 +317,41 @@ static void ReaderSettings_LoadV1(void)
     g_nextSlot = READER_SETTINGS_SLOT_COUNT;
 }
 
+static void ReaderSettings_LoadV2(void)
+{
+    const ReaderSettings_RecordV2_t *slots =
+        (const ReaderSettings_RecordV2_t *)READER_SETTINGS_ADDRESS;
+    ReaderSettings_t candidate;
+    uint32_t index;
+
+    for(index = 0U; index < READER_SETTINGS_V2_SLOT_COUNT; index++)
+    {
+        const ReaderSettings_RecordV2_t *slot = &slots[index];
+
+        if((slot->magic != READER_SETTINGS_MAGIC) ||
+           (slot->version != 2U) ||
+           (slot->dataSize != sizeof(ReaderSettings_V2_t)) ||
+           (ReaderSettings_Crc32((const uint8_t *)&slot->data, sizeof(slot->data)) != slot->crc32))
+        {
+            continue;
+        }
+
+        ReaderSettings_GetDefaults(&candidate);
+        memcpy(&candidate, &slot->data, sizeof(slot->data));
+        candidate.name[READER_SETTINGS_NAME_MAX] = '\0';
+        candidate.httpUrl[READER_SETTINGS_URL_MAX] = '\0';
+
+        if(ReaderSettings_IsSane(&candidate) != 0U)
+        {
+            g_settings = candidate;
+            g_sequence = slot->sequence;
+        }
+    }
+
+    /* The record size changed; force the first v3 save to erase the sector. */
+    g_nextSlot = READER_SETTINGS_SLOT_COUNT;
+}
+
 void ReaderSettings_Init(void)
 {
     const ReaderSettings_Record_t *slots =
@@ -260,12 +363,16 @@ void ReaderSettings_Init(void)
     g_sequence = 0U;
     g_nextSlot = 0U;
 
-    if(
-        (slots[0].magic == READER_SETTINGS_MAGIC) &&
-        (slots[0].version == 1U)
-    )
+    if((slots[0].magic == READER_SETTINGS_MAGIC) &&
+       (slots[0].version == 1U))
     {
         ReaderSettings_LoadV1();
+        return;
+    }
+    if((slots[0].magic == READER_SETTINGS_MAGIC) &&
+       (slots[0].version == 2U))
+    {
+        ReaderSettings_LoadV2();
         return;
     }
 
@@ -402,6 +509,11 @@ uint8_t ReaderSettings_GetWorkState(void)
 uint8_t ReaderSettings_GetUploadMode(void)
 {
     return g_settings.uploadMode;
+}
+
+uint8_t ReaderSettings_GetUploadInterface(void)
+{
+    return g_settings.uploadInterface;
 }
 
 void ReaderSettings_RequestNetworkApply(uint32_t delayMs)

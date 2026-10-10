@@ -16,6 +16,14 @@
 #define READER_SETTINGS_WORK_ACTIVE      3U
 
 #define READER_SETTINGS_URL_MAX          127U
+#define READER_SETTINGS_WIFI_SSID_MAX    32U
+#define READER_SETTINGS_WIFI_PASSWORD_MAX 64U
+
+#define READER_SETTINGS_WIFI_STA         0U
+#define READER_SETTINGS_WIFI_AP          1U
+#define READER_SETTINGS_UPLOAD_IF_ETH    0U
+#define READER_SETTINGS_UPLOAD_IF_WIFI   1U
+#define READER_SETTINGS_UPLOAD_IF_AUTO   2U
 
 /* Active-mode upload transport. */
 #define READER_SETTINGS_UPLOAD_TCP       0U  /* JSON lines to serverIp:serverPort */
@@ -49,6 +57,21 @@ typedef struct
     uint8_t uploadMode;
     uint16_t httpTimeout;   /* upload.http.timeout, seconds (0 = recv_timeout) */
     char httpUrl[READER_SETTINGS_URL_MAX + 1U];
+
+    /* Added in record version 3. Passwords are never returned in readback. */
+    uint8_t wifiEnabled;
+    uint8_t wifiMode;       /* READER_SETTINGS_WIFI_STA / _AP */
+    uint8_t wifiDhcp;       /* 1 = DHCP, 0 = static addresses below */
+    uint8_t wifiApChannel;
+    char wifiSsid[READER_SETTINGS_WIFI_SSID_MAX + 1U];
+    char wifiPassword[READER_SETTINGS_WIFI_PASSWORD_MAX + 1U];
+    uint8_t wifiStaticIp[4];
+    uint8_t wifiNetmask[4];
+    uint8_t wifiGateway[4];
+    uint8_t wifiDns[4];
+    char wifiApSsid[READER_SETTINGS_WIFI_SSID_MAX + 1U];
+    char wifiApPassword[READER_SETTINGS_WIFI_PASSWORD_MAX + 1U];
+    uint8_t uploadInterface; /* eth / wifi / auto (physical Ethernet first) */
 } ReaderSettings_t;
 
 /* Load from flash (or defaults). Call before the W5500 is configured. */
@@ -70,6 +93,7 @@ const char *ReaderSettings_GetName(void);
 uint8_t ReaderSettings_GetWorkState(void);
 
 uint8_t ReaderSettings_GetUploadMode(void);
+uint8_t ReaderSettings_GetUploadInterface(void);
 
 /* Apply the stored network settings after delayMs (lets a reply reach the
  * PC first). Handled by ReaderSettings_Task(). */

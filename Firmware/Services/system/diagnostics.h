@@ -7,7 +7,7 @@
  * GET_DIAG reply (one line):
  *   DIAG,RESET=<cause>,UPTIME_MS=<n>,FAULTS=<n>,LAST_FAULT=<type>
  *       [,PC=0x..,LR=0x..,CFSR=0x..,HFSR=0x..,MMFAR=0x..,BFAR=0x..,AT_MS=<n>]
- *       ,LOOP_MAX_US=<n>,PASSES=<n>,ETH_US=<n>,CFG_US=<n>,PROTO_US=<n>,
+ *       ,LOOP_MAX_US=<n>,PASSES=<n>,ETH_US=<n>,WIFI_US=<n>,CFG_US=<n>,PROTO_US=<n>,
  *       GPIO_US=<n>,RFID_US=<n>,HOST_US=<n>,STACK_USED=<n>,STACK_SIZE=<n>,
  *       BOR=<0..3>
  *

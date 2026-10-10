@@ -29,6 +29,22 @@
 #define BOARD_HOST_RX_PIN             10U
 #define BOARD_HOST_GPIO_AF            7U
 
+/* ---------------- ESP32 WiFi coprocessor (F429 bench rig) ---------------- */
+/* I2C3 uses PA8/PC9 so it avoids the Discovery SDRAM/LTDC pin groups. */
+#define BOARD_ESP_LINK_ENABLED         1U
+#define BOARD_ESP_I2C                  I2C3
+#define BOARD_ESP_SCL_PORT             GPIOA
+#define BOARD_ESP_SCL_PIN              8U
+#define BOARD_ESP_SDA_PORT             GPIOC
+#define BOARD_ESP_SDA_PIN              9U
+#define BOARD_ESP_GPIO_AF              4U
+#define BOARD_ESP_EN_PORT              GPIOA
+#define BOARD_ESP_EN_PIN               15U
+#define BOARD_ESP_I2C_EVENT_IRQ        I2C3_EV_IRQn
+#define BOARD_ESP_I2C_ERROR_IRQ        I2C3_ER_IRQn
+#define BOARD_ESP_I2C_EV_HANDLER       I2C3_EV_IRQHandler
+#define BOARD_ESP_I2C_ER_HANDLER       I2C3_ER_IRQHandler
+
 /* ---------------- W5500 ---------------- */
 #define BOARD_W5500_SPI               SPI1
 #define BOARD_W5500_SCK_PORT          GPIOA

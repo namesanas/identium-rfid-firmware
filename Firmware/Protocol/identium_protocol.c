@@ -7,6 +7,7 @@
 #include "../Config/product_config.h"
 #include "../Application/Silion/sillion_application.h"
 #include "../Services/ethernet/ethernet_service.h"
+#include "../Services/upload/active_upload_transport.h"
 #include "../Services/Time/time_service.h"
 #include "../Services/configuration/configuration_service.h"
 
@@ -159,7 +160,7 @@ static uint8_t Identium_Protocol_SendJsonLine(
         return 0U;
     }
 
-    sent = Ethernet_Service_SendComplete(
+    sent = ActiveUpload_Transport_SendComplete(
         (const uint8_t *)json,
         length
     );
@@ -629,7 +630,7 @@ static void Identium_Protocol_FlushTags(
         }
 
         if(
-            Ethernet_Service_SendComplete(
+            ActiveUpload_Transport_SendComplete(
                 (const uint8_t *)identiumTagBatchBuffer,
                 messageLength
             ) != messageLength
@@ -952,7 +953,7 @@ void Identium_Protocol_ReportGpiChange(
 
 uint8_t Identium_Protocol_IsConnected(void)
 {
-    return Ethernet_Service_IsConnected();
+    return ActiveUpload_Transport_IsConnected();
 }
 
 uint8_t Identium_Protocol_ReportReaderException(

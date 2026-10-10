@@ -647,26 +647,30 @@ void I2C_EV_IRQHandling(I2C_Handle_t *pI2CHandle)
     pI2Cx = pI2CHandle->pI2Cx;
     cr2 = pI2Cx->CR2;
     sr1 = pI2Cx->SR1;
-    sr2 = pI2Cx->SR2;
 
     if ((cr2 & I2C_CR2_ITEVTEN_MASK) == 0U) return;
 
     /* START condition: valid only while acting as the bus controller. */
-    if (((sr1 & I2C_FLAG_SB) != 0U) && ((sr2 & I2C_SR2_MSL_MASK) != 0U))
+    if ((sr1 & I2C_FLAG_SB) != 0U)
     {
-        if (pI2CHandle->TxRxState == I2C_BUSY_IN_TX)
-            I2C_ExecuteAddressPhaseWrite(pI2Cx, pI2CHandle->DevAddr);
-        else if (pI2CHandle->TxRxState == I2C_BUSY_IN_RX)
-            I2C_ExecuteAddressPhaseRead(pI2Cx, pI2CHandle->DevAddr);
+        /* SR2 is only needed after SB has been observed. Reading SR2 while
+         * ADDR is pending would clear ADDR before the address setup below. */
+        sr2 = pI2Cx->SR2;
+        if ((sr2 & I2C_SR2_MSL_MASK) != 0U)
+        {
+            if (pI2CHandle->TxRxState == I2C_BUSY_IN_TX)
+                I2C_ExecuteAddressPhaseWrite(pI2Cx, pI2CHandle->DevAddr);
+            else if (pI2CHandle->TxRxState == I2C_BUSY_IN_RX)
+                I2C_ExecuteAddressPhaseRead(pI2Cx, pI2CHandle->DevAddr);
+        }
     }
 
     sr1 = pI2Cx->SR1;
-    sr2 = pI2Cx->SR2;
-
     if ((sr1 & I2C_FLAG_ADDR) != 0U)
     {
-        if (((sr2 & I2C_SR2_MSL_MASK) != 0U) &&
-            (pI2CHandle->TxRxState == I2C_BUSY_IN_RX))
+        /* Configure ACK/POS before the SR1 -> SR2 sequence clears ADDR.
+         * TxRxState is BUSY only for these driver's master transactions. */
+        if (pI2CHandle->TxRxState == I2C_BUSY_IN_RX)
         {
             if (pI2CHandle->RxLen == 1U)
             {
@@ -684,7 +688,7 @@ void I2C_EV_IRQHandling(I2C_Handle_t *pI2CHandle)
                 pI2Cx->CR1 &= ~I2C_CR1_POS_MASK;
             }
         }
-        I2C_ClearADDRFlag(pI2Cx);
+        sr2 = pI2Cx->SR2; /* Clear ADDR after any receive ACK/POS setup. */
         if (((sr2 & I2C_SR2_MSL_MASK) != 0U) &&
             (pI2CHandle->TxRxState == I2C_BUSY_IN_RX) &&
             (pI2CHandle->RxLen == 1U) && (pI2CHandle->Sr == I2C_DISABLE_SR))

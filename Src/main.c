@@ -25,6 +25,7 @@
 #include "../Firmware/Application/Host/host_interface.h"
 
 #include "../Firmware/Services/ethernet/ethernet_service.h"
+#include "../Firmware/Services/wifi/wifi_service.h"
 #include "../Firmware/Services/configuration/configuration_port.h"
 #include "../Firmware/Services/host/host_transport.h"
 #include "../Firmware/Common/status.h"
@@ -131,6 +132,7 @@ int main(void)
 	//  Cloud_Service_Task();
       /* Company protocol Ethernet session is independent of legacy USB ASCII. */
       LOOP_MONITOR_RUN(LOOP_TASK_ETHERNET, Ethernet_Service_Task());
+      LOOP_MONITOR_RUN(LOOP_TASK_WIFI, WiFi_Service_Task());
       LOOP_MONITOR_RUN(LOOP_TASK_CONFIG_PORT, Configuration_Port_Task());
       LOOP_MONITOR_RUN(LOOP_TASK_PROTOCOL, Identium_Protocol_Task());
       LOOP_MONITOR_RUN(LOOP_TASK_GPIO, GPIO_Service_Task());

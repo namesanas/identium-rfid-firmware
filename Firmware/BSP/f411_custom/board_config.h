@@ -42,6 +42,24 @@
 #define BOARD_RS485_DE_RE_PORT        NULL /* TBD */
 #define BOARD_RS485_DE_RE_PIN         0xFFU /* TBD */
 
+/* ---------------- ESP32 WiFi coprocessor ---------------- */
+/* Intended production wiring: PB6=SCL, PB7=SDA, PB9=EN. These currently
+ * conflict with HOST UART TX/RX and INPUT2 above; keep WiFi disabled in BSP
+ * until the board pin map is revised. */
+#define BOARD_ESP_LINK_ENABLED         0U
+#define BOARD_ESP_I2C                  I2C1
+#define BOARD_ESP_SCL_PORT             GPIOB
+#define BOARD_ESP_SCL_PIN              6U
+#define BOARD_ESP_SDA_PORT             GPIOB
+#define BOARD_ESP_SDA_PIN              7U
+#define BOARD_ESP_GPIO_AF              4U
+#define BOARD_ESP_EN_PORT              GPIOB
+#define BOARD_ESP_EN_PIN               9U
+#define BOARD_ESP_I2C_EVENT_IRQ        I2C1_EV_IRQn
+#define BOARD_ESP_I2C_ERROR_IRQ        I2C1_ER_IRQn
+#define BOARD_ESP_I2C_EV_HANDLER       I2C1_EV_IRQHandler
+#define BOARD_ESP_I2C_ER_HANDLER       I2C1_ER_IRQHandler
+
 /* ---------------- W5500 ---------------- */
 #define BOARD_W5500_SPI               SPI1
 #define BOARD_W5500_SCK_PORT          GPIOA

@@ -3,16 +3,12 @@
 #include "../../Config/product_config.h"
 #include "../Time/time_service.h"
 #include "../configuration/reader_settings.h"
+#include "../upload/active_upload_transport.h"
 
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
-/* w5500.h pulls in the register-level drivers; only these are needed. */
-extern uint16_t W5500_Socket0_GetTxFreeSize(void);
-extern uint16_t W5500_Socket0_Send(const uint8_t *buffer, uint16_t length);
-extern uint16_t W5500_Socket0_Receive(uint8_t *buffer, uint16_t bufferSize);
-extern uint8_t W5500_Socket0_Close(void);
 extern uint32_t Configuration_Service_GetRecvTimeoutSeconds(void);
 
 /*
@@ -624,7 +620,7 @@ static void HttpUpload_FinishResponse(uint8_t closeSocket)
 
     if((closeSocket != 0U) || (g_connectionClose != 0U))
     {
-        (void)W5500_Socket0_Close();
+        (void)ActiveUpload_Transport_Close();
     }
 
     if(deliver != 0U)
@@ -796,7 +792,7 @@ void HttpUpload_Task(void)
     uint16_t i;
     uint32_t now = Time_GetTickMs();
 
-    received = W5500_Socket0_Receive(rx, sizeof(rx));
+    received = ActiveUpload_Transport_Receive(rx, sizeof(rx));
     for(i = 0U; i < received; i++)
     {
         if(g_state == HTTP_STATE_IDLE)
@@ -819,7 +815,7 @@ void HttpUpload_Task(void)
     if(g_state == HTTP_STATE_SENDING)
     {
         uint16_t remaining = (uint16_t)(g_requestLength - g_requestSent);
-        uint16_t space = W5500_Socket0_GetTxFreeSize();
+        uint16_t space = ActiveUpload_Transport_GetTxFreeSize();
 
         if(space > remaining)
         {
@@ -829,7 +825,7 @@ void HttpUpload_Task(void)
         {
             g_requestSent = (uint16_t)(
                 g_requestSent +
-                W5500_Socket0_Send((const uint8_t *)&g_request[g_requestSent], space)
+                ActiveUpload_Transport_Send((const uint8_t *)&g_request[g_requestSent], space)
             );
         }
         if(g_requestSent >= g_requestLength)
@@ -847,7 +843,7 @@ void HttpUpload_Task(void)
     {
         /* No answer: drop the connection. The ethernet service reports the
          * disconnect and the request is retried on a fresh connection. */
-        (void)W5500_Socket0_Close();
+        (void)ActiveUpload_Transport_Close();
     }
 }
 

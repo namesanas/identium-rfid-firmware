@@ -7,6 +7,7 @@
 #define HOST_TRANSPORT_ETHERNET  1U
 #define HOST_TRANSPORT_NONE      2U
 #define HOST_TRANSPORT_SERIAL    3U   /* RS232 / RS485 host port */
+#define HOST_TRANSPORT_WIFI      4U   /* ESP32 coprocessor TCP server */
 
 #define HOST_RX_QUEUE_SIZE       1024U
 

@@ -13,6 +13,7 @@ static uint32_t g_passCount = 0U;
 static const char *const g_taskNames[LOOP_TASK_COUNT] =
 {
     "ETH",
+    "WIFI",
     "CFG",
     "PROTO",
     "GPIO",

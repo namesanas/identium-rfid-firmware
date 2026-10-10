@@ -16,6 +16,7 @@
 #include "../../Services/configuration/configuration_port.h"
 #include "../../Services/configuration/reader_settings.h"
 #include "../../Services/configuration/vendor_config.h"
+#include "../../Services/wifi/wifi_service.h"
 
 
 
@@ -35,6 +36,152 @@ static uint8_t HOST_HexNibble(
 
     return 0xFFU;
 }
+
+static const char *HOST_WifiStateName(uint8_t state)
+{
+    switch(state)
+    {
+        case ESP32_LINK_WIFI_IDLE:       return "IDLE";
+        case ESP32_LINK_WIFI_CONNECTING: return "CONNECTING";
+        case ESP32_LINK_WIFI_CONNECTED:  return "CONNECTED";
+        case ESP32_LINK_WIFI_AP_STARTED: return "AP";
+        case ESP32_LINK_WIFI_ERROR:      return "ERROR";
+        default:                         return "DISABLED";
+    }
+}
+
+
+/* GET_WIFI reply: link and connection state plus the stored settings
+ * (passwords are never returned). */
+static void HOST_SendWifiStatus(void)
+{
+    static char line[200];
+    const ReaderSettings_t *settings = ReaderSettings_Get();
+    WiFi_Status_t status;
+    const char *uploadIf;
+
+    WiFi_Service_GetStatus(&status);
+
+    if(settings->uploadInterface == READER_SETTINGS_UPLOAD_IF_ETH)
+        uploadIf = "ETH";
+    else if(settings->uploadInterface == READER_SETTINGS_UPLOAD_IF_WIFI)
+        uploadIf = "WIFI";
+    else
+        uploadIf = "AUTO";
+
+    (void)snprintf(
+        line,
+        sizeof(line),
+        "WIFI,LINK=%s,STATE=%s,IP=%u.%u.%u.%u,RSSI=%d,HOST=%u,UPLOAD=%u,"
+        "ENABLE=%u,MODE=%s,SSID=%s,IF=%s,ERRORS=%lu\r\n",
+        (status.linkOnline != 0U) ? "ONLINE" : "OFFLINE",
+        HOST_WifiStateName(status.wifiState),
+        status.ip[0], status.ip[1], status.ip[2], status.ip[3],
+        (int)status.rssi,
+        (unsigned int)status.hostConnected,
+        (unsigned int)status.uploadConnected,
+        (unsigned int)settings->wifiEnabled,
+        (settings->wifiMode == READER_SETTINGS_WIFI_AP) ? "AP" : "STA",
+        (settings->wifiMode == READER_SETTINGS_WIFI_AP)
+            ? settings->wifiApSsid : settings->wifiSsid,
+        uploadIf,
+        (unsigned long)status.linkErrors
+    );
+
+    HOST_SendString(line);
+}
+
+
+/*
+ * SET_WIFI,<0|1>,<STA|AP>,<ssid>,<password>
+ * The SSID may not contain a comma; the password is the rest of the line
+ * (empty = open network / open AP). "****" keeps the stored password.
+ * In AP mode the SSID and password are those of the reader's own AP.
+ */
+static uint8_t HOST_SetWifi(char *args)
+{
+    ReaderSettings_t settings = *ReaderSettings_Get();
+    char *enable = args;
+    char *mode;
+    char *ssid;
+    char *password;
+    char *ssidTarget;
+    char *passwordTarget;
+
+    mode = strchr(enable, ',');
+    if(mode == NULL) return 0U;
+    *mode++ = '\0';
+
+    ssid = strchr(mode, ',');
+    if(ssid == NULL) return 0U;
+    *ssid++ = '\0';
+
+    password = strchr(ssid, ',');
+    if(password == NULL) return 0U;
+    *password++ = '\0';
+
+    if((strcmp(enable, "0") != 0) && (strcmp(enable, "1") != 0)) return 0U;
+    settings.wifiEnabled = (uint8_t)(enable[0] - '0');
+
+    if(strcmp(mode, "STA") == 0)
+    {
+        settings.wifiMode = READER_SETTINGS_WIFI_STA;
+        ssidTarget = settings.wifiSsid;
+        passwordTarget = settings.wifiPassword;
+    }
+    else if(strcmp(mode, "AP") == 0)
+    {
+        settings.wifiMode = READER_SETTINGS_WIFI_AP;
+        ssidTarget = settings.wifiApSsid;
+        passwordTarget = settings.wifiApPassword;
+    }
+    else
+    {
+        return 0U;
+    }
+
+    if(
+        (strlen(ssid) == 0U) ||
+        (strlen(ssid) > READER_SETTINGS_WIFI_SSID_MAX) ||
+        (strlen(password) > READER_SETTINGS_WIFI_PASSWORD_MAX) ||
+        /* WPA2 keys are 8..63 characters; the ESP rejects shorter AP keys. */
+        ((strlen(password) > 0U) && (strlen(password) < 8U) &&
+         (strcmp(password, "****") != 0))
+    )
+    {
+        return 0U;
+    }
+
+    memset(ssidTarget, 0, READER_SETTINGS_WIFI_SSID_MAX + 1U);
+    memcpy(ssidTarget, ssid, strlen(ssid));
+
+    if(strcmp(password, "****") != 0)
+    {
+        memset(passwordTarget, 0, READER_SETTINGS_WIFI_PASSWORD_MAX + 1U);
+        memcpy(passwordTarget, password, strlen(password));
+    }
+
+    return ReaderSettings_Save(&settings);
+}
+
+
+/* SET_UPLOAD_IF,ETH|WIFI|AUTO -- interface for active-mode uploads. */
+static uint8_t HOST_SetUploadInterface(const char *name)
+{
+    ReaderSettings_t settings = *ReaderSettings_Get();
+
+    if(strcmp(name, "ETH") == 0)
+        settings.uploadInterface = READER_SETTINGS_UPLOAD_IF_ETH;
+    else if(strcmp(name, "WIFI") == 0)
+        settings.uploadInterface = READER_SETTINGS_UPLOAD_IF_WIFI;
+    else if(strcmp(name, "AUTO") == 0)
+        settings.uploadInterface = READER_SETTINGS_UPLOAD_IF_AUTO;
+    else
+        return 0U;
+
+    return ReaderSettings_Save(&settings);
+}
+
 
 /* Longest command: SET_HTTP with a 127-character URL. */
 #define HOST_RX_BUFFER_SIZE 320U
@@ -1778,6 +1925,26 @@ void HOST_Interface_Task(void)
                     (ReaderSettings_GetWorkState() == READER_SETTINGS_WORK_ACTIVE)
                         ? "WORK_MODE,ACTIVE\r\n"
                         : "WORK_MODE,PASSIVE\r\n"
+                );
+            }
+            else if(strcmp(hostRxBuffer, "GET_WIFI") == 0)
+            {
+                HOST_SendWifiStatus();
+            }
+            else if(strncmp(hostRxBuffer, "SET_WIFI,", 9U) == 0)
+            {
+                HOST_SendString(
+                    (HOST_SetWifi(&hostRxBuffer[9U]) != 0U)
+                        ? "OK,SET_WIFI\r\n"
+                        : "ERROR,SET_WIFI\r\n"
+                );
+            }
+            else if(strncmp(hostRxBuffer, "SET_UPLOAD_IF,", 14U) == 0)
+            {
+                HOST_SendString(
+                    (HOST_SetUploadInterface(&hostRxBuffer[14U]) != 0U)
+                        ? "OK,SET_UPLOAD_IF\r\n"
+                        : "ERROR,SET_UPLOAD_IF\r\n"
                 );
             }
             /* SET_WORK_MODE,PASSIVE|ACTIVE -- persisted; changes nothing else.

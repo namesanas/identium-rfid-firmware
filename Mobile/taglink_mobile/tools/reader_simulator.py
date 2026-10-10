@@ -199,7 +199,7 @@ class ReaderSession:
                     self.gpo[channel] = value
                     self.reply("OK,SET_GPO")
                     if duration:
-                        threading.Timer(duration / 1000.0, lambda: self.gpo.update({channel: 0})).start()
+                        threading.Timer(duration, lambda: self.gpo.update({channel: 0})).start()  # seconds, as on the reader
             elif raw == "GET_CAPABILITIES":
                 self.reply("CAPABILITIES,GPI=4,GPO=4,ANT=4,BANKS=4")
             elif raw == "GET_WIFI":

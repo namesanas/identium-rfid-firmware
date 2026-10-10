@@ -55,10 +55,12 @@ class CommandBuilder {
     return 'WRITE_EPC,${oldEpc.toUpperCase()},${newEpc.toUpperCase()}';
   }
 
-  static String setGpo({required int channel, required bool value, int durationMs = 0}) {
+  /// [durationSeconds]: the reader returns the output after this many
+  /// seconds; 0 keeps the new state.
+  static String setGpo({required int channel, required bool value, int durationSeconds = 0}) {
     if (channel < 1 || channel > 4) throw ArgumentError.value(channel, 'channel', 'GPO must be 1..4');
-    if (durationMs < 0 || durationMs > 2147483647) throw ArgumentError.value(durationMs, 'durationMs', 'Invalid duration');
-    return 'SET_GPO,$channel,${value ? 1 : 0},$durationMs';
+    if (durationSeconds < 0 || durationSeconds > 86400) throw ArgumentError.value(durationSeconds, 'durationSeconds', 'Must be 0..86400 seconds');
+    return 'SET_GPO,$channel,${value ? 1 : 0},$durationSeconds';
   }
 
   static String setWifi({required bool enabled, required String mode, required String ssid, required String password}) {

@@ -1,5 +1,9 @@
 #include "time_service.h"
+#if defined(STM32F411xE)
+#include "stm32f411xe.h"
+#else
 #include "stm32f429xx.h"
+#endif
 
 #define TIME_SYST_CSR (*(volatile uint32_t *)0xE000E010UL)
 #define TIME_SYST_RVR (*(volatile uint32_t *)0xE000E014UL)

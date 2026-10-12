@@ -7,7 +7,11 @@
 
 #include "reset_cause.h"
 
+#if defined(STM32F411xE)
+#include "stm32f411xe.h"
+#else
 #include "stm32f429xx.h"
+#endif
 
 
 static volatile ResetCause_t g_resetCause =

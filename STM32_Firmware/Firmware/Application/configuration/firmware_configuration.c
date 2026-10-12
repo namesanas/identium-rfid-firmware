@@ -6,7 +6,12 @@
 #include "../../Services/USB/usb_cdc_transport.h"
 #include "../../USB_DEVICE/App/usb_device.h"
 
+#include "../../Config/firmware_config.h"
+#if (TARGET_BOARD == BOARD_F411_CUSTOM)
+#include "../../BSP/f411_custom/board.h"
+#else
 #include "../../BSP/f429_discovery/board.h"
+#endif
 
 #include "../../Common/uart_dispatch.h"
 
@@ -52,8 +57,8 @@
  * ============================================================
  */
 
-USART_Handle_t usart3;
-USART_Handle_t usart1;
+USART_Handle_t rfidUart;
+USART_Handle_t hostUart;
 
 SPI_Handle_t w5500Spi;
 
@@ -132,11 +137,11 @@ static void Firmware_Configuration_UART_IRQ_Init(void)
 static void Firmware_Configuration_UART_Start(void)
 {
     USART_ReceiveByteIT(
-        &usart3
+        &rfidUart
     );
 
     USART_ReceiveByteIT(
-        &usart1
+        &hostUart
     );
 }
 
@@ -173,11 +178,19 @@ Status_t  Firmware_Configuration_Init(void)
      * inside the BSP.
      * --------------------------------------------------------
      */
-    Board_F429_Init(
-        &usart3,
-        &usart1,
+#if (TARGET_BOARD == BOARD_F411_CUSTOM)
+    Board_F411_Init(
+        &rfidUart,
+        &hostUart,
         &w5500Spi
     );
+#else
+    Board_F429_Init(
+        &rfidUart,
+        &hostUart,
+        &w5500Spi
+    );
+#endif
 
     if(Industrial_IO_Init() == 0U)
     {
@@ -207,7 +220,7 @@ Status_t  Firmware_Configuration_Init(void)
      * UART DISPATCH
      * --------------------------------------------------------
      */
-    USART_Dispatch_Init(&usart3, &usart1);
+    USART_Dispatch_Init(&rfidUart, &hostUart);
 
 
     /*
@@ -215,11 +228,12 @@ Status_t  Firmware_Configuration_Init(void)
      * HOST SERIAL PORT (RS232 / RS485)
      *
      * On the F429 Discovery this USART is wired to the ST-LINK
-     * virtual COM port.
+     * virtual COM port; on the F411 board it is USART2 behind the
+     * RS232/RS485 mux.
      * --------------------------------------------------------
      */
     Serial_Port_Init(
-        &usart1,
+        &hostUart,
         PRODUCT_SERIAL_DEFAULT_MODE
     );
 
@@ -231,7 +245,7 @@ Status_t  Firmware_Configuration_Init(void)
      */
     SILION_Init(
         &silion,
-        &usart3
+        &rfidUart
     );
 
 
@@ -242,7 +256,7 @@ Status_t  Firmware_Configuration_Init(void)
      */
     SILION_Application_Port_Init(
         &silion,
-        &usart3
+        &rfidUart
     );
 
 

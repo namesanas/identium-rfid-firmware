@@ -6,6 +6,17 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(STM32F411xE)
+/*
+ * STM32F411CE 512-Kbyte flash ends with 128 KB sectors 5, 6 and 7:
+ * 5 holds the reader settings, 6 and 7 the configuration. The linker
+ * script limits the application to sectors 0-4.
+ */
+#define CONFIG_STORAGE_SECTOR_A       FLASH_SECTOR_6
+#define CONFIG_STORAGE_SECTOR_B       FLASH_SECTOR_7
+#define CONFIG_STORAGE_ADDRESS_A      0x08040000UL
+#define CONFIG_STORAGE_ADDRESS_B      0x08060000UL
+#else
 /*
  * STM32F429ZI 2-Mbyte flash ends with sectors 22 and 23.
  * The linker reserves both sectors for configuration storage.
@@ -14,6 +25,7 @@
 #define CONFIG_STORAGE_SECTOR_B       FLASH_SECTOR_23
 #define CONFIG_STORAGE_ADDRESS_A      0x081C0000UL
 #define CONFIG_STORAGE_ADDRESS_B      0x081E0000UL
+#endif
 #define CONFIG_STORAGE_MAGIC          0x43464731UL /* "CFG1" */
 #define CONFIG_STORAGE_VERSION_V1     1U
 #define CONFIG_STORAGE_VERSION_V2     2U

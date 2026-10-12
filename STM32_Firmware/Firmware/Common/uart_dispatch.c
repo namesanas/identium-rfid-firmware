@@ -34,6 +34,24 @@ void USART_ApplicationEventCallback(
     );
 }
 
+#if defined(STM32F411xE)
+/* F411 custom board: host RS232/RS485 on USART2, RFID module on USART1. */
+void USART2_IRQHandler(void)
+{
+    if(g_hostUart != NULL)
+    {
+        USART_IRQHandling(g_hostUart);
+    }
+}
+
+void USART1_IRQHandler(void)
+{
+    if(g_rfidUart != NULL)
+    {
+        USART_IRQHandling(g_rfidUart);
+    }
+}
+#else
 void USART1_IRQHandler(void)
 {
     if(g_hostUart != NULL)
@@ -49,3 +67,4 @@ void USART3_IRQHandler(void)
         USART_IRQHandling(g_rfidUart);
     }
 }
+#endif

@@ -9,7 +9,11 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
+        board: [f429, f411]
         config: [debug, release]
+    env:
+      # The Makefile puts F429 output in build/<config>, F411 in build/f411-<config>.
+      OUT: ${{ matrix.board == 'f429' && matrix.config || format('f411-{0}', matrix.config) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -18,15 +22,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
 
-      - name: Build (${{ matrix.config }})
+      - name: Build (${{ matrix.board }} ${{ matrix.config }})
         working-directory: STM32_Firmware
-        run: make -j"$(nproc)" CONFIG=${{ matrix.config }} EXTRA_CFLAGS=-Werror
+        run: make -j"$(nproc)" BOARD=${{ matrix.board }} CONFIG=${{ matrix.config }} EXTRA_CFLAGS=-Werror
 
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.config }}
+          name: firmware-${{ matrix.board }}-${{ matrix.config }}
           path: |
-            STM32_Firmware/build/${{ matrix.config }}/rfid_controller.elf
-            STM32_Firmware/build/${{ matrix.config }}/rfid_controller.hex
-            STM32_Firmware/build/${{ matrix.config }}/rfid_controller.bin
-            STM32_Firmware/build/${{ matrix.config }}/rfid_controller.map
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.elf
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.hex
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.bin
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.map

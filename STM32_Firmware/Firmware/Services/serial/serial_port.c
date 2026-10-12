@@ -76,12 +76,30 @@ static void Serial_Port_SetDriverEnable(uint8_t enable)
         BOARD_RS485_DE_RE_PIN,
         (enable != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET
     );
+
+#if defined(BOARD_RS485_RE_N_PORT)
+    /* Separate receiver enable (active low): it follows DE, so the
+     * receiver is off while driving the bus and on otherwise. */
+    GPIO_WriteToOutputPin(
+        (GPIO_RegDef_t *)BOARD_RS485_RE_N_PORT,
+        BOARD_RS485_RE_N_PIN,
+        (enable != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET
+    );
+#endif
 }
 
-/* Mode selector polarity (high = RS485) is provisional until the custom
- * board's netlist is verified. */
+/* Mode selector: high = RS485, low = RS232 (custom board mux U12). */
 static void Serial_Port_SetModePin(uint8_t mode)
 {
+#if defined(BOARD_RS232_POWER_PORT)
+    /* The RS232 transceiver is powered only in RS232 mode. */
+    GPIO_WriteToOutputPin(
+        (GPIO_RegDef_t *)BOARD_RS232_POWER_PORT,
+        BOARD_RS232_POWER_PIN,
+        (mode == SERIAL_PORT_MODE_RS232) ? GPIO_PIN_SET : GPIO_PIN_RESET
+    );
+#endif
+
     if(((GPIO_RegDef_t *)BOARD_SERIAL_MODE_PORT == NULL) || (BOARD_SERIAL_MODE_PIN > 15U))
     {
         return;
@@ -166,6 +184,18 @@ void Serial_Port_Init(USART_Handle_t *pUSARTHandle, uint8_t mode)
         (GPIO_RegDef_t *)BOARD_SERIAL_MODE_PORT,
         BOARD_SERIAL_MODE_PIN
     );
+#if defined(BOARD_RS485_RE_N_PORT)
+    Serial_Port_ConfigOutputPin(
+        (GPIO_RegDef_t *)BOARD_RS485_RE_N_PORT,
+        BOARD_RS485_RE_N_PIN
+    );
+#endif
+#if defined(BOARD_RS232_POWER_PORT)
+    Serial_Port_ConfigOutputPin(
+        (GPIO_RegDef_t *)BOARD_RS232_POWER_PORT,
+        BOARD_RS232_POWER_PIN
+    );
+#endif
 
     Serial_Port_SetMode(mode);
 }

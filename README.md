@@ -18,6 +18,7 @@ Firmware and host applications for the Identium UHF RFID reader.
 cd STM32_Firmware
 make                  # debug build   -> build/debug/rfid_controller.elf
 make CONFIG=release   # release build -> build/release/rfid_controller.elf
+make BOARD=f411       # F411 custom board -> build/f411-debug/ (see docs/notes/f411-custom-board-port.md)
 ```
 
 **ESP32 coprocessor** — ESP-IDF v6.1:

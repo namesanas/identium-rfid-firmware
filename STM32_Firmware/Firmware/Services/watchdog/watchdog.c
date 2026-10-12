@@ -7,7 +7,11 @@
 
 #include "watchdog.h"
 
+#if defined(STM32F411xE)
+#include "stm32f411xe.h"
+#else
 #include "stm32f429xx.h"
+#endif
 
 #include "../Time/time_service.h"
 

@@ -25,8 +25,14 @@ extern uint8_t W5500_Socket1_Close(void);
  * a save leaves the previous record intact. The linker scripts end the
  * application flash region before this sector.
  */
+#if defined(STM32F411xE)
+/* F411: sector 5 (128 KB at 0x08020000), see configuration_storage.c. */
+#define READER_SETTINGS_SECTOR         FLASH_SECTOR_5
+#define READER_SETTINGS_ADDRESS        0x08020000UL
+#else
 #define READER_SETTINGS_SECTOR         FLASH_SECTOR_21
 #define READER_SETTINGS_ADDRESS        0x081A0000UL
+#endif
 #define READER_SETTINGS_SECTOR_SIZE    0x00020000UL
 #define READER_SETTINGS_MAGIC          0x52535431UL /* "RST1" */
 #define READER_SETTINGS_VERSION        3U

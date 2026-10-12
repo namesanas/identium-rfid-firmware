@@ -18,7 +18,7 @@
  * F429 prototype-only test mapping.
  * These pins are brought out on the Discovery headers. Avoid PE7 here because
  * the F429I-DISCO connects PE7 to the onboard SDRAM data bus (FMC_D4).
- * Production F411 mapping is already defined in f411_custom/board_config.h.
+ * The F411 mapping is in f411_custom/board_config.h.
  */
 #define BOARD_INPUT1_PORT GPIOE
 #define BOARD_INPUT1_PIN  4U
@@ -37,6 +37,16 @@
 #define BOARD_OUTPUT3_PIN  2U
 #define BOARD_OUTPUT4_PORT GPIOE
 #define BOARD_OUTPUT4_PIN  3U
+#endif
+
+/*
+ * F411 custom board: the inputs read LOW when the field input is on
+ * (NPN stage), and output 4 does not exist (three relays only).
+ */
+#if defined(BOARD_INPUTS_ACTIVE_LOW) && (BOARD_INPUTS_ACTIVE_LOW != 0U)
+#define INDUSTRIAL_IO_INPUT_LEVEL(raw)  ((uint8_t)((raw) ^ 1U))
+#else
+#define INDUSTRIAL_IO_INPUT_LEVEL(raw)  (raw)
 #endif
 
 typedef struct
@@ -109,7 +119,11 @@ uint8_t Industrial_IO_Init(void)
     {
         if(industrialOutputs[i].port == NULL)
         {
+#if (TARGET_BOARD == BOARD_F411_CUSTOM)
+            continue;
+#else
             return 0U;
+#endif
         }
 
         Industrial_IO_ConfigureOutput(
@@ -152,6 +166,13 @@ uint8_t Industrial_IO_SetOutput(
         return 0U;
     }
 
+#if (TARGET_BOARD == BOARD_F411_CUSTOM)
+    if(industrialOutputs[outputNumber - 1U].port == NULL)
+    {
+        return 0U;
+    }
+#endif
+
     GPIO_WriteToOutputPin(
         industrialOutputs[outputNumber - 1U].port,
         industrialOutputs[outputNumber - 1U].pin,
@@ -177,6 +198,13 @@ uint8_t Industrial_IO_GetOutput(
         return 0U;
     }
 
+#if (TARGET_BOARD == BOARD_F411_CUSTOM)
+    if(industrialOutputs[outputNumber - 1U].port == NULL)
+    {
+        return 0U;
+    }
+#endif
+
     value = (uint8_t)(
         (industrialOutputs[outputNumber - 1U].port->ODR >>
          industrialOutputs[outputNumber - 1U].pin) &
@@ -199,10 +227,10 @@ uint8_t Industrial_IO_GetInput(
         return 0U;
     }
 
-    return GPIO_ReadFromInputPin(
+    return INDUSTRIAL_IO_INPUT_LEVEL(GPIO_ReadFromInputPin(
         industrialInputs[inputNumber - 1U].port,
         industrialInputs[inputNumber - 1U].pin
-    );
+    ));
 }
 
 void Industrial_IO_GetAllInputs(
@@ -218,9 +246,9 @@ void Industrial_IO_GetAllInputs(
 
     for(i = 0U; i < INDUSTRIAL_IO_COUNT; i++)
     {
-        states[i] = GPIO_ReadFromInputPin(
+        states[i] = INDUSTRIAL_IO_INPUT_LEVEL(GPIO_ReadFromInputPin(
             industrialInputs[i].port,
             industrialInputs[i].pin
-        );
+        ));
     }
 }

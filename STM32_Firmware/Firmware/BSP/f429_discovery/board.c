@@ -1,3 +1,7 @@
+#include "../../Config/firmware_config.h"
+
+#if (TARGET_BOARD == BOARD_F429_DISCOVERY)
+
 #include "board.h"
 #include "board_config.h"
 
@@ -216,3 +220,5 @@ void Board_F429_Init(
     Board_F429_Host_UART_Init(pHostUart);
     Board_F429_W5500_SPI_Init(pW5500Spi);
 }
+
+#endif /* TARGET_BOARD == BOARD_F429_DISCOVERY */

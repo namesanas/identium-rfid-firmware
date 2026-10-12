@@ -2,13 +2,23 @@
 
 How to bring the reader firmware from the F429 Discovery to the custom board (STM32F411CEU6, UFQFPN-48). The board's pin map is in `STM32_Firmware/Firmware/BSP/f411_custom/board_config.h`; it was traced from `docs/hardware/SCH_Schematic1_2026-10-08.pdf`.
 
-The work splits in three:
+**Status:** the port is implemented on branch `f411-custom-board` and builds for both boards; it has not yet run on hardware. Build it with:
 
-1. **STM32CubeMX** produces the chip-level files: device header, startup file, linker script, clock setup and the USB peripheral setup.
+```
+cd STM32_Firmware
+make BOARD=f411                  # debug (-Og), build/f411-debug/
+make BOARD=f411 CONFIG=release   # release (-Os), build/f411-release/
+```
+
+`make` with no `BOARD` still builds the F429 Discovery, and the F429 output is byte-for-byte the same as before the port. All F411 code sits behind `#if defined(STM32F411xE)` or `#if (TARGET_BOARD == BOARD_F411_CUSTOM)`.
+
+The work had three parts:
+
+1. **STM32CubeMX** produced the chip-level files: device header, startup file, linker script, clock setup and USB setup. The project is kept as `STM32_Firmware/Boards/f411/F411_custom.ioc`.
 2. **Code changes** that CubeMX cannot make: board pins, flash layout, UART roles, RS485/RS232 control lines and the inputs/outputs.
-3. **Flashing and bring-up** on the board.
+3. **Flashing and bring-up** on the board, still to do when the board arrives.
 
-The firmware drives UART, SPI, I2C and GPIO through its own drivers (`Firmware/Drivers/`). Only the clock, USB and flash use the ST HAL. CubeMX therefore must **not** generate init code for USART, SPI, I2C or GPIO: those calls would fight with the firmware's own drivers.
+The firmware drives UART, SPI, I2C and GPIO through its own drivers (`Firmware/Drivers/`). Only the clock, USB and flash use the ST HAL, so only those were taken from CubeMX.
 
 ## Board facts
 
@@ -114,108 +124,60 @@ All boxes should be free of red. CubeMX picks flash latency 3 WS by itself.
 
 Click **Generate Code**.
 
-### 1.5 Files to take from the CubeMX project
+### 1.5 What was taken from the CubeMX project
 
-| From the CubeMX project | Into `STM32_Firmware/` | Notes |
-|---|---|---|
-| `Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f411xe.h` | same path | The device header. `stm32f4xx.h` and `system_stm32f4xx.h` there are the same files the repo already has |
-| `Core/Startup/startup_stm32f411ceux.s` | `Startup/f411/` | Move the existing `startup_stm32f429zitx.s` to `Startup/f429/` (see 2.1) |
-| `STM32F411CEUX_FLASH.ld` | project root, next to the F429 script | Needs the edits in 1.6 |
-| `SystemClock_Config()` body from `Core/Src/main.c` | `Src/main.c` | Put it under `#if (TARGET_BOARD == BOARD_F411_CUSTOM)`, keep the F429 version under `#else` |
-| `HAL_PCD_MspInit()` and the `hpcd_USB_OTG_FS` setup in `USBD_LL_Init()` from `USB_DEVICE/Target/usbd_conf.c` | `Firmware/USB_DEVICE/Target/usbd_conf.c` | Only the OTG_FS parts. Keep the firmware's own CDC files. The RX/TX FIFO sizes (`HAL_PCDEx_SetRxFiFo`, `HAL_PCDEx_SetTxFiFo`) must be the OTG_FS values CubeMX generates; the OTG_FS FIFO is smaller than OTG_HS |
-| `OTG_FS_IRQHandler` from `Core/Src/stm32f4xx_it.c` | `Firmware/USB_DEVICE/Target/usb_irq.c` | Calls `HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS)` |
+| CubeMX file | Now in `STM32_Firmware/` |
+|---|---|
+| `stm32f411xe.h` | `Drivers/CMSIS/Device/ST/STM32F4xx/Include/` (the other CMSIS files and `system_stm32f4xx.c` were identical to the repo's) |
+| `startup_stm32f411ceux.s` | `Boards/f411/` |
+| `STM32F411CEUX_FLASH.ld` | `Boards/f411/`, edited as in 1.6 |
+| `F411_custom.ioc` | `Boards/f411/`, to reopen in CubeMX later |
+| `SystemClock_Config()` | `Src/main.c`, F411 branch |
+| OTG_FS `HAL_PCD_MspInit/DeInit`, `USBD_LL_Init` | `Firmware/USB_DEVICE/Target/usbd_conf.c`, F411 branch |
+| `OTG_FS_IRQHandler` | `Firmware/USB_DEVICE/Target/usb_irq.c`, F411 branch |
 
-Leave `Inc/stm32f4xx_hal_conf.h` as it is: its `HSE_VALUE` is already 8 MHz, and the F411 uses the same HAL modules (RCC, FLASH, PWR, GPIO, CORTEX, PCD, DMA, EXTI). Also keep the repo's HAL driver sources; they are the same STM32F4 HAL.
+The F411 startup file and linker script live in `Boards/f411/`, not `Startup/`. The STM32CubeIDE project (`.cproject`) compiles everything under `Startup/`, so a second startup file there would break the F429 build in CubeIDE.
+
+`Inc/stm32f4xx_hal_conf.h` is unchanged: `HSE_VALUE` was already 8 MHz.
+
+To regenerate after changing the `.ioc`, generate into a scratch folder outside the repo and copy the same pieces across. Never generate into `STM32_Firmware/`: CubeMX would overwrite `main.c` and the USB files.
 
 ### 1.6 Linker script edits
 
-Make these four changes to `STM32F411CEUX_FLASH.ld`:
+The F411 linker script differs from CubeMX's output in three places:
 
-1. **Limit the program to 128 KB.** Settings live in flash sectors 5–7 (see 2.4), so the code must stay in sectors 0–4:
-   ```
-   FLASH (rx) : ORIGIN = 0x8000000, LENGTH = 128K
-   ```
-   With this limit, the linker refuses to build an image that would overwrite the settings sectors.
-2. Keep `_Min_Heap_Size = 0x200;` and `_Min_Stack_Size = 0x4000;`. The stack monitor (`stack_monitor.c`) reads `_Min_Stack_Size`.
-3. Add the `.noinit` section after `.bss`. The fault record (`fault_record.c`) is kept across a reset there:
-   ```
-   .noinit (NOLOAD) :
-   {
-     . = ALIGN(4);
-     *(.noinit)
-     *(.noinit*)
-     . = ALIGN(4);
-   } >RAM
-   ```
-4. There is no CCM RAM on the F411. Nothing in the firmware uses `.ccmram`, so there is nothing to carry over.
+1. **The program is limited to 128 KB** (`FLASH LENGTH = 128K`, sectors 0–4). Sectors 5–7 hold the settings, and with this limit the linker refuses an image that would overwrite them.
+2. **`_Min_Stack_Size = 0x4000`**, the same as the F429. The stack monitor (`stack_monitor.c`) reads it.
+3. **A `.noinit` section** after `.bss`, which keeps the fault record (`fault_record.c`) across a reset.
 
-## Part 2: Code changes (not done by CubeMX)
+The F411 has no CCM RAM. Nothing in the firmware uses `.ccmram`, so nothing was lost.
 
-`board_config.h` for the custom board already holds the traced pin map. The rest:
+## Part 2: Code changes
 
-### 2.1 Build: select the board
-
-In the `Makefile`, add a `BOARD` variable (`f429` default, `f411`):
-
-| | f429 | f411 |
+| Area | File | F411 behaviour |
 |---|---|---|
-| `DEFS` | `-DSTM32F429xx -DTARGET_BOARD=1` | `-DSTM32F411xE -DTARGET_BOARD=2` |
-| `LDSCRIPT` | `STM32F429ZITX_FLASH.ld` | `STM32F411CEUX_FLASH.ld` |
-| startup | `Startup/f429/*.s` | `Startup/f411/*.s` |
-| `BUILD` | `build/$(CONFIG)` | `build/f411-$(CONFIG)` |
+| Board select | `Makefile` | `BOARD=f411` sets `-DSTM32F411xE -DTARGET_BOARD=2`, the `Boards/f411` startup and linker script, output in `build/f411-<config>/`, and `-Og` for debug (at `-O0` the image is 143 KB, too big for 128 KB) |
+| CI | `.github/workflows/build.yml` | Builds f429 and f411, debug and release, with `-Werror` |
+| Device header | `identium_protocol.c`, `time_service.c`, `reset_cause.c`, `watchdog.c` | Include `stm32f411xe.h` on the F411 |
+| Missing peripherals | `Drivers/gpio/gpio.c`, `Drivers/uart/uart.c` | GPIOF, GPIOG and USART3 compiled only where they exist |
+| Clock | `Src/main.c` | 8 MHz HSE → 96 MHz, USB 48 MHz, APB1 48 MHz, APB2 96 MHz, 3 wait states |
+| USB | `usbd_conf.c`, `usb_irq.c` | OTG_FS on PA11/PA12, no VBUS sense, CubeMX FIFO sizes. The app layer keeps its `HS` names |
+| Settings flash | `reader_settings.c`, `configuration_storage.c` | Reader settings in sector 5 (`0x08020000`), config A in sector 6 (`0x08040000`), config B in sector 7 (`0x08060000`) |
+| Board init | `BSP/f411_custom/board.c`, `board.h` | RFID UART USART1 PA9/PA10, host UART USART2 PA2/PA3, SPI1 + W5500 CS/RESET, W5500 INT input with pull-up, PB5 (module RST) left as input, buzzer off, status LED on once board init runs |
+| Board select | `firmware_configuration.c` | Calls `Board_F411_Init()`. The UART handles are now named `rfidUart` / `hostUart` on both boards |
+| UART interrupts | `Common/uart_dispatch.c` | `USART2_IRQHandler` = host, `USART1_IRQHandler` = RFID |
+| RS232 / RS485 | `Services/serial/serial_port.c` | PB14 selects the mode. PB12 (DE) and PB13 (RE#) switch together: receiver on and driver off while idle, driver on and receiver off while sending. PA8 powers the RS232 transceiver in RS232 mode only |
+| Inputs / outputs | `BSP/industrial_io.c` | Inputs are inverted, so an active field input reads 1. Output 4 doesn't exist: init skips it, and `SET_GPO,4` and reads of output 4 fail |
+| ESP32-C3 link | `BSP/f411_custom/board_config.h` | Enabled on I2C1 PB6/PB7, EN on PB9 |
 
-The startup files must live in separate folders, because the Makefile currently links every `Startup/*.s`. Board-specific C files (`BSP/f429_discovery/board.c`, the new `BSP/f411_custom/board.c`) must be wrapped in `#if (TARGET_BOARD == ...)`, because the Makefile compiles every `.c` under `Firmware/`.
+Unchanged on purpose:
+- **Brownout:** `brownout.c` already selects BOR level 3 for the F411, which is right for a 3.3 V board.
+- **UART/I2C timing:** both are computed from the RCC registers at run time, so they follow the 96 MHz clock.
 
-For the F411 debug build, use `-Og` instead of `-O0`. At `-O0` the image is 143 KB, which does not fit in the 128 KB program area; at `-Og` it is about 98 KB. Release (`-Os`) is about 83 KB.
-
-Add the F411 build to `.github/workflows/build.yml` so CI builds both boards.
-
-### 2.2 F429-only code
-
-- Five files include `stm32f429xx.h` directly. Change them to `#include "stm32f4xx.h"`, which picks the right device from `-DSTM32F4xxxx`. The files are `Firmware/Protocol/identium_protocol.c`, `Firmware/Services/Time/time_service.c`, `Firmware/Services/system/reset_cause.c`, `Firmware/Services/watchdog/watchdog.c` and `Firmware/Common/critical_section.h`.
-- `Firmware/Drivers/gpio/gpio.c` refers to GPIOF and GPIOG, which the F411 doesn't have (it has GPIOA–E and GPIOH). Wrap those lines in `#if defined(GPIOF)` / `#if defined(GPIOG)`, the same way GPIOI–K already are.
-- `Firmware/Devices/esp32/esp32_link.c` and `Firmware/BSP/industrial_io.c` already pick the board config by `TARGET_BOARD`. `Firmware/Services/serial/serial_port.c` only includes the F429 config; add the F411 branch.
-- Brownout (`brownout.c`) already selects BOR level 3 for the F411. That is right for a 3.3 V board.
-
-### 2.3 Board init and UART roles
-
-- Add `Firmware/BSP/f411_custom/board.c` with `Board_F411_Init()`, modelled on `f429_discovery/board.c`. It must configure:
-  - USART1 on PA9/PA10 (AF7) as the RFID UART, and USART2 on PA2/PA3 (AF7) as the host UART;
-  - SPI1 and the W5500 CS/RESET pins;
-  - PB5 as an input with no pull. R32 already pulls it up; never drive it low;
-  - PC13 (buzzer) and PB8 (LED) as outputs, driven low.
-- `Firmware/Application/configuration/firmware_configuration.c` calls `Board_F429_Init(&usart3, &usart1, ...)` by name. Select the F411 call there, and swap the UART handle names to match (RFID = USART1, host = USART2).
-- `Firmware/Common/uart_dispatch.c` hard-codes `USART1_IRQHandler` = host and `USART3_IRQHandler` = RFID. On the F411 it must be `USART2_IRQHandler` = host and `USART1_IRQHandler` = RFID. `BOARD_HOST_USART_IRQ` / `BOARD_RFID_USART_IRQ` in `board_config.h` already hold the new numbers.
-- In `Src/main.c`, change the clock comment block to match: 8 MHz / 4 × 96 = 192 MHz VCO, /2 = 96 MHz, /4 = 48 MHz USB.
-
-### 2.4 Flash layout for settings
-
-The F429 build stores settings in sectors 21–23, which don't exist on the F411. The F411CE has eight sectors: 0–3 are 16 KB, 4 is 64 KB, and 5–7 are 128 KB each. The settings need three sectors of 128 KB, so they move to the last three. The program keeps sectors 0–4 (128 KB, matching the linker limit in 1.6).
-
-| What | File | F429 | F411 |
-|---|---|---|---|
-| Reader settings log | `reader_settings.c` | sector 21, `0x081A0000` | **sector 5, `0x08020000`** |
-| Config copy A | `configuration_storage.c` | sector 22, `0x081C0000` | **sector 6, `0x08040000`** |
-| Config copy B | `configuration_storage.c` | sector 23, `0x081E0000` | **sector 7, `0x08060000`** |
-
-Sector size is 128 KB in both cases, so only the sector numbers and addresses change. Put each set under `#if (TARGET_BOARD == ...)`.
-
-### 2.5 Host serial port (RS232 / RS485)
-
-`serial_port.c` currently knows one DE/RE pin and one mode pin. The board has more:
-
-- **PB14 (mode)**: drive low for RS232, high for RS485.
-- **PB12 (DE)**: high only while transmitting in RS485 mode. This is the existing `BOARD_RS485_DE_RE` pin.
-- **PB13 (RE#)**: new. R20 pulls it high, which **switches the RS485 receiver off**. In RS485 mode the firmware must drive it low to receive, and high only while transmitting (or leave it low for echo). If you forget this pin, RS485 transmits but never receives.
-- **PA8 (RS232 power)**: new. Drive it high in RS232 mode. It can go low in RS485 mode to save power.
-
-### 2.6 Inputs, outputs, LED, buzzer
-
-- `industrial_io.c` expects four outputs. Output 4 is `NULL` on this board, so skip `NULL` ports in the init and set functions, and report output 4 as absent.
-- The inputs are active low (`BOARD_INPUTS_ACTIVE_LOW`). Invert the reading in `industrial_io.c` so a field input that is on still reads as 1 in the protocol.
-- PB3, PA15 and PB4 are JTAG pins after reset. Configuring them as plain inputs is fine and doesn't affect SWD. Just make sure nothing re-enables JTAG.
-- PB2 is also the BOOT1 strap. Its 10k pull-down keeps the relay off and boot normal during reset.
-- The LED and buzzer have no driver yet (`SET_BUZZER` currently answers `ERROR`). A simple start: LED on at boot, blinking while inventory runs, and `SET_BUZZER` driving PC13.
+Still open, not needed for first bring-up:
+- **RS232/RS485 switching:** no host command switches the mode yet. It comes from `PRODUCT_SERIAL_DEFAULT_MODE` at start-up.
+- **LED and buzzer:** they have no driver beyond init (`SET_BUZZER` still answers `ERROR`).
+- **PB3, PA15, PB4 (inputs):** these are JTAG pins after reset. Using them as inputs doesn't affect SWD.
 
 ## Part 3: Flashing and bring-up
 
@@ -236,15 +198,19 @@ Erase the whole chip on the first flash only (`-e all`), so the settings sectors
 
 ### 3.3 Flash the ESP32-C3
 
+The same ESP-IDF project builds the DevKit (`esp32`) and the custom board (`esp32c3`) from one source; the C3 pins (IO6 = SCL, IO10 = SDA) are already set in `main/i2c_link.c`. Build and merge into one file:
+
 ```
 cd ESP32_Firmware
 idf.py -B build_esp32c3 -DIDF_TARGET=esp32c3 -DSDKCONFIG=build_esp32c3/sdkconfig build
+cd build_esp32c3
+python -m esptool --chip esp32c3 merge-bin -o wifi_coprocessor_esp32c3_merged.bin "@flash_args"
 ```
 
 1. Connect a 3.3 V USB-serial adapter to CN11 "WIFI_ESP": 5 = RX, 4 = TX, 3 = GND.
 2. Fit jumper **J2** (IO9 to GND = download mode).
 3. **Hold KEY1** (STM reset) while flashing. PB9 drives the ESP's EN pin, and a running STM can reset the ESP partway through a flash.
-4. Run `idf.py -B build_esp32c3 -p COMx flash`.
+4. Run `python -m esptool --chip esp32c3 -p COMx write-flash 0x0 wifi_coprocessor_esp32c3_merged.bin`.
 5. Remove J2 and release KEY1.
 
 ### 3.4 Bring-up order

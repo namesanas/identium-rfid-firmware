@@ -2,7 +2,11 @@
 #include "identium_protocol.h"
 #include "identium_command.h"
 
+#if defined(STM32F411xE)
+#include "stm32f411xe.h"
+#else
 #include "stm32f429xx.h"
+#endif
 
 #include "../Config/product_config.h"
 #include "../Application/Silion/sillion_application.h"

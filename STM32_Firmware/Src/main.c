@@ -158,6 +158,53 @@ int main(void)
   * @brief System Clock Configuration
   * @retval None
   */
+#if defined(STM32F411xE)
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /*
+   * F411 custom board, 8 MHz HSE (X1). Values from the STM32CubeMX
+   * project Boards/f411/F411_custom.ioc.
+   *
+   * PLL: 8 MHz / 4 * 96 = 192 MHz VCO
+   * SYSCLK = 192 / 2 = 96 MHz (the F411 maximum is 100 MHz)
+   * USB CLK = 192 / 4 = 48 MHz, exact, as OTG_FS requires
+   * APB1 = 48 MHz (limit 50 MHz), APB2 = 96 MHz
+   */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4U;
+  RCC_OscInitStruct.PLL.PLLN = 96U;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4U;
+
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK |
+                                 RCC_CLOCKTYPE_SYSCLK |
+                                 RCC_CLOCKTYPE_PCLK1 |
+                                 RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+#else
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -204,6 +251,7 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 }
+#endif
 
 
 /* USER CODE BEGIN 4 */

@@ -1,7 +1,10 @@
-# Command-line build for the STM32F429 Discovery target.
+# Command-line build for the reader firmware.
 #
 #   make                 debug build   (-O0 -g3), build/debug/rfid_controller.elf
 #   make CONFIG=release  release build (-Os -g),  build/release/rfid_controller.elf
+#   make BOARD=f411      F411 custom board (default BOARD=f429, the Discovery);
+#                        output in build/f411-<config>/. F411 debug builds use
+#                        -Og: at -O0 the image overflows the 128 KB code area.
 #   make flash           build, then program over SWD with STM32_Programmer_CLI
 #   make clean
 #   EXTRA_CFLAGS=-Werror  extra compiler flags (CI builds with warnings as errors)
@@ -10,19 +13,34 @@
 # project (.cproject) remains usable alongside this file.
 
 CONFIG  ?= debug
+BOARD   ?= f429
 TARGET  := rfid_controller
-BUILD   := build/$(CONFIG)
 
 PREFIX  ?= arm-none-eabi-
 CC      := $(PREFIX)gcc
 OBJCOPY := $(PREFIX)objcopy
 SIZE    := $(PREFIX)size
 
+ifeq ($(BOARD),f429)
+BUILD    := build/$(CONFIG)
 LDSCRIPT := STM32F429ZITX_FLASH.ld
+S_SRCS   := $(wildcard Startup/*.s)
+DEFS     := -DUSE_HAL_DRIVER -DSTM32F429xx
+DEBUG_OPT := -O0 -g3
+else ifeq ($(BOARD),f411)
+# Chip files from the STM32CubeMX project (Boards/f411/F411_custom.ioc).
+# They live outside Startup/ so the F429 CubeIDE project never builds them.
+BUILD    := build/f411-$(CONFIG)
+LDSCRIPT := Boards/f411/STM32F411CEUX_FLASH.ld
+S_SRCS   := Boards/f411/startup_stm32f411ceux.s
+DEFS     := -DUSE_HAL_DRIVER -DSTM32F411xE -DTARGET_BOARD=2
+DEBUG_OPT := -Og -g3
+else
+$(error BOARD must be f429 or f411)
+endif
 
 MCU := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 
-DEFS := -DUSE_HAL_DRIVER -DSTM32F429xx
 
 INCS := \
 	-IInc \
@@ -45,7 +63,7 @@ INCS := \
 ifeq ($(CONFIG),release)
 OPT := -Os -g
 else ifeq ($(CONFIG),debug)
-OPT  := -O0 -g3
+OPT  := $(DEBUG_OPT)
 DEFS += -DDEBUG
 else
 $(error CONFIG must be debug or release)
@@ -59,7 +77,6 @@ LDFLAGS := $(MCU) -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \
 	-Wl,--print-memory-usage -static
 
 C_SRCS := $(shell find Src Drivers Firmware -name '*.c')
-S_SRCS := $(wildcard Startup/*.s)
 
 OBJS := $(addprefix $(BUILD)/,$(C_SRCS:.c=.o) $(S_SRCS:.s=.o))
 

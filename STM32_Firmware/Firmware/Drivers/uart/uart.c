@@ -8,7 +8,9 @@ static void USART_ClockControl(USART_RegDef_t *pUSARTx, uint8_t enable)
 
     if (pUSARTx == USART1) { bit = 4U; apb2 = 1U; }
     else if (pUSARTx == USART2) { bit = 17U; apb2 = 0U; }
+#if defined(USART3)
     else if (pUSARTx == USART3) { bit = 18U; apb2 = 0U; }
+#endif
     else return;
 
     if (apb2)
@@ -151,7 +153,9 @@ void USART_DeInit(USART_RegDef_t *pUSARTx)
 {
     if (pUSARTx == USART1) RCC->APB2RSTR |= (1UL << 4U), RCC->APB2RSTR &= ~(1UL << 4U);
     else if (pUSARTx == USART2) RCC->APB1RSTR |= (1UL << 17U), RCC->APB1RSTR &= ~(1UL << 17U);
+#if defined(USART3)
     else if (pUSARTx == USART3) RCC->APB1RSTR |= (1UL << 18U), RCC->APB1RSTR &= ~(1UL << 18U);
+#endif
 }
 
 uint8_t USART_GetFlagStatus(USART_RegDef_t *pUSARTx,

@@ -10,8 +10,12 @@ static void GPIO_ClockEnable(GPIO_RegDef_t *pGPIOx, uint8_t enable)
     else if (pGPIOx == GPIOC) bit = 2U;
     else if (pGPIOx == GPIOD) bit = 3U;
     else if (pGPIOx == GPIOE) bit = 4U;
+#if defined(GPIOF)
     else if (pGPIOx == GPIOF) bit = 5U;
+#endif
+#if defined(GPIOG)
     else if (pGPIOx == GPIOG) bit = 6U;
+#endif
     else if (pGPIOx == GPIOH) bit = 7U;
 #if defined(GPIOI)
     else if (pGPIOx == GPIOI) bit = 8U;
@@ -91,8 +95,12 @@ void GPIO_Init(GPIO_Handle_t *pGPIOHandle)
         else if (gpio == GPIOC) portCode = GPIO_EXTI_PORTC;
         else if (gpio == GPIOD) portCode = GPIO_EXTI_PORTD;
         else if (gpio == GPIOE) portCode = GPIO_EXTI_PORTE;
+#if defined(GPIOF)
         else if (gpio == GPIOF) portCode = GPIO_EXTI_PORTF;
+#endif
+#if defined(GPIOG)
         else if (gpio == GPIOG) portCode = GPIO_EXTI_PORTG;
+#endif
         else if (gpio == GPIOH) portCode = GPIO_EXTI_PORTH;
 #if defined(GPIOI)
         else if (gpio == GPIOI) portCode = GPIO_EXTI_PORTI;
@@ -130,8 +138,12 @@ void GPIO_DeInit(GPIO_RegDef_t *pGPIOx)
     else if (pGPIOx == GPIOC) RCC->AHB1RSTR |= (1UL << 2U), RCC->AHB1RSTR &= ~(1UL << 2U);
     else if (pGPIOx == GPIOD) RCC->AHB1RSTR |= (1UL << 3U), RCC->AHB1RSTR &= ~(1UL << 3U);
     else if (pGPIOx == GPIOE) RCC->AHB1RSTR |= (1UL << 4U), RCC->AHB1RSTR &= ~(1UL << 4U);
+#if defined(GPIOF)
     else if (pGPIOx == GPIOF) RCC->AHB1RSTR |= (1UL << 5U), RCC->AHB1RSTR &= ~(1UL << 5U);
+#endif
+#if defined(GPIOG)
     else if (pGPIOx == GPIOG) RCC->AHB1RSTR |= (1UL << 6U), RCC->AHB1RSTR &= ~(1UL << 6U);
+#endif
     else if (pGPIOx == GPIOH) RCC->AHB1RSTR |= (1UL << 7U), RCC->AHB1RSTR &= ~(1UL << 7U);
 }
 

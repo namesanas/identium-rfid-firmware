@@ -8,7 +8,7 @@ Firmware and host applications for the Identium UHF RFID reader.
 | [`ESP32_Firmware/`](ESP32_Firmware) | ESP-IDF project for the WiFi coprocessor (ESP32 / ESP32-C3) |
 | [`TAGlink_Desktop/`](TAGlink_Desktop) | TAGlink, the Windows desktop application (Python, PySide6) |
 | [`TAGlink_Mobile/`](TAGlink_Mobile) | TAGlink Mobile, the Android application (Flutter) |
-| [`docs/`](docs) | Design records, notes and the reader protocol specification |
+| [`docs/`](docs) | Design records, notes, the reader protocol specification and the board schematic (`docs/hardware/`) |
 
 ## Building
 

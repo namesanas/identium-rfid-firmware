@@ -1,6 +1,7 @@
 # STM32CubeIDE build outputs
 Debug/
 Release/
+F411/
 *.o
 *.d
 *.su

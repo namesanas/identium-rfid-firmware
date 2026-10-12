@@ -12,20 +12,23 @@ Firmware and host applications for the Identium UHF RFID reader.
 
 ## Building
 
-**STM32 firmware** — needs `arm-none-eabi-gcc` (STM32CubeCLT) and a Unix shell (Git Bash on Windows):
+**STM32 firmware** — one source tree for both boards; the board is chosen when building. Needs `arm-none-eabi-gcc` (STM32CubeCLT) and a Unix shell (Git Bash on Windows):
 
-```
-cd STM32_Firmware
-make                  # debug build   -> build/debug/rfid_controller.elf
-make CONFIG=release   # release build -> build/release/rfid_controller.elf
-make BOARD=f411       # F411 custom board -> build/f411-debug/ (see docs/notes/f411-custom-board-port.md)
-```
+| Board | Command | Output |
+|---|---|---|
+| F429 Discovery | `make` / `make CONFIG=release` | `build/debug/rfid_controller.elf` / `build/release/rfid_controller.elf` |
+| F411 custom board | `make BOARD=f411` / `make BOARD=f411 CONFIG=release` | `build/f411-debug/rfid_controller_f411.elf` / `build/f411-release/rfid_controller_f411.elf` |
 
-**ESP32 coprocessor** — ESP-IDF v6.1:
+Add `flash` to program over SWD (for example `make BOARD=f411 CONFIG=release flash`). It first reads the chip on the ST-LINK and refuses to flash an image built for the other board. `make check-chip` runs only that check.
+
+In STM32CubeIDE, pick the board with the build configuration (hammer drop-down or Project → Build Configurations → Set Active): **Debug** and **Release** build the F429 (`RFID_Controller_F429.elf`); **F411** builds the custom board (`RFID_Controller_F429_f411.elf`, output folder `F411/`). The F411 port is described in [`docs/notes/f411-custom-board-port.md`](docs/notes/f411-custom-board-port.md).
+
+**ESP32 coprocessor** — one ESP-IDF project for the DevKit (`esp32`) and the custom board (`esp32c3`), each built in its own folder:
 
 ```
 cd ESP32_Firmware
-idf.py -B build_esp32 -DIDF_TARGET=esp32 -DSDKCONFIG=build_esp32/sdkconfig build
+idf.py -B build_esp32   -DIDF_TARGET=esp32   -DSDKCONFIG=build_esp32/sdkconfig   build   # DevKit
+idf.py -B build_esp32c3 -DIDF_TARGET=esp32c3 -DSDKCONFIG=build_esp32c3/sdkconfig build   # custom board
 ```
 
 **TAGlink desktop** — `python main.py` to run, `pyinstaller main.spec` to build `dist/TAGlink.exe` (see [`TAGlink_Desktop/README.md`](TAGlink_Desktop/README.md)).

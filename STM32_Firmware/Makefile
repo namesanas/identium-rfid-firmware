@@ -3,9 +3,12 @@
 #   make                 debug build   (-O0 -g3), build/debug/rfid_controller.elf
 #   make CONFIG=release  release build (-Os -g),  build/release/rfid_controller.elf
 #   make BOARD=f411      F411 custom board (default BOARD=f429, the Discovery);
-#                        output in build/f411-<config>/. F411 debug builds use
-#                        -Og: at -O0 the image overflows the 128 KB code area.
-#   make flash           build, then program over SWD with STM32_Programmer_CLI
+#                        output build/f411-<config>/rfid_controller_f411.elf.
+#                        F411 debug builds use -Og: at -O0 the image overflows
+#                        the 128 KB code area.
+#   make flash           build, check that the chip on SWD matches BOARD, then
+#                        program it with STM32_Programmer_CLI
+#   make check-chip      only the chip check (reads the device ID, no reset)
 #   make clean
 #   EXTRA_CFLAGS=-Werror  extra compiler flags (CI builds with warnings as errors)
 #
@@ -14,7 +17,7 @@
 
 CONFIG  ?= debug
 BOARD   ?= f429
-TARGET  := rfid_controller
+PROGRAMMER ?= STM32_Programmer_CLI
 
 PREFIX  ?= arm-none-eabi-
 CC      := $(PREFIX)gcc
@@ -22,6 +25,8 @@ OBJCOPY := $(PREFIX)objcopy
 SIZE    := $(PREFIX)size
 
 ifeq ($(BOARD),f429)
+TARGET   := rfid_controller
+CHIP_ID  := 0x419
 BUILD    := build/$(CONFIG)
 LDSCRIPT := STM32F429ZITX_FLASH.ld
 S_SRCS   := $(wildcard Startup/*.s)
@@ -30,6 +35,8 @@ DEBUG_OPT := -O0 -g3
 else ifeq ($(BOARD),f411)
 # Chip files from the STM32CubeMX project (Boards/f411/F411_custom.ioc).
 # They live outside Startup/ so the F429 CubeIDE project never builds them.
+TARGET   := rfid_controller_f411
+CHIP_ID  := 0x431
 BUILD    := build/f411-$(CONFIG)
 LDSCRIPT := Boards/f411/STM32F411CEUX_FLASH.ld
 S_SRCS   := Boards/f411/startup_stm32f411ceux.s
@@ -100,12 +107,25 @@ $(BUILD)/$(TARGET).hex: $(BUILD)/$(TARGET).elf
 $(BUILD)/$(TARGET).bin: $(BUILD)/$(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
-flash: $(BUILD)/$(TARGET).elf
-	STM32_Programmer_CLI -c port=SWD mode=UR -w $< -v -rst
+# Refuse to flash an image built for the other board: read the device ID
+# over SWD (hot-plug, the target keeps running) and compare it with BOARD.
+# 0x419 = STM32F42x/F43x (Discovery), 0x431 = STM32F411 (custom board).
+check-chip:
+	@id=$$($(PROGRAMMER) -c port=SWD mode=HOTPLUG 2>&1 | sed -n 's/^Device ID *: *\(0x[0-9A-Fa-f]*\).*/\1/p' | head -n 1); \
+	if [ -z "$$id" ]; then \
+		echo "check-chip: no STM32 found over SWD" >&2; exit 1; \
+	fi; \
+	if [ "$$id" != "$(CHIP_ID)" ]; then \
+		echo "check-chip: the connected chip is $$id, but this is a BOARD=$(BOARD) build (expects $(CHIP_ID)). Not flashing." >&2; exit 1; \
+	fi; \
+	echo "check-chip: $$id matches BOARD=$(BOARD)"
+
+flash: $(BUILD)/$(TARGET).elf check-chip
+	$(PROGRAMMER) -c port=SWD mode=UR -w $< -v -rst
 
 clean:
 	rm -rf build
 
-.PHONY: all flash clean
+.PHONY: all flash check-chip clean
 
 -include $(OBJS:.o=.d)

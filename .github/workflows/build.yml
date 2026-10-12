@@ -30,7 +30,7 @@ jobs:
         with:
           name: firmware-${{ matrix.board }}-${{ matrix.config }}
           path: |
-            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.elf
-            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.hex
-            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.bin
-            STM32_Firmware/build/${{ env.OUT }}/rfid_controller.map
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.elf
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.hex
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.bin
+            STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.map

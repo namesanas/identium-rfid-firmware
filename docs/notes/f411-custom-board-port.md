@@ -6,8 +6,8 @@ How to bring the reader firmware from the F429 Discovery to the custom board (ST
 
 ```
 cd STM32_Firmware
-make BOARD=f411                  # debug (-Og), build/f411-debug/
-make BOARD=f411 CONFIG=release   # release (-Os), build/f411-release/
+make BOARD=f411                  # debug (-Og)  -> build/f411-debug/rfid_controller_f411.elf
+make BOARD=f411 CONFIG=release   # release (-Os) -> build/f411-release/rfid_controller_f411.elf
 ```
 
 `make` with no `BOARD` still builds the F429 Discovery, and the F429 output is byte-for-byte the same as before the port. All F411 code sits behind `#if defined(STM32F411xE)` or `#if (TARGET_BOARD == BOARD_F411_CUSTOM)`.
@@ -156,7 +156,8 @@ The F411 has no CCM RAM. Nothing in the firmware uses `.ccmram`, so nothing was 
 
 | Area | File | F411 behaviour |
 |---|---|---|
-| Board select | `Makefile` | `BOARD=f411` sets `-DSTM32F411xE -DTARGET_BOARD=2`, the `Boards/f411` startup and linker script, output in `build/f411-<config>/`, and `-Og` for debug (at `-O0` the image is 143 KB, too big for 128 KB) |
+| CubeIDE | `.cproject` | A third build configuration, **F411**, next to the F429 Debug and Release: F411 MCU, `STM32F411xE` + `TARGET_BOARD=2`, `-Og`, `Boards/f411` startup and linker script, output `F411/RFID_Controller_F429_f411.elf` |
+| Board select | `Makefile` | `BOARD=f411` sets `-DSTM32F411xE -DTARGET_BOARD=2`, the `Boards/f411` startup and linker script, output `build/f411-<config>/rfid_controller_f411.elf`, a `flash` target that checks the chip ID first, and `-Og` for debug (at `-O0` the image is 143 KB, too big for 128 KB) |
 | CI | `.github/workflows/build.yml` | Builds f429 and f411, debug and release, with `-Werror` |
 | Device header | `identium_protocol.c`, `time_service.c`, `reset_cause.c`, `watchdog.c` | Include `stm32f411xe.h` on the F411 |
 | Missing peripherals | `Drivers/gpio/gpio.c`, `Drivers/uart/uart.c` | GPIOF, GPIOG and USART3 compiled only where they exist |
@@ -189,12 +190,14 @@ Connect an ST-LINK to CN7 with SWDIO, SWCLK, NRST, GND and 3V3 (for target sensi
 
 ```
 cd STM32_Firmware
-make BOARD=f411 CONFIG=release
+make BOARD=f411 CONFIG=release check-chip      # must report 0x431
 STM32_Programmer_CLI -c port=SWD mode=UR -e all
-STM32_Programmer_CLI -c port=SWD mode=UR -w build/f411-release/rfid_controller.elf -v -rst
+make BOARD=f411 CONFIG=release flash
 ```
 
 Erase the whole chip on the first flash only (`-e all`), so the settings sectors start clean. Later flashes skip the erase and keep the settings.
+
+`make flash` reads the chip ID first and refuses to flash if the chip on the ST-LINK isn't the board the image was built for (`0x431` = F411, `0x419` = F429). In STM32CubeIDE, build with the **F411** configuration; it produces `F411/RFID_Controller_F429_f411.elf`.
 
 ### 3.3 Flash the ESP32-C3
 

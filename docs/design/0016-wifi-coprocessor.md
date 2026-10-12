@@ -26,7 +26,7 @@ Do not connect either I2C signal to 5 V. PA15 doubles as JTDI when full JTAG is 
 
 ### F411 custom PCB
 
-The requested pins PB6/PB7/PB9 collide with the existing host UART and INPUT2 assignments in `Firmware/BSP/f411_custom/board_config.h`. Those existing assignments are deliberately not changed. The board has the candidate I2C1/PB6/PB7 and EN/PB9 mapping documented in the BSP, but `BOARD_ESP_LINK_ENABLED` is set to `0U`; WiFi coprocessor hardware is therefore disabled on this target until a conflict-free production pin map is agreed and the PCB is revised. Do not enable it by changing the macro alone while the collision remains.
+The F411 custom board wires the ESP32-C3 to I2C1 (PB6 = SCL to IO6, PB7 = SDA to IO10) with EN on PB9, and has no IRQ line, so the link is polled as on the bench rig. An earlier version of this record kept the link disabled on the F411 because those pins collided with a provisional pin map; the pin map was later traced from the board schematic (`docs/hardware/SCH_Schematic1_2026-10-08.pdf`), the host UART moved to USART2 PA2/PA3, and `BOARD_ESP_LINK_ENABLED` is now `1U` in `Firmware/BSP/f411_custom/board_config.h`. See `docs/notes/f411-custom-board-port.md`.
 
 ## Wire protocol
 
@@ -145,4 +145,4 @@ Suggested bench procedure:
 7. Stop/reset the ESP or disconnect I2C and verify the reader loop and USB/serial/Ethernet continue. Restore the ESP and verify background recovery, handshake, configuration and sockets return.
 8. Repeat the ESP-IDF build for `esp32c3` and wire GPIO6/GPIO10/EN according to the C3 module's board design. Do not connect the classic DevKit's pins by assumption to a C3 module.
 
-Full hardware validation is required before release. The pin conflict on the F411 production board remains unresolved. The repository's previously referenced design notes `0013`–`0015` were not present in the supplied archive, so this document records the implementation as delivered rather than trying to reconstruct absent design decisions.
+Full hardware validation is required before release. The link has not yet been run on the F411 board itself. The repository's previously referenced design notes `0013`–`0015` were not present in the supplied archive, so this document records the implementation as delivered rather than trying to reconstruct absent design decisions.

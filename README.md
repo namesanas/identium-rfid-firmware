@@ -10,6 +10,12 @@ Firmware and host applications for the Identium UHF RFID reader.
 | [`TAGlink_Mobile/`](TAGlink_Mobile) | TAGlink Mobile, the Android application (Flutter) |
 | [`docs/`](docs) | Design records, notes, the reader protocol specification and the board schematic (`docs/hardware/`) |
 
+## Developer guides
+
+- [STM32 firmware](docs/notes/dev-guide-stm32-firmware.md): source tree, start-up, protocols, settings, diagnostics, building, flashing, testing
+- [ESP32 coprocessor](docs/notes/dev-guide-esp32-coprocessor.md): building and flashing with ESP-IDF for the DevKit and the ESP32-C3, troubleshooting
+- [TAGlink apps](docs/notes/dev-guide-taglink-apps.md): desktop and mobile features, connections, building the exe and APK, releasing
+
 ## Building
 
 **STM32 firmware** — one source tree for both boards; the board is chosen when building. Needs `arm-none-eabi-gcc` (STM32CubeCLT) and a Unix shell (Git Bash on Windows):

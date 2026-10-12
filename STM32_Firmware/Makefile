@@ -9,6 +9,8 @@
 #   make flash           build, check that the chip on SWD matches BOARD, then
 #                        program it with STM32_Programmer_CLI
 #   make check-chip      only the chip check (reads the device ID, no reset)
+#   make hostcheck       build and run the host-side protocol test with the
+#                        PC compiler (HOSTCC, default gcc)
 #   make clean
 #   EXTRA_CFLAGS=-Werror  extra compiler flags (CI builds with warnings as errors)
 #
@@ -18,6 +20,7 @@
 CONFIG  ?= debug
 BOARD   ?= f429
 PROGRAMMER ?= STM32_Programmer_CLI
+HOSTCC  ?= gcc
 
 PREFIX  ?= arm-none-eabi-
 CC      := $(PREFIX)gcc
@@ -126,6 +129,13 @@ flash: $(BUILD)/$(TARGET).elf check-chip
 clean:
 	rm -rf build
 
-.PHONY: all flash check-chip clean
+# Host-side test of the Identium protocol framing and tag queue. A stub
+# device header (hostcheck/stubs) replaces the ARM CMSIS headers.
+hostcheck:
+	@mkdir -p build/hostcheck
+	$(HOSTCC) -std=gnu11 -Wall -Werror -DSTM32F429xx -Ihostcheck/stubs 		hostcheck/identium_protocol_host_test.c Firmware/Protocol/identium_protocol.c 		-o build/hostcheck/identium_protocol_host_test
+	build/hostcheck/identium_protocol_host_test
+
+.PHONY: all flash check-chip hostcheck clean
 
 -include $(OBJS:.o=.d)

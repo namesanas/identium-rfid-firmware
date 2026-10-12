@@ -262,14 +262,14 @@ UART baud rates and I2C timing are computed from the RCC registers at run time, 
 | Inputs 1–4 | PE4, PE5, PE6, PD2 (pull-down, active high) | PB3, PA15, PB4, PB15 (no pull, active low, inverted in software) |
 | Outputs 1–4 | PE0, PE1, PE2, PE3 (push-pull) | PB2, PB10, PA0 (relays, active high); no output 4 |
 | Status LED | — | PB8, switched on in board init |
-| Buzzer | — | PC13, held off (no driver; `SET_BUZZER` answers ERROR) |
+| Buzzer | — (`SET_BUZZER` answers ERROR, `BUZZER=0`) | PC13, active high; driven by `SET_BUZZER` (`BUZZER=1`) |
 | SWD | on-board ST-LINK | CN7: PA13 SWDIO, PA14 SWCLK, NRST |
 
 Notes:
 
 - F429: PE7 is avoided because the Discovery uses it for SDRAM (`FMC_D4`). I2C3 (PA8/PC9) is shared with the Discovery's touch controller (STMPE811 at 0x41) and PA15 is that controller's interrupt line, which is why ESP EN is open drain.
 - F411: PB3, PA15 and PB4 are JTAG pins after reset; using them as inputs does not affect SWD.
-- F411: `GET_CAPABILITIES` still reports `GPO=4` (it prints `INDUSTRIAL_IO_COUNT`), but `SET_GPO,4,...` fails because output 4 does not exist.
+- F411: output 4 does not exist. `GET_CAPABILITIES` reports `GPO=3` (`Industrial_IO_GetOutputCount()`), and `SET_GPO,4,...` fails.
 
 ### 4.3 Memory
 
@@ -393,7 +393,7 @@ Framing:
 
 Module commands (`GET_VERSION` ... `WRITE_TAG`, `SET_POWER` ...) only work while the module is idle (not inventorying, no bridge session); otherwise they answer `ERROR,<CMD>`. When a module transaction fails, one diagnostic line is sent first: `DEBUG,TX_TIMEOUT,TXEVENTS=n`, `DEBUG,RX_TIMEOUT`, `DEBUG,FRAME_ERROR`, `DEBUG,RX_UART_ERROR`, `DEBUG,CMD_MISMATCH,EXP=xx,GOT=xx` or `DEBUG,STATUS=xxxx` (module status, hex).
 
-The `SET_POWER`, `SET_ANTENNA`, `SET_REGION` and `SET_SESSION` commands change the module and the RAM copy of the reader configuration only; they are not saved to flash.
+The RF set commands are saved to flash and restored at boot (design 0018): `SET_POWER` and `SET_REGION` in the reader settings (`rfValid`, the same fields the vendor tools write), `SET_ANTENNA` / `SET_ANTENNAS` and `SET_GEN2` in the reader settings (record version 4), and `SET_SESSION` in the configuration service record. A command answers `OK` only when the module accepted the value and it was saved.
 
 #### Session and inventory
 
@@ -454,7 +454,8 @@ Each answers `ERROR,<CMD>` on failure.
 
 | Command | Purpose | Reply |
 |---|---|---|
-| `GET_CAPABILITIES` | Feature list for the desktop app | `CAPABILITIES,GPI=4,GPO=4,ANTENNAS=1,HTTP=1,VSWR=1,SET_GPO=1,SET_HTTP=1` |
+| `GET_CAPABILITIES` | Feature list for the desktop app | `CAPABILITIES,GPI=4,GPO=<3\|4>,ANTENNAS=1,HTTP=1,VSWR=1,SET_GPO=1,SET_HTTP=1,SET_GEN2=1,BUZZER=<0\|1>` |
+| `GET_GEN2` | Gen2 target and Q read back from the module | `GEN2,TARGET=<A\|B\|AB>,Q=<DYNAMIC\|0..15>` |
 | `GET_GPI` | Input states | `GPI,GPI1=<0/1>,GPI2=..,GPI3=..,GPI4=..` |
 | `SET_GPO,<n>,<state>,<seconds>` | Output n (1–4), state 0/1, duration 0–3600 s (0 = stay); a timed pulse restores the previous state; rejected while a timed pulse is running | `OK,SET_GPO` / `ERROR,SET_GPO` |
 | `GET_NETWORK` | Stored Ethernet settings | `NETWORK,IP=a.b.c.d,MASK=..,GATEWAY=..,DNS=..,PORT=8080,MAC=xx:..` (PORT is the configuration port) |
@@ -465,7 +466,9 @@ Each answers `ERROR,<CMD>` on failure.
 | `GET_WIFI` | WiFi link and settings | `WIFI,LINK=ONLINE\|OFFLINE,STATE=DISABLED\|IDLE\|CONNECTING\|CONNECTED\|AP\|ERROR,IP=..,RSSI=..,HOST=0\|1,UPLOAD=0\|1,ENABLE=0\|1,MODE=STA\|AP,SSID=..,IF=ETH\|WIFI\|AUTO,ERRORS=<n>,REJECTED=<cmd hex>/<result>` |
 | `SET_WIFI,<0\|1>,<STA\|AP>,<ssid>,<password>` | Persisted and applied. SSID without commas; password = rest of the line, empty or 8–64 chars; `****` keeps the stored password. `SET_WIFI,0,STA,,` disables WiFi and clears the station credentials | `OK,SET_WIFI` / `ERROR,SET_WIFI` |
 | `SET_UPLOAD_IF,ETH\|WIFI\|AUTO` | Interface for active uploads (persisted) | `OK,SET_UPLOAD_IF` / `ERROR,SET_UPLOAD_IF` |
-| `SET_BUZZER,...`, `SET_GEN2,...`, `SET_ANTENNAS,...` | Not implemented; answered so the desktop app's queue stays aligned | always `ERROR,SET_BUZZER` / `ERROR,SET_GEN2` / `ERROR,SET_ANTENNAS` |
+| `SET_BUZZER,<ms>[,<tone>]` | Sound the buzzer for 1..10000 ms (fixed-tone buzzer, `<tone>` ignored). Boards without a buzzer answer ERROR | `OK,SET_BUZZER` / `ERROR,SET_BUZZER` |
+| `SET_GEN2,<A\|B\|A/B>,<q>[,<profile>,<fast>,<hop>]` | Gen2 target and Q (`-1` = dynamic, 0..15 static); saved. Profile, fast mode and hopping must be 0 (not implemented) | `OK,SET_GEN2` / `ERROR,SET_GEN2` |
+| `SET_ANTENNAS,<port>[,<port>...]` | Inventory antenna; the list must name one port (repeats allowed), same as `SET_ANTENNA,p,p`; saved | `OK,SET_ANTENNAS` / `ERROR,SET_ANTENNAS` |
 
 #### Diagnostics
 
@@ -744,7 +747,7 @@ What: IP, mask, gateway, DNS, MAC, configuration port, upload server IP/port, wo
 
 How:
 
-- One 128 KB sector holds an append-only log of fixed-size records: `magic "RST1"`, `version` (3), `dataSize`, `sequence`, `ReaderSettings_t`, CRC32.
+- One 128 KB sector holds an append-only log of fixed-size records: `magic "RST1"`, `version` (4), `dataSize`, `sequence`, `ReaderSettings_t`, CRC32.
 - Load takes the last valid record that passes `ReaderSettings_IsSane()`; otherwise defaults (5.1).
 - Save appends to the next erased slot. When the sector is full, it is erased and the new record is written at the start.
 - Version 1 and 2 records are read once and migrated in RAM; the next save erases the sector and starts a version-3 log.
@@ -1033,7 +1036,11 @@ python -c "import serial,time; s=serial.Serial('COM8',115200,timeout=1); s.write
 
 `STM32_Firmware/hostcheck/identium_protocol_host_test.c` is a host-PC test of `identium_protocol.c` with stubbed dependencies: framing (garbage prefix, fragments, oversized line), the tag queue and heartbeat order, and stale-tag disposal after a disconnect. It prints `HOST PROTOCOL TEST: PASS`.
 
-There is no build script or Makefile target for it. As it stands it will probably not link: its stubs provide `Ethernet_Service_IsConnected` / `Ethernet_Service_SendComplete`, but `identium_protocol.c` now calls `ActiveUpload_Transport_IsConnected` / `ActiveUpload_Transport_SendComplete`, and it also needs the CMSIS include paths. Update the stubs before relying on it.
+Run it with `make hostcheck` from `STM32_Firmware/` (uses the PC compiler `HOSTCC`, default `gcc`; CI runs it on every push). The real CMSIS headers contain ARM assembly, so `hostcheck/stubs/stm32f429xx.h` stands in for the device header. On this PC there is no gcc on the PATH; CLion ships one:
+
+```bash
+PATH="/c/Program Files/JetBrains/CLion 2026.1.4/bin/mingw/bin:$PATH" make hostcheck
+```
 
 ### 10.5 Bring-up checklist (new board or new build)
 
@@ -1065,7 +1072,7 @@ There is no build script or Makefile target for it. As it stands it will probabl
 Network, identity, upload or WiFi value (reader settings):
 
 1. Add the field at the **end** of `ReaderSettings_t` in `reader_settings.h`.
-2. In `reader_settings.c`: bump `READER_SETTINGS_VERSION` to 4; copy the current `ReaderSettings_t` layout into a `ReaderSettings_V3_t` + record type, and add a `ReaderSettings_LoadV3()` that copies the old data over defaults and sets `g_nextSlot = READER_SETTINGS_SLOT_COUNT` (forces an erase on the next save), following `LoadV2`; call it from `ReaderSettings_Init()` when `slots[0].version == 3`.
+2. In `reader_settings.c`: bump `READER_SETTINGS_VERSION` (now 4) by one; copy the current `ReaderSettings_t` layout into a `ReaderSettings_V<n>_t` + record type, and add a `ReaderSettings_LoadV<n>()` that copies the old data over defaults and sets `g_nextSlot = READER_SETTINGS_SLOT_COUNT` (forces an erase on the next save), following `LoadV3`; call it from `ReaderSettings_Init()` for that version.
 3. Set the default in `ReaderSettings_GetDefaults()` and validate it in `ReaderSettings_IsSane()` (an invalid record is ignored, so a bad check silently drops all settings).
 4. Change it with the copy pattern used by the WiFi commands: `ReaderSettings_t s = *ReaderSettings_Get(); s.field = ...; ReaderSettings_Save(&s);`.
 5. If it must reach the vendor tools, add it to `configuration_service.c` (readback JSON) and `vendor_config.c` (write).
@@ -1165,13 +1172,13 @@ Verified in the code, listed so nobody relies on them:
 | `tag_coming` (event 5), empty-data event (4), `gpo_act`, `gpi_trigger`, `tag_json_format` | Rejected over JSON, ignored from the vendor tools |
 | Positive `client_ack`, `crc_enable` | Only 0 accepted |
 | RS232/RS485 mode switching at run time | No command; `PRODUCT_SERIAL_DEFAULT_MODE` at build time |
-| Buzzer, `SET_GEN2`, `SET_ANTENNAS` | Answer `ERROR` |
+| Gen2 RF profile, fast mode, hopping (`SET_GEN2` fields 3-5) | Only 0 accepted |
+| Multi-antenna inventory (`SET_ANTENNAS` with several ports) | Not implemented; one port only |
+| Buzzer on the F411 board | Implemented, not yet run on hardware |
 | Ethernet DHCP | Not supported (static only; `ip = 0.0.0.0` from the tools keeps the current address) |
-| Host `SET_POWER` / `SET_REGION` / `SET_SESSION` / `SET_ANTENNA` | Not persisted |
 | USB identity | Still ST's example VID/PID 0x0483/0x5740 |
 | Reader settings | Single copy; power loss during a full-sector rewrite loses them |
 | Watchdog | ~32 s; not shortened until the longest blocking path is measured |
-| `hostcheck/` | Stubs out of date (10.4) |
 | F411 board | Code complete, not yet run on hardware at the time of the porting note |
 
-Outdated statements in older records, for reference: design 0016 says the F411 ESP link is disabled because of a pin conflict, and design 0014 lists the F411 DE/RE and mode pins as "TBD". The current `Firmware/BSP/f411_custom/board_config.h` enables the ESP link on I2C1 PB6/PB7 with EN on PB9, and defines PB12 (DE), PB13 (RE#), PB14 (mode) and PA8 (RS232 power).
+Design records 0014 and 0016 were updated for the F411 pin map; `Firmware/BSP/f411_custom/board_config.h` is the reference.

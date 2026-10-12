@@ -37,4 +37,11 @@ void GPIO_Service_GetAllInputs(
     uint8_t states[INDUSTRIAL_IO_COUNT]
 );
 
+#define GPIO_SERVICE_BUZZER_MAX_MS       10000U
+
+/* Sound the buzzer for durationMs (1..GPIO_SERVICE_BUZZER_MAX_MS); it is
+ * switched off by GPIO_Service_Task. Returns GPIO_SERVICE_OK,
+ * GPIO_SERVICE_ERR_INVALID or GPIO_SERVICE_ERR_NOT_SUPPORTED (no buzzer). */
+uint8_t GPIO_Service_Beep(uint32_t durationMs);
+
 #endif /* RFID_CONTROLLER_GPIO_SERVICE_H_ */

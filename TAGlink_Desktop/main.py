@@ -594,6 +594,10 @@ class Main(QMainWindow):
         self.enqueue(f'SET_GPO,{number},{state},{duration}')
 
     def sound_buzzer(self):
+        # Firmware reports BUZZER=0 on boards without one (the F429 Discovery).
+        if str(self.module_capabilities.get('BUZZER', '1')) == '0':
+            self.log('This reader has no buzzer.')
+            return
         self.enqueue(f'SET_BUZZER,{self.buzzer_duration.value()},{self.buzzer_tone.value()}')
 
     def apply_http_config(self):

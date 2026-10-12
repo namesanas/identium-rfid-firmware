@@ -55,8 +55,10 @@ const uint8_t *Configuration_Service_GetTagJsonFormat(uint8_t *count) {
 }
 uint8_t SILION_Application_IsInventoryRunning(void) { return g_inventoryRunning; }
 
-uint8_t Ethernet_Service_IsConnected(void) { return g_connected; }
-uint16_t Ethernet_Service_SendComplete(const uint8_t *buffer, uint16_t length)
+void NVIC_SystemReset(void) { assert(0 && "unexpected reset"); }
+
+uint8_t ActiveUpload_Transport_IsConnected(void) { return g_connected; }
+uint16_t ActiveUpload_Transport_SendComplete(const uint8_t *buffer, uint16_t length)
 {
     assert(g_txCount < 64U);
     assert(length < sizeof(g_tx[0]));

@@ -15,6 +15,7 @@
 #include "../../Services/GPIO/gpio_service.h"
 #include "../../Services/configuration/configuration_port.h"
 #include "../../Services/configuration/reader_settings.h"
+#include "../../Services/configuration/configuration_service.h"
 #include "../../Services/configuration/vendor_config.h"
 #include "../../Services/wifi/wifi_service.h"
 
@@ -208,6 +209,172 @@ void HOST_Interface_Init(void)
 	);
 }
 
+
+/*
+ * Persist RF settings changed with the text commands, so they survive a
+ * reset. Region and power share the record the vendor tools write.
+ */
+extern SILION_ReaderConfig_t readerConfig;
+
+static uint8_t HOST_PersistRegionPower(void)
+{
+    ReaderSettings_t settings = *ReaderSettings_Get();
+
+    if(
+        (settings.rfValid != 0U) &&
+        (settings.region == readerConfig.region) &&
+        (settings.readPower == readerConfig.readPower) &&
+        (settings.writePower == readerConfig.writePower)
+    )
+    {
+        return 1U;
+    }
+
+    settings.rfValid = 1U;
+    settings.region = readerConfig.region;
+    settings.readPower = readerConfig.readPower;
+    settings.writePower = readerConfig.writePower;
+
+    return ReaderSettings_Save(&settings);
+}
+
+static uint8_t HOST_PersistAntenna(uint8_t txAntenna, uint8_t rxAntenna)
+{
+    ReaderSettings_t settings = *ReaderSettings_Get();
+
+    if(
+        (settings.rfAntennaValid != 0U) &&
+        (settings.txAntenna == txAntenna) &&
+        (settings.rxAntenna == rxAntenna)
+    )
+    {
+        return 1U;
+    }
+
+    settings.rfAntennaValid = 1U;
+    settings.txAntenna = txAntenna;
+    settings.rxAntenna = rxAntenna;
+
+    return ReaderSettings_Save(&settings);
+}
+
+static uint8_t HOST_PersistGen2(uint8_t target, uint8_t q)
+{
+    ReaderSettings_t settings = *ReaderSettings_Get();
+
+    if(
+        (settings.gen2Valid != 0U) &&
+        (settings.gen2Target == target) &&
+        (settings.gen2Q == q)
+    )
+    {
+        return 1U;
+    }
+
+    settings.gen2Valid = 1U;
+    settings.gen2Target = target;
+    settings.gen2Q = q;
+
+    return ReaderSettings_Save(&settings);
+}
+
+/*
+ * SET_GEN2,<target>,<q>[,<profile>,<fast>,<hop>]
+ *
+ * target: A, B or A/B (AB); q: -1 = dynamic, 0..15 = static. The RF
+ * profile, fast mode and hopping fields are accepted only at 0 (module
+ * default): the module setting behind them is not implemented.
+ */
+static uint8_t HOST_ParseGen2(const char *args, uint8_t *target, uint8_t *q)
+{
+    char targetText[8];
+    int qValue;
+    int extra[3] = {0, 0, 0};
+    int fields;
+
+    fields = sscanf(args, "%7[^,],%d,%d,%d,%d", targetText, &qValue, &extra[0], &extra[1], &extra[2]);
+
+    if((fields != 2) && (fields != 5))
+    {
+        return 0U;
+    }
+
+    if(strcmp(targetText, "A") == 0)
+    {
+        *target = SILION_GEN2_TARGET_A;
+    }
+    else if(strcmp(targetText, "B") == 0)
+    {
+        *target = SILION_GEN2_TARGET_B;
+    }
+    else if((strcmp(targetText, "A/B") == 0) || (strcmp(targetText, "AB") == 0))
+    {
+        *target = SILION_GEN2_TARGET_AB;
+    }
+    else
+    {
+        return 0U;
+    }
+
+    if(qValue == -1)
+    {
+        *q = SILION_GEN2_Q_DYNAMIC;
+    }
+    else if((qValue >= 0) && (qValue <= 15))
+    {
+        *q = (uint8_t)qValue;
+    }
+    else
+    {
+        return 0U;
+    }
+
+    return ((extra[0] == 0) && (extra[1] == 0) && (extra[2] == 0)) ? 1U : 0U;
+}
+
+/*
+ * SET_ANTENNAS,<port>[,<port>...]
+ *
+ * The reader inventories on one antenna port, so the list must name a
+ * single port (repeating it is allowed). Multi-port switching is not
+ * implemented.
+ */
+static uint8_t HOST_ParseAntennaList(const char *args, uint8_t *port)
+{
+    char list[48];
+    char *token;
+    char *save = NULL;
+    unsigned long value;
+    char *end;
+    uint8_t found = 0U;
+
+    if(strlen(args) >= sizeof(list))
+    {
+        return 0U;
+    }
+
+    (void)strcpy(list, args);
+
+    for(token = strtok_r(list, ",", &save); token != NULL; token = strtok_r(NULL, ",", &save))
+    {
+        value = strtoul(token, &end, 10);
+
+        if((end == token) || (*end != '\0') || (value < 1UL) || (value > 255UL))
+        {
+            return 0U;
+        }
+
+        if((found != 0U) && (*port != (uint8_t)value))
+        {
+            return 0U;
+        }
+
+        *port = (uint8_t)value;
+        found = 1U;
+    }
+
+    return found;
+}
 
 static uint8_t HOST_ParseHexByte(
     const char *text,
@@ -1116,10 +1283,11 @@ void HOST_Interface_Task(void)
                     );
                 }
                 else if(
-                    SILION_Application_SetPower(
+                    (SILION_Application_SetPower(
                         power,
                         power
-                    ) == 1U
+                    ) == 1U) &&
+                    (HOST_PersistRegionPower() == 1U)
                 )
                 {
                     HOST_SendString(
@@ -1170,10 +1338,11 @@ void HOST_Interface_Task(void)
                 )
                 {
                     if(
-                        SILION_Application_SetAntenna(
+                        (SILION_Application_SetAntenna(
                             (uint8_t)tx,
                             (uint8_t)rx
-                        ) == 1U
+                        ) == 1U) &&
+                        (HOST_PersistAntenna((uint8_t)tx, (uint8_t)rx) == 1U)
                     )
                     {
                         HOST_SendString(
@@ -1228,9 +1397,10 @@ void HOST_Interface_Task(void)
                     );
                 }
                 else if(
-                    SILION_Application_SetRegion(
+                    (SILION_Application_SetRegion(
                         region
-                    ) == 1U
+                    ) == 1U) &&
+                    (HOST_PersistRegionPower() == 1U)
                 )
                 {
                     HOST_SendString(
@@ -1277,9 +1447,10 @@ void HOST_Interface_Task(void)
                 )
                 {
                     if(
-                        SILION_Application_SetSession(
+                        (SILION_Application_SetSession(
                             (uint8_t)session
-                        ) == 1U
+                        ) == 1U) &&
+                        (Configuration_Service_SaveSession((uint8_t)session) == 1U)
                     )
                     {
                         HOST_SendString(
@@ -1831,14 +2002,15 @@ void HOST_Interface_Task(void)
              */
             else if(strcmp(hostRxBuffer, "GET_CAPABILITIES") == 0)
             {
-                char response[112];
+                char response[144];
 
                 (void)snprintf(
                     response,
                     sizeof(response),
-                    "CAPABILITIES,GPI=%u,GPO=%u,ANTENNAS=1,HTTP=1,VSWR=1,SET_GPO=1,SET_HTTP=1\r\n",
+                    "CAPABILITIES,GPI=%u,GPO=%u,ANTENNAS=1,HTTP=1,VSWR=1,SET_GPO=1,SET_HTTP=1,SET_GEN2=1,BUZZER=%u\r\n",
                     (unsigned int)INDUSTRIAL_IO_COUNT,
-                    (unsigned int)INDUSTRIAL_IO_COUNT
+                    (unsigned int)Industrial_IO_GetOutputCount(),
+                    (unsigned int)Industrial_IO_HasBuzzer()
                 );
                 HOST_SendString(response);
             }
@@ -2054,19 +2226,70 @@ void HOST_Interface_Task(void)
 
                 HOST_SendString((ok != 0U) ? "OK,SET_HTTP\r\n" : "ERROR,SET_HTTP\r\n");
             }
-            /* GUI features without hardware or module support yet: answer
-             * explicitly so the host's command queue stays aligned. */
+            /*
+             * SET_BUZZER,<ms>[,<tone>]
+             *
+             * The board buzzer has a fixed tone, so <tone> is accepted and
+             * ignored. Boards without a buzzer (F429 Discovery) answer
+             * ERROR; GET_CAPABILITIES reports BUZZER=0/1.
+             */
             else if(strncmp(hostRxBuffer, "SET_BUZZER,", 11U) == 0)
             {
-                HOST_SendString("ERROR,SET_BUZZER\r\n");
+                unsigned long durationMs;
+
+                if(
+                    (sscanf(&hostRxBuffer[11U], "%lu", &durationMs) == 1) &&
+                    (GPIO_Service_Beep((uint32_t)durationMs) == GPIO_SERVICE_OK)
+                )
+                {
+                    HOST_SendString("OK,SET_BUZZER\r\n");
+                }
+                else
+                {
+                    HOST_SendString("ERROR,SET_BUZZER\r\n");
+                }
             }
             else if(strncmp(hostRxBuffer, "SET_GEN2,", 9U) == 0)
             {
-                HOST_SendString("ERROR,SET_GEN2\r\n");
+                uint8_t target;
+                uint8_t q;
+
+                if(
+                    (HOST_ParseGen2(&hostRxBuffer[9U], &target, &q) == 1U) &&
+                    (SILION_Application_SetGen2(target, q) == 1U) &&
+                    (HOST_PersistGen2(target, q) == 1U)
+                )
+                {
+                    HOST_SendString("OK,SET_GEN2\r\n");
+                }
+                else
+                {
+                    HOST_SendString("ERROR,SET_GEN2\r\n");
+                }
+            }
+            else if(strcmp(hostRxBuffer, "GET_GEN2") == 0)
+            {
+                if(SILION_Application_GetGen2() == 0U)
+                {
+                    HOST_SendString("ERROR,GET_GEN2\r\n");
+                }
             }
             else if(strncmp(hostRxBuffer, "SET_ANTENNAS,", 13U) == 0)
             {
-                HOST_SendString("ERROR,SET_ANTENNAS\r\n");
+                uint8_t port = 0U;
+
+                if(
+                    (HOST_ParseAntennaList(&hostRxBuffer[13U], &port) == 1U) &&
+                    (SILION_Application_SetAntenna(port, port) == 1U) &&
+                    (HOST_PersistAntenna(port, port) == 1U)
+                )
+                {
+                    HOST_SendString("OK,SET_ANTENNAS\r\n");
+                }
+                else
+                {
+                    HOST_SendString("ERROR,SET_ANTENNAS\r\n");
+                }
             }
             /*
              * =================================================

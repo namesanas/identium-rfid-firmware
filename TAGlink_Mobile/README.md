@@ -6,7 +6,7 @@ Flutter Android-first app for operating a TAGlink-compatible UHF RFID reader ove
 
 - Implemented: manual connection, last-five reader history, AP shortcut, /24 network scan, TCP line framing, serialized command queue/timeouts, unsolicited tag batching, reconnect backoff, lock messaging/status retries, inventory view and filters/sorts, tag bank read/write and EPC change forms, reader settings, GPIO, Wi-Fi configuration, reader info/diagnostics, CSV sharing, theme toggle, and the 500-line protocol log.
 - Included: standard-library Python TCP reader simulator and integration tests.
-- **Not built in this workspace:** `app-debug.apk`. This environment did not have Flutter, Dart, or the Android SDK installed; attempts to reach the Flutter SDK download host also failed at DNS resolution. Therefore, I cannot honestly claim that the Flutter project compiles or that the app itself was tested against the simulator here. Build and run the commands below in a Flutter/Android development environment and treat the first Flutter compile as a verification checkpoint.
+- Built and tested: `flutter analyze` is clean, `flutter test` passes, and debug and release APKs build (Flutter 3.47, JDK 17, Android SDK 36). The app was run on an Android 13 phone against the real reader over WiFi. Use the release APK (`flutter build apk --release`) for everyday use; see `docs/notes/dev-guide-taglink-apps.md` for the toolchain, build and release steps.
 - The iOS project scaffolding is included, but it has not been built with Xcode/CocoaPods.
 
 ## Requirements
@@ -118,4 +118,4 @@ test/
 - `GET_WIFI` does not return the saved password, so the app intentionally never pre-fills it. Use `****` to retain the reader's current password.
 - The simulator returns synthetic tag-bank data and accepts memory writes for software flow testing only; it does not emulate RF/tag physics or validate production reader firmware.
 - There is no TLS or protocol authentication in the reader contract. Avoid exposing port 5000 to untrusted networks.
-- APK build, physical reader behaviour, Android emulator UI, iOS build, and real hardware operations remain unverified until run in the target toolchain/environment.
+- Not yet verified: the Android emulator UI and the iOS build.

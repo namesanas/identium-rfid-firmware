@@ -5,6 +5,15 @@ on:
   pull_request:
 
 jobs:
+  hostcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host-side protocol test
+        working-directory: STM32_Firmware
+        run: make hostcheck
+
   build:
     runs-on: ubuntu-24.04
     strategy:

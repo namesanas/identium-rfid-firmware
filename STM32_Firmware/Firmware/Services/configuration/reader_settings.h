@@ -72,6 +72,16 @@ typedef struct
     char wifiApSsid[READER_SETTINGS_WIFI_SSID_MAX + 1U];
     char wifiApPassword[READER_SETTINGS_WIFI_PASSWORD_MAX + 1U];
     uint8_t uploadInterface; /* eth / wifi / auto (physical Ethernet first) */
+
+    /* Added in record version 4: RF settings changed with the host text
+     * commands. Region and power use rfValid above; the Gen2 session is
+     * kept by the configuration service. */
+    uint8_t rfAntennaValid;
+    uint8_t txAntenna;
+    uint8_t rxAntenna;
+    uint8_t gen2Valid;
+    uint8_t gen2Target;     /* SILION_GEN2_TARGET_* */
+    uint8_t gen2Q;          /* 0..15, or SILION_GEN2_Q_DYNAMIC (0xFF) */
 } ReaderSettings_t;
 
 /* Load from flash (or defaults). Call before the W5500 is configured. */

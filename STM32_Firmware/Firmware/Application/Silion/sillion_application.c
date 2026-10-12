@@ -5,6 +5,7 @@
  *      Author: Identium
  */
 #include "stdio.h"
+#include <string.h>
 
 #include "sillion_application.h"
 #include "sillion_application_port.h"
@@ -1162,6 +1163,166 @@ uint8_t SILION_Application_SetRegion(uint8_t region)
     }
 
     readerConfig.region = region;
+
+    SILION_ClearFrame(pSilion);
+
+    return 1U;
+}
+
+/*
+ * Gen2 target and Q (0x9B, protocol 0x05).
+ *
+ * Target is two bytes, (flip, target): A = 01 00, B = 01 01,
+ * A/B flipping = 00 00. Q is dynamic (option 00) or static 0..15
+ * (option 01, value).
+ */
+uint8_t SILION_Application_SetGen2(uint8_t target, uint8_t q)
+{
+    if(pSilion == NULL)
+        return 0U;
+
+    if(appState != SILION_APP_IDLE)
+        return 0U;
+
+    if((target > SILION_GEN2_TARGET_AB) ||
+       ((q != SILION_GEN2_Q_DYNAMIC) && (q > 15U)))
+        return 0U;
+
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+    txComplete = 0U;
+
+    if(SILION_SetProtocolTarget(
+           pSilion,
+           (target == SILION_GEN2_TARGET_AB) ? 0x00U : 0x01U,
+           (target == SILION_GEN2_TARGET_B) ? 0x01U : 0x00U) == 0U)
+    {
+        return 0U;
+    }
+
+    if(SILION_Application_Transaction(
+           SILION_CMD_SET_PROTOCOL_CONFIG) == 0U)
+    {
+        return 0U;
+    }
+
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+    txComplete = 0U;
+
+    if(SILION_SetProtocolQ(
+           pSilion,
+           (q == SILION_GEN2_Q_DYNAMIC) ? 0x00U : 0x01U,
+           (q == SILION_GEN2_Q_DYNAMIC) ? 0x00U : q) == 0U)
+    {
+        return 0U;
+    }
+
+    if(SILION_Application_Transaction(
+           SILION_CMD_SET_PROTOCOL_CONFIG) == 0U)
+    {
+        return 0U;
+    }
+
+    SILION_ClearFrame(pSilion);
+
+    return 1U;
+}
+
+/* Replies GEN2,TARGET=<A|B|AB|raw>,Q=<DYNAMIC|0..15> read from the module. */
+uint8_t SILION_Application_GetGen2(void)
+{
+    char response[48];
+    uint8_t flip;
+    uint8_t target;
+    uint8_t qOption;
+    uint8_t qValue;
+    const char *targetName;
+
+    if(pSilion == NULL)
+        return 0U;
+
+    if(appState != SILION_APP_IDLE)
+        return 0U;
+
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+    txComplete = 0U;
+
+    if(SILION_GetProtocolConfiguration(
+           pSilion,
+           SILION_PROTOCOL_GEN2,
+           SILION_PROTOCOL_PARAM_TARGET) == 0U)
+    {
+        return 0U;
+    }
+
+    if(SILION_Application_Transaction(
+           SILION_CMD_GET_PROTOCOL_CONFIG) == 0U)
+    {
+        return 0U;
+    }
+
+    if(pSilion->rxIndex < 10U)
+        return 0U;
+
+    flip = pSilion->rxBuffer[7U];
+    target = pSilion->rxBuffer[8U];
+
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+    txComplete = 0U;
+
+    if(SILION_GetProtocolConfiguration(
+           pSilion,
+           SILION_PROTOCOL_GEN2,
+           SILION_PROTOCOL_PARAM_Q) == 0U)
+    {
+        return 0U;
+    }
+
+    if(SILION_Application_Transaction(
+           SILION_CMD_GET_PROTOCOL_CONFIG) == 0U)
+    {
+        return 0U;
+    }
+
+    if(pSilion->rxIndex < 9U)
+        return 0U;
+
+    qOption = pSilion->rxBuffer[7U];
+    qValue = (pSilion->rxIndex >= 10U) ? pSilion->rxBuffer[8U] : 0U;
+
+    if((flip == 0x01U) && (target == 0x00U))
+        targetName = "A";
+    else if((flip == 0x01U) && (target == 0x01U))
+        targetName = "B";
+    else if((flip == 0x00U) && (target == 0x00U))
+        targetName = "AB";
+    else
+        targetName = NULL;
+
+    if(targetName != NULL)
+    {
+        (void)snprintf(response, sizeof(response), "GEN2,TARGET=%s,", targetName);
+    }
+    else
+    {
+        (void)snprintf(response, sizeof(response), "GEN2,TARGET=%02X%02X,", flip, target);
+    }
+
+    if(qOption == 0x00U)
+    {
+        (void)strncat(response, "Q=DYNAMIC\r\n", sizeof(response) - strlen(response) - 1U);
+    }
+    else
+    {
+        char q[12];
+        (void)snprintf(q, sizeof(q), "Q=%u\r\n", (unsigned int)qValue);
+        (void)strncat(response, q, sizeof(response) - strlen(response) - 1U);
+    }
+
+    HOST_SendString(response);
 
     SILION_ClearFrame(pSilion);
 

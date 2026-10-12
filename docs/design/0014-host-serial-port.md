@@ -20,7 +20,7 @@ Replaces the F429-only `Services/VCP/vcp_transport.c`.
 | Board | DE / RE | Mode select |
 |---|---|---|
 | F429 Discovery | PG13 (green LED LD3 — lights while transmitting) | none |
-| F411 custom | TBD (netlist) | TBD (netlist); high = RS485 assumed |
+| F411 custom | PB12 = DE (active high), PB13 = RE# (active low, switched with DE) | PB14 (high = RS485); PA8 powers the RS232 transceiver in RS232 mode |
 
 ### Host router (`Services/host/host_transport.c`)
 

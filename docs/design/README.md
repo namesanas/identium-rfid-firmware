@@ -21,3 +21,4 @@ File paths in these records are relative to `STM32_Firmware/` unless they name a
 - [0015 — Work Mode Control and Start-up Recovery](0015-work-mode-and-startup-recovery.md)
 - [0016 — WiFi Coprocessor (ESP32 over I2C)](0016-wifi-coprocessor.md)
 - [0017 — Fault Handling and Runtime Diagnostics](0017-fault-handling-and-runtime-diagnostics.md)
+- [0018 — RF Settings Persistence, Gen2 and Buzzer Commands](0018-rf-settings-persistence.md)

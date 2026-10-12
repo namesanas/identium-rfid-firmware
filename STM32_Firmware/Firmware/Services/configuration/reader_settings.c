@@ -35,7 +35,7 @@ extern uint8_t W5500_Socket1_Close(void);
 #endif
 #define READER_SETTINGS_SECTOR_SIZE    0x00020000UL
 #define READER_SETTINGS_MAGIC          0x52535431UL /* "RST1" */
-#define READER_SETTINGS_VERSION        3U
+#define READER_SETTINGS_VERSION        4U
 
 typedef struct
 {
@@ -111,6 +111,56 @@ typedef struct
     ReaderSettings_V2_t data;
     uint32_t crc32;
 } ReaderSettings_RecordV2_t;
+
+/* Version 3 is the ReaderSettings_t layout before the text-command RF
+ * fields (antenna, Gen2 target and Q) were appended. */
+typedef struct
+{
+    uint8_t ip[4];
+    uint8_t netmask[4];
+    uint8_t gateway[4];
+    uint8_t dns[4];
+    uint8_t mac[6];
+    uint16_t configPort;
+    uint8_t serverIp[4];
+    uint16_t serverPort;
+    uint8_t workState;
+    uint8_t rfValid;
+    uint8_t region;
+    uint8_t reserved;
+    uint16_t readPower;
+    uint16_t writePower;
+    char name[READER_SETTINGS_NAME_MAX + 1U];
+    uint8_t uploadMode;
+    uint16_t httpTimeout;
+    char httpUrl[READER_SETTINGS_URL_MAX + 1U];
+    uint8_t wifiEnabled;
+    uint8_t wifiMode;
+    uint8_t wifiDhcp;
+    uint8_t wifiApChannel;
+    char wifiSsid[READER_SETTINGS_WIFI_SSID_MAX + 1U];
+    char wifiPassword[READER_SETTINGS_WIFI_PASSWORD_MAX + 1U];
+    uint8_t wifiStaticIp[4];
+    uint8_t wifiNetmask[4];
+    uint8_t wifiGateway[4];
+    uint8_t wifiDns[4];
+    char wifiApSsid[READER_SETTINGS_WIFI_SSID_MAX + 1U];
+    char wifiApPassword[READER_SETTINGS_WIFI_PASSWORD_MAX + 1U];
+    uint8_t uploadInterface;
+} ReaderSettings_V3_t;
+
+typedef struct
+{
+    uint32_t magic;
+    uint16_t version;
+    uint16_t dataSize;
+    uint32_t sequence;
+    ReaderSettings_V3_t data;
+    uint32_t crc32;
+} ReaderSettings_RecordV3_t;
+
+#define READER_SETTINGS_V3_SLOT_COUNT \
+    (READER_SETTINGS_SECTOR_SIZE / sizeof(ReaderSettings_RecordV3_t))
 
 #define READER_SETTINGS_V2_SLOT_COUNT \
     (READER_SETTINGS_SECTOR_SIZE / sizeof(ReaderSettings_RecordV2_t))
@@ -275,7 +325,11 @@ static uint8_t ReaderSettings_IsSane(const ReaderSettings_t *settings)
         (settings->wifiSsid[READER_SETTINGS_WIFI_SSID_MAX] != '\0') ||
         (settings->wifiPassword[READER_SETTINGS_WIFI_PASSWORD_MAX] != '\0') ||
         (settings->wifiApSsid[READER_SETTINGS_WIFI_SSID_MAX] != '\0') ||
-        (settings->wifiApPassword[READER_SETTINGS_WIFI_PASSWORD_MAX] != '\0')
+        (settings->wifiApPassword[READER_SETTINGS_WIFI_PASSWORD_MAX] != '\0') ||
+        (settings->rfAntennaValid > 1U) ||
+        (settings->gen2Valid > 1U) ||
+        (settings->gen2Target > 2U) ||
+        ((settings->gen2Q > 15U) && (settings->gen2Q != 0xFFU))
     )
     {
         return 0U;
@@ -354,7 +408,43 @@ static void ReaderSettings_LoadV2(void)
         }
     }
 
-    /* The record size changed; force the first v3 save to erase the sector. */
+    /* The record size changed; force the first save to erase the sector. */
+    g_nextSlot = READER_SETTINGS_SLOT_COUNT;
+}
+
+static void ReaderSettings_LoadV3(void)
+{
+    const ReaderSettings_RecordV3_t *slots =
+        (const ReaderSettings_RecordV3_t *)READER_SETTINGS_ADDRESS;
+    ReaderSettings_t candidate;
+    uint32_t index;
+
+    for(index = 0U; index < READER_SETTINGS_V3_SLOT_COUNT; index++)
+    {
+        const ReaderSettings_RecordV3_t *slot = &slots[index];
+
+        if((slot->magic != READER_SETTINGS_MAGIC) ||
+           (slot->version != 3U) ||
+           (slot->dataSize != sizeof(ReaderSettings_V3_t)) ||
+           (ReaderSettings_Crc32((const uint8_t *)&slot->data, sizeof(slot->data)) != slot->crc32))
+        {
+            continue;
+        }
+
+        /* The v3 fields are the leading part of ReaderSettings_t; the
+         * appended RF fields keep their defaults (not valid). */
+        ReaderSettings_GetDefaults(&candidate);
+        memcpy(&candidate, &slot->data, sizeof(slot->data));
+        candidate.name[READER_SETTINGS_NAME_MAX] = '\0';
+        candidate.httpUrl[READER_SETTINGS_URL_MAX] = '\0';
+
+        if(ReaderSettings_IsSane(&candidate) != 0U)
+        {
+            g_settings = candidate;
+            g_sequence = slot->sequence;
+        }
+    }
+
     g_nextSlot = READER_SETTINGS_SLOT_COUNT;
 }
 
@@ -379,6 +469,12 @@ void ReaderSettings_Init(void)
        (slots[0].version == 2U))
     {
         ReaderSettings_LoadV2();
+        return;
+    }
+    if((slots[0].magic == READER_SETTINGS_MAGIC) &&
+       (slots[0].version == 3U))
+    {
+        ReaderSettings_LoadV3();
         return;
     }
 

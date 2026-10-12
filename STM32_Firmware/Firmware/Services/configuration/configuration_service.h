@@ -15,6 +15,10 @@ void Configuration_Service_Init(void);
 /* Load the persistent configuration after readerConfig defaults are set. */
 uint8_t Configuration_Service_LoadPersistent(void);
 
+/* Persist the Gen2 session set with the SET_SESSION text command.
+ * Returns 1 on success (or when it is already stored). */
+uint8_t Configuration_Service_SaveSession(uint8_t session);
+
 /* Runtime values currently owned by the Identium configuration service. */
 uint32_t Configuration_Service_GetHeartbeatSeconds(void);
 uint8_t Configuration_Service_GetStartInventoryAtBoot(void);

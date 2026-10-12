@@ -459,6 +459,35 @@ uint8_t Configuration_Service_LoadPersistent(void)
     return 1U;
 }
 
+uint8_t Configuration_Service_SaveSession(uint8_t session)
+{
+    Configuration_StorageData_t candidate;
+
+    if((g_initialized == 0U) || (session > 3U))
+    {
+        return 0U;
+    }
+
+    if(g_persistentConfiguration.session == session)
+    {
+        g_liveConfiguration.session = session;
+        return 1U;
+    }
+
+    candidate = g_persistentConfiguration;
+    candidate.session = session;
+
+    if(Configuration_Storage_Save(&candidate) == 0U)
+    {
+        return 0U;
+    }
+
+    g_persistentConfiguration = candidate;
+    g_liveConfiguration.session = session;
+
+    return 1U;
+}
+
 uint32_t Configuration_Service_GetHeartbeatSeconds(void)
 {
     return g_liveConfiguration.heartbeatSeconds;

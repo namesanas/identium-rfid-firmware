@@ -318,6 +318,13 @@ Status_t  Firmware_Configuration_Init(void)
         readerConfig.writePower = ReaderSettings_Get()->writePower;
     }
 
+    /* Antenna saved with SET_ANTENNA / SET_ANTENNAS. */
+    if(ReaderSettings_Get()->rfAntennaValid != 0U)
+    {
+        readerConfig.txAntenna = ReaderSettings_Get()->txAntenna;
+        readerConfig.rxAntenna = ReaderSettings_Get()->rxAntenna;
+    }
+
     /*
      * --------------------------------------------------------
      * W5500 BASIC STARTUP
@@ -420,6 +427,16 @@ Status_t  Firmware_Configuration_Init(void)
         );
 
         return STATUS_ERROR;
+    }
+
+    /* Gen2 target and Q saved with SET_GEN2. Not fatal: if the module
+     * rejects them it keeps its own defaults and reading still works. */
+    if(ReaderSettings_Get()->gen2Valid != 0U)
+    {
+        (void)SILION_Application_SetGen2(
+            ReaderSettings_Get()->gen2Target,
+            ReaderSettings_Get()->gen2Q
+        );
     }
 
 

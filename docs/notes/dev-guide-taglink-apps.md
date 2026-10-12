@@ -61,7 +61,9 @@ Both apps depend on these rules. They come from `host_interface.c` and `Services
 | `SET_UPLOAD_IF,AUTO\|ETH\|WIFI` | `OK,SET_UPLOAD_IF` | Desktop |
 | `GET_DIAG` / `CLEAR_DIAG` | `DIAG,RESET=..,UPTIME_MS=..,...` / `OK,CLEAR_DIAG` | Desktop, Mobile (GET only) |
 | `RELEASE` | `OK,RELEASE` | Desktop, Mobile, both network scans |
-| `SET_BUZZER`, `SET_GEN2`, `SET_ANTENNAS` | always `ERROR,<CMD>` (placeholders) | Desktop UI only |
+| `SET_BUZZER,<ms>,<tone>` | `OK,SET_BUZZER`; `ERROR,SET_BUZZER` on boards without a buzzer (`BUZZER=0`) | Desktop UI only |
+| `SET_GEN2,<A\|B\|A/B>,<q>,<profile>,<fast>,<hop>` | `OK,SET_GEN2` / `ERROR,SET_GEN2` (profile, fast and hop must be 0) | Desktop UI only, sent when `GET_CAPABILITIES` has `SET_GEN2=1` |
+| `SET_ANTENNAS,<ports>` | `OK,SET_ANTENNAS` for a single port / `ERROR,SET_ANTENNAS` | Not sent by either app |
 
 Reader behaviour seen from the mobile app (recorded during hardware tests, not re-checked today):
 
@@ -633,12 +635,12 @@ For a new mobile build, raise **both** parts, for example `version: 0.7.0+2`. An
 | Connected but every command times out (5 s) | Desktop | Another link holds the command lock: the phone over WiFi, another PC over TCP, or a USB session that never sent RELEASE | Disconnect the other client properly (it sends RELEASE), send `RELEASE` from the owning link, or reset the reader. A dropped TCP or WiFi client frees the lock by itself; USB and serial do not. |
 | "Connected, but another interface holds the command lock…" | Mobile | Same as above, usually TAGlink Desktop on USB | Disconnect in TAGlink Desktop (it sends RELEASE) or send `RELEASE` on that COM port. The app retries every 3 s. |
 | "Reader is busy with another device (connection refused/reset)" | Mobile | Port 5000 already has a TCP client | Close the other TCP client (desktop on WiFi/Ethernet, another phone, a stuck `nc`/python session) |
-| `Ethernet connect failed: timed out` | Desktop | Wrong IP. The fallback is `192.168.150.50` when Settings > Network & HTTP > Reader IP is empty. The office LAN reader was at 192.168.1.50. | Run **Discover readers**, or type the IP. This PC has no wired Ethernet to the reader, so use WiFi here. |
+| `Ethernet connect failed: timed out` | Desktop | Wrong IP. The fallback is `192.168.150.50`, the firmware's factory address, used when Settings > Network & HTTP > Reader IP is empty. The office LAN reader was at 192.168.1.50. | Run **Discover readers**, or type the IP. This PC has no wired Ethernet to the reader, so use WiFi here. |
 | WiFi option does nothing / "Enter the reader WiFi IP" | Desktop | Settings > WiFi > Reader WiFi IP is empty | Discover readers, or type the IP (it was 192.168.1.17 on the office WiFi) |
 | No reader found by Scan | Mobile | Phone not on the reader's network, VPN, guest or isolated WiFi, or a multi-interface phone | Join the same SSID or the reader AP (then use Hotspot = 192.168.4.1), or type the IP |
 | Connects, no tags | Both | Inventory not started, antenna not connected, power too low, wrong region, tags out of range, or the reader is in **active** mode and uploads elsewhere | Check `GET_STATUS`, the Mode chip (use Return to passive on the desktop), power and antenna. Try a Single poll. |
 | Settings show ERROR after connect | Desktop | The reader is inventorying (active mode), so queries fail | Stop, or Return to passive. The info batch reruns automatically. |
-| "Command not supported by this reader firmware" | Desktop | `ERROR,INVALID_COMMAND`, or a placeholder command (`SET_BUZZER`, `SET_GEN2`) | Expected with the current firmware |
+| "Command not supported by this reader firmware" | Desktop | `ERROR,INVALID_COMMAND` from older firmware, or `SET_GEN2` with a non-zero RF profile, fast mode or hopping | Update the firmware; leave those three at their defaults |
 | VSWR "Not available over WiFi" | Desktop | The module bridge is not offered over WiFi | Use USB, serial or Ethernet |
 | VSWR status 0x0105 / "Outside reader region" | Desktop | The sweep is outside the region's hop table | Use the range that `GET_FREQUENCY` filled in, or change the region |
 | VSWR status 0xAA4A | Desktop | No antenna on that port | Connect an antenna or pick another port |

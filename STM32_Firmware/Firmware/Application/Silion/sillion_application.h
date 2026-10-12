@@ -25,6 +25,7 @@ uint8_t SILION_Application_GetProtocol(void);
 uint8_t SILION_Application_GetSession(void);
 uint8_t SILION_Application_GetFrequency(void);
 uint8_t SILION_Application_GetRegions(void);
+uint8_t SILION_Application_GetGen2(void);
 
 uint8_t SILION_Application_ReadTagData(
         uint16_t timeoutMs,
@@ -46,6 +47,14 @@ uint8_t SILION_Application_SetAntenna(
 
 uint8_t SILION_Application_SetRegion(uint8_t region);
 uint8_t SILION_Application_SetSession(uint8_t session);
+
+/* Gen2 inventory target and Q. */
+#define SILION_GEN2_TARGET_A     0U
+#define SILION_GEN2_TARGET_B     1U
+#define SILION_GEN2_TARGET_AB    2U   /* A/B flipping */
+#define SILION_GEN2_Q_DYNAMIC    0xFFU
+
+uint8_t SILION_Application_SetGen2(uint8_t target, uint8_t q);
 
 uint8_t SILION_Application_WriteTagData(
     const uint8_t *epc,

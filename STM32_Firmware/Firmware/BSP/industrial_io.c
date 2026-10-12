@@ -233,6 +233,47 @@ uint8_t Industrial_IO_GetInput(
     ));
 }
 
+uint8_t Industrial_IO_GetOutputCount(void)
+{
+    uint8_t count = 0U;
+    uint8_t i;
+
+    for(i = 0U; i < INDUSTRIAL_IO_COUNT; i++)
+    {
+        if(industrialOutputs[i].port != NULL)
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+uint8_t Industrial_IO_HasBuzzer(void)
+{
+#if defined(BOARD_BUZZER_PORT)
+    return ((GPIO_RegDef_t *)BOARD_BUZZER_PORT != NULL) ? 1U : 0U;
+#else
+    return 0U;
+#endif
+}
+
+void Industrial_IO_SetBuzzer(uint8_t on)
+{
+#if defined(BOARD_BUZZER_PORT)
+    if((GPIO_RegDef_t *)BOARD_BUZZER_PORT != NULL)
+    {
+        GPIO_WriteToOutputPin(
+            (GPIO_RegDef_t *)BOARD_BUZZER_PORT,
+            BOARD_BUZZER_PIN,
+            (on != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET
+        );
+    }
+#else
+    (void)on;
+#endif
+}
+
 void Industrial_IO_GetAllInputs(
     uint8_t states[INDUSTRIAL_IO_COUNT]
 )

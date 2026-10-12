@@ -17,6 +17,9 @@ static uint8_t gpioPulseActive[INDUSTRIAL_IO_COUNT];
 static uint32_t gpioPulseDeadlineMs[INDUSTRIAL_IO_COUNT];
 static uint8_t gpioPulsePreviousState[INDUSTRIAL_IO_COUNT];
 
+static uint8_t gpioBuzzerOn = 0U;
+static uint32_t gpioBuzzerDeadlineMs = 0U;
+
 static uint8_t GPIO_Service_AnyPulseActive(void)
 {
     uint8_t i;
@@ -96,6 +99,25 @@ void GPIO_Service_Init(
     }
 }
 
+uint8_t GPIO_Service_Beep(uint32_t durationMs)
+{
+    if(Industrial_IO_HasBuzzer() == 0U)
+    {
+        return GPIO_SERVICE_ERR_NOT_SUPPORTED;
+    }
+
+    if((durationMs == 0U) || (durationMs > GPIO_SERVICE_BUZZER_MAX_MS))
+    {
+        return GPIO_SERVICE_ERR_INVALID;
+    }
+
+    gpioBuzzerDeadlineMs = Time_GetTickMs() + durationMs;
+    gpioBuzzerOn = 1U;
+    Industrial_IO_SetBuzzer(1U);
+
+    return GPIO_SERVICE_OK;
+}
+
 void GPIO_Service_Task(void)
 {
     uint8_t currentInputs[INDUSTRIAL_IO_COUNT];
@@ -104,6 +126,15 @@ void GPIO_Service_Task(void)
     uint32_t nowMs;
 
     nowMs = Time_GetTickMs();
+
+    if(
+        (gpioBuzzerOn != 0U) &&
+        ((int32_t)(nowMs - gpioBuzzerDeadlineMs) >= 0)
+    )
+    {
+        gpioBuzzerOn = 0U;
+        Industrial_IO_SetBuzzer(0U);
+    }
 
     for(i = 0U; i < GPIO_SERVICE_MAX_OUTPUTS; i++)
     {

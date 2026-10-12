@@ -16,8 +16,8 @@ class _InfoScreenState extends State<InfoScreen> {
   Map<String, String> _version = <String, String>{};
   Map<String, String> _serial = <String, String>{};
   String _temperature = '—';
-  Map<String, String> _wifi = <String, String>{};
   Map<String, String> _diagnostics = <String, String>{};
+  String _updated = '';
   bool _loading = false;
   String _error = '';
 
@@ -36,36 +36,43 @@ class _InfoScreenState extends State<InfoScreen> {
       final version = parseKeyValueReply(await _get('GET_VERSION'));
       final serial = parseKeyValueReply(await _get('GET_SERIAL'));
       final tempLine = parseLine(await _get('GET_TEMPERATURE'));
-      final wifi = parseKeyValueReply(await _get('GET_WIFI'));
       final diag = parseKeyValueReply(await _get('GET_DIAG'));
       if (!mounted) return;
       setState(() {
         _version = version;
         _serial = serial;
         _temperature = tempLine.values.isNotEmpty ? '${tempLine.values.first} °C' : '—';
-        _wifi = wifi;
         _diagnostics = diag..remove('_type');
+        _updated = timeLabel(DateTime.now());
       });
     } catch (error) { if (mounted) setState(() => _error = humanError(error)); }
     finally { if (mounted) setState(() => _loading = false); }
   }
 
-  Widget _mapCard(String title, Map<String, String> values, IconData icon) => Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Row(children: [Icon(icon), const SizedBox(width: 8), Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))]),
-    const SizedBox(height: 8),
-    if (values.isEmpty) const Text('No data yet'),
-    for (final entry in values.entries) if (!entry.key.startsWith('_')) infoTile(entry.key, entry.value),
-  ])));
+  Widget _stat(BuildContext context, IconData icon, String label, String value) {
+    final theme = Theme.of(context);
+    return Expanded(child: Card(child: Padding(padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12), child: Column(children: [
+      Icon(icon, size: 22, color: theme.colorScheme.primary),
+      const SizedBox(height: 6),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text(label, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+    ]))));
+  }
 
   @override
-  Widget build(BuildContext context) => RefreshIndicator(onRefresh: _refresh, child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
-    Row(children: [Expanded(child: Text('Reader information', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))), IconButton(onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh))]),
-    if (_loading) const LinearProgressIndicator(),
-    if (_error.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(_error, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-    _mapCard('Firmware version', _version, Icons.memory),
-    _mapCard('Serial number', _serial, Icons.qr_code_2),
-    Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [const Icon(Icons.thermostat), const SizedBox(width: 10), const Expanded(child: Text('Module temperature')), Text(_temperature, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))]))),
-    _mapCard('Wi-Fi status', _wifi, Icons.wifi),
-    _mapCard('Diagnostics · GET_DIAG', _diagnostics, Icons.health_and_safety_outlined),
-  ]));
+  Widget build(BuildContext context) {
+    final status = _error.isNotEmpty ? _error : _loading ? 'Reading reader information…' : _version.isEmpty ? '' : 'Updated $_updated';
+    return RefreshIndicator(onRefresh: _refresh, child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), children: [
+      PageToolbar(status: status, loading: _loading, error: _error.isNotEmpty, onRefresh: _refresh),
+      Row(children: [
+        _stat(context, Icons.thermostat, 'Module temperature', _temperature),
+        const SizedBox(width: 8),
+        _stat(context, Icons.memory, 'Firmware', _version['FWVER'] ?? '—'),
+      ]),
+      const SizedBox(height: 4),
+      SectionCard(title: 'Module', icon: Icons.developer_board, child: KeyValueList(labelled(_version, versionLabels, format: (k, v) => k == 'FWDATE' ? dateLabel(v) : v))),
+      SectionCard(title: 'Identity', icon: Icons.qr_code_2, child: KeyValueList(labelled(_serial, serialLabels))),
+      SectionCard(title: 'Health', icon: Icons.monitor_heart_outlined, child: KeyValueList(labelled(_diagnostics, diagLabels, format: (k, v) => k == 'UPTIME_MS' ? uptimeLabel(v) : v))),
+    ]));
+  }
 }

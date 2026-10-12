@@ -8,6 +8,7 @@ import 'features/inventory/inventory_screen.dart';
 import 'features/logs/logs_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/wifi/wifi_screen.dart';
+import 'theme.dart';
 import 'transport/reader_client.dart';
 
 class TaglinkApp extends StatefulWidget {
@@ -57,12 +58,11 @@ class _TaglinkAppState extends State<TaglinkApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     if (!_ready) return const MaterialApp(home: Scaffold(body: Center(child: CircularProgressIndicator())));
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF2458A6), brightness: _dark ? Brightness.dark : Brightness.light);
     return MaterialApp(
       title: 'TAGlink Mobile',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorScheme: scheme, useMaterial3: true, scaffoldBackgroundColor: _dark ? const Color(0xFF11151B) : const Color(0xFFF6F8FB)),
-      darkTheme: ThemeData(colorScheme: scheme, useMaterial3: true, brightness: Brightness.dark),
+      theme: taglinkTheme(Brightness.light),
+      darkTheme: taglinkTheme(Brightness.dark),
       themeMode: _dark ? ThemeMode.dark : ThemeMode.light,
       home: ValueListenableBuilder<bool>(
         valueListenable: _client.connected,
@@ -104,21 +104,28 @@ class _ReaderShellState extends State<ReaderShell> {
       _pages[index] ??= _createPage(index);
     });
   }
-  static const _titles = <String>['Inventory', 'Settings', 'Reader info', 'Wi-Fi setup', 'Protocol log'];
+  static const _titles = <String>['Inventory', 'Settings', 'Reader info', 'Wi-Fi', 'Protocol log'];
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
+      titleSpacing: 20,
       title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(_titles[_index], style: const TextStyle(fontWeight: FontWeight.w700)),
-        Text('${widget.client.host ?? ''}:${widget.client.port}', style: Theme.of(context).textTheme.labelSmall),
+        Text(_titles[_index], style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 21)),
+        const SizedBox(height: 2),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.circle, size: 8, color: TaglinkColors.of(context).success),
+          const SizedBox(width: 6),
+          Text('${widget.client.host ?? ''}:${widget.client.port}', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ]),
       ]),
       actions: [
-        IconButton(tooltip: widget.dark ? 'Use light theme' : 'Use dark theme', icon: Icon(widget.dark ? Icons.light_mode : Icons.dark_mode), onPressed: () => widget.onThemeChanged(!widget.dark)),
-        IconButton(tooltip: 'Disconnect', icon: const Icon(Icons.link_off), onPressed: () async {
-          final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Disconnect reader?'), content: const Text('The app will stop inventory if it started it, send RELEASE, and close TCP.'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect'))]));
+        IconButton(tooltip: widget.dark ? 'Use light theme' : 'Use dark theme', icon: Icon(widget.dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined), onPressed: () => widget.onThemeChanged(!widget.dark)),
+        IconButton(tooltip: 'Disconnect', icon: const Icon(Icons.power_settings_new), onPressed: () async {
+          final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Disconnect from reader?'), content: const Text('A running inventory started from this phone is stopped first.'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect'))]));
           if (yes == true) await widget.client.disconnect();
         }),
+        const SizedBox(width: 6),
       ],
     ),
     body: Column(children: [
@@ -139,11 +146,11 @@ class _ReaderShellState extends State<ReaderShell> {
       Expanded(child: IndexedStack(index: _index, children: List<Widget>.generate(_pages.length, (i) => _pages[i] ?? const SizedBox.shrink()))),
     ]),
     bottomNavigationBar: NavigationBar(selectedIndex: _index, onDestinationSelected: _selectPage, destinations: const [
-      NavigationDestination(icon: Icon(Icons.radar), label: 'Inventory'),
-      NavigationDestination(icon: Icon(Icons.tune), label: 'Settings'),
-      NavigationDestination(icon: Icon(Icons.info_outline), label: 'Info'),
-      NavigationDestination(icon: Icon(Icons.wifi), label: 'Wi-Fi'),
-      NavigationDestination(icon: Icon(Icons.terminal), label: 'Logs'),
+      NavigationDestination(icon: Icon(Icons.sensors_outlined), selectedIcon: Icon(Icons.sensors), label: 'Inventory'),
+      NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Settings'),
+      NavigationDestination(icon: Icon(Icons.info_outline), selectedIcon: Icon(Icons.info), label: 'Info'),
+      NavigationDestination(icon: Icon(Icons.wifi_outlined), selectedIcon: Icon(Icons.wifi), label: 'Wi-Fi'),
+      NavigationDestination(icon: Icon(Icons.terminal_outlined), selectedIcon: Icon(Icons.terminal), label: 'Logs'),
     ]),
   );
 }

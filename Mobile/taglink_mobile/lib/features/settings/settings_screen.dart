@@ -5,6 +5,7 @@ import '../../protocol/command_builder.dart';
 import '../../protocol/parser.dart';
 import '../../transport/reader_client.dart';
 import '../../widgets/ui_helpers.dart';
+import '../../theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.client});
@@ -33,7 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() { _loading = true; _status = 'Refreshing reader settings…'; });
+    setState(() { _loading = true; _status = 'Reading settings…'; });
     try {
       final power = parsePower(await _request(CommandBuilder.simple('GET_POWER')));
       final session = parseLine(await _request(CommandBuilder.simple('GET_SESSION')));
@@ -46,12 +47,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (power != null) _power = power.readCentiDbm.clamp(500, 3000).toInt();
         _session = intValue(session.values.isNotEmpty ? session.values.first : null).clamp(0, 3).toInt();
         _region = region.values.isNotEmpty ? region.values.first : '—';
-        _antenna = 'TX=${antenna['TX'] ?? '?'} · RX=${antenna['RX'] ?? '?'}';
+        _antenna = 'TX ${antenna['TX'] ?? '?'} · RX ${antenna['RX'] ?? '?'}';
         _inputs = Map<String, String>.from(gpi.fields);
         final cap = parseKeyValueReply(caps);
         final gpoCount = int.tryParse(cap['GPO'] ?? '') ?? 4;
         for (var i = gpoCount + 1; i <= 4; i++) { _outputs.remove(i); }
-        _status = 'Settings refreshed.';
+        _status = 'Updated ${timeLabel(DateTime.now())}';
       });
     } catch (error) {
       if (mounted) setState(() => _status = humanError(error));
@@ -64,7 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _loading = true);
     try {
       await _request(CommandBuilder.setPower(_power));
-      if (mounted) showMessage(context, 'Read power set to ${(_power / 100).toStringAsFixed(2)} dBm.');
+      if (mounted) showMessage(context, 'Read power set to ${(_power / 100).toStringAsFixed(1)} dBm.');
       await _refresh();
     } catch (error) { if (mounted) showMessage(context, humanError(error)); }
     finally { if (mounted) setState(() => _loading = false); }
@@ -74,7 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() { _session = value; _loading = true; });
     try {
       await _request(CommandBuilder.setSession(value));
-      if (mounted) showMessage(context, 'Session set to $value.');
+      if (mounted) showMessage(context, 'Session set to S$value.');
     } catch (error) { if (mounted) showMessage(context, humanError(error)); await _refresh(); }
     finally { if (mounted) setState(() => _loading = false); }
   }
@@ -88,26 +89,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Widget _inputChip(BuildContext context, int i) {
+    final theme = Theme.of(context);
+    final known = _inputs.containsKey('GPI$i');
+    final high = _inputs['GPI$i'] == '1';
+    final color = high ? TaglinkColors.of(context).success : theme.colorScheme.onSurfaceVariant;
+    return Expanded(child: Container(
+      margin: const EdgeInsets.symmetric(horizontal: 3),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: high ? color.withValues(alpha: 0.14) : theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: high ? color : theme.colorScheme.outlineVariant),
+      ),
+      child: Column(children: [
+        Text('GPI $i', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 2),
+        Text(!known ? '—' : high ? 'HIGH' : 'LOW', style: TextStyle(fontWeight: FontWeight.w800, color: color)),
+      ]),
+    ));
+  }
+
   @override
-  Widget build(BuildContext context) => RefreshIndicator(onRefresh: _refresh, child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
-    Row(children: [Expanded(child: Text('Reader configuration', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))), IconButton(onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh))]),
-    if (_loading) const LinearProgressIndicator(),
-    if (_status.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Text(_status, style: const TextStyle(color: Colors.grey))),
-    Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      sectionTitle('Read power', subtitle: 'UI range 5.00–30.00 dBm, in 0.50 dB steps.'),
-      Row(crossAxisAlignment: CrossAxisAlignment.center, children: [Expanded(child: Slider(value: _power.toDouble(), min: 500, max: 3000, divisions: 50, label: '${(_power / 100).toStringAsFixed(2)} dBm', onChanged: _loading ? null : (value) => setState(() => _power = value.round()))), Text('${(_power / 100).toStringAsFixed(2)} dBm', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))]),
-      Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: _loading ? null : _applyPower, child: const Text('Apply power'))),
-      const Divider(height: 24),
-      Row(children: [const Expanded(child: Text('Session')), DropdownButton<int>(value: _session, items: const [DropdownMenuItem(value: 0, child: Text('S0')), DropdownMenuItem(value: 1, child: Text('S1')), DropdownMenuItem(value: 2, child: Text('S2')), DropdownMenuItem(value: 3, child: Text('S3'))], onChanged: _loading ? null : (value) { if (value != null) unawaited(_setSession(value)); })]),
-      infoTile('Region (read-only)', _region),
-      infoTile('Antenna configuration', _antenna),
-    ]))),
-    Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      sectionTitle('Digital inputs', subtitle: 'GPI status from GET_GPI.'),
-      for (var i = 1; i <= 4; i++) ListTile(contentPadding: EdgeInsets.zero, leading: Icon(_inputs['GPI$i'] == '1' ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: _inputs['GPI$i'] == '1' ? Colors.green : null), title: Text('GPI $i'), trailing: Text(_inputs['GPI$i'] == '1' ? 'HIGH' : _inputs.containsKey('GPI$i') ? 'LOW' : '—')),
-      const Divider(),
-      sectionTitle('Digital outputs', subtitle: 'Toggle stays in the selected state (duration = 0). Use care with connected equipment.'),
-      for (final channel in _outputs.keys.toList()..sort()) SwitchListTile(contentPadding: EdgeInsets.zero, title: Text('GPO $channel'), subtitle: Text(_outputs[channel]! ? 'HIGH' : 'LOW'), value: _outputs[channel]!, onChanged: _loading ? null : (value) => _setOutput(channel, value)),
-    ]))),
-  ]));
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dbm = (_power / 100).toStringAsFixed(1);
+    final failed = _status.startsWith('ERROR') || _status.contains('timed out') || _status.contains('Not connected');
+    return RefreshIndicator(onRefresh: _refresh, child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), children: [
+      PageToolbar(status: _status, loading: _loading, error: failed, onRefresh: _refresh),
+      SectionCard(title: 'RF', icon: Icons.settings_input_antenna, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Text('Read power', style: theme.textTheme.bodyLarge),
+          const Spacer(),
+          Text('$dbm dBm', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800, color: theme.colorScheme.primary)),
+        ]),
+        Slider(padding: const EdgeInsets.symmetric(vertical: 8), value: _power.toDouble(), min: 500, max: 3000, divisions: 50, label: '$dbm dBm', onChanged: _loading ? null : (value) => setState(() => _power = value.round())),
+        Row(children: [
+          Text('5 dBm', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const Spacer(),
+          Text('30 dBm', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ]),
+        const SizedBox(height: 10),
+        FilledButton(onPressed: _loading ? null : _applyPower, child: const Text('Apply power')),
+        const SizedBox(height: 18),
+        Text('Session', style: theme.textTheme.bodyLarge),
+        const SizedBox(height: 8),
+        SegmentedButton<int>(
+          showSelectedIcon: false,
+          segments: const [ButtonSegment(value: 0, label: Text('S0')), ButtonSegment(value: 1, label: Text('S1')), ButtonSegment(value: 2, label: Text('S2')), ButtonSegment(value: 3, label: Text('S3'))],
+          selected: {_session},
+          onSelectionChanged: _loading ? null : (value) => unawaited(_setSession(value.first)),
+        ),
+        const SizedBox(height: 10),
+        KeyValueList([MapEntry('Region', _region), MapEntry('Antennas', _antenna)]),
+      ])),
+      SectionCard(title: 'Digital inputs', icon: Icons.input, trailing: IconButton(tooltip: 'Refresh inputs', visualDensity: VisualDensity.compact, onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh, size: 20)),
+        child: Row(children: [for (var i = 1; i <= 4; i++) _inputChip(context, i)])),
+      SectionCard(title: 'Digital outputs', icon: Icons.output, subtitle: 'Outputs hold their state until changed.', child: Column(children: [
+        for (final channel in _outputs.keys.toList()..sort()) SwitchListTile(
+          contentPadding: EdgeInsets.zero, dense: true,
+          title: Text('GPO $channel', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+          subtitle: Text(_outputs[channel]! ? 'High' : 'Low'),
+          value: _outputs[channel]!, onChanged: _loading ? null : (value) => _setOutput(channel, value)),
+      ])),
+    ]));
+  }
 }

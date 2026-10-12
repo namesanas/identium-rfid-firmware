@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../protocol/command_builder.dart';
 import '../../protocol/parser.dart';
 import '../../transport/reader_client.dart';
+import '../../theme.dart';
 import '../../widgets/ui_helpers.dart';
 
 class TagDetailScreen extends StatefulWidget {
@@ -18,7 +19,7 @@ class _TagDetailScreenState extends State<TagDetailScreen> {
   late String _epc = widget.epc;
   final Map<int, String> _bankData = <int, String>{};
   bool _busy = false;
-  String _message = 'Read tag memory to inspect the EPC, TID and User banks.';
+  String _message = '';
 
   @override
   void initState() {
@@ -41,7 +42,7 @@ class _TagDetailScreenState extends State<TagDetailScreen> {
       if (reply.startsWith('ERROR,')) throw StateError(reply);
       final parsed = parseKeyValueReply(reply);
       final data = parsed['DATA'] ?? '(no DATA field)';
-      if (mounted) setState(() { _bankData[bank] = data; _message = '${_bankName(bank)} bank read successfully.'; });
+      if (mounted) setState(() { _bankData[bank] = data; _message = 'Updated ${timeLabel(DateTime.now())}'; });
     } catch (error) {
       if (mounted) setState(() => _message = '${_bankName(bank)} bank: ${humanError(error)}');
     } finally {
@@ -109,24 +110,44 @@ class _TagDetailScreenState extends State<TagDetailScreen> {
     }
   }
 
+  IconData _bankIcon(int bank) => switch (bank) { 1 => Icons.sell_outlined, 2 => Icons.fingerprint, _ => Icons.notes };
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Tag detail')),
-    body: ListView(padding: const EdgeInsets.all(16), children: [
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('EPC', style: Theme.of(context).textTheme.labelLarge),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final failed = _message.contains('ERROR') || _message.contains('failed') || _message.contains('timed out');
+    return Scaffold(
+      appBar: AppBar(titleSpacing: 4, title: const Text('Tag', style: TextStyle(fontWeight: FontWeight.w800))),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 24), children: [
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('EPC', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.1, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          SelectableText(_epc, style: theme.textTheme.titleLarge?.copyWith(fontFamily: 'monospace', fontWeight: FontWeight.w800)),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: OutlinedButton.icon(onPressed: _busy ? null : _changeEpc, icon: const Icon(Icons.edit_outlined, size: 18), label: const Text('Change EPC'))),
+            const SizedBox(width: 10),
+            Expanded(child: FilledButton.icon(onPressed: _busy ? null : _readAllBanks, icon: const Icon(Icons.refresh, size: 18), label: const Text('Read memory'))),
+          ]),
+        ]))),
         const SizedBox(height: 6),
-        SelectableText(_epc, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontFamily: 'monospace', fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: [OutlinedButton.icon(onPressed: _busy ? null : _changeEpc, icon: const Icon(Icons.edit), label: const Text('Change EPC')), OutlinedButton.icon(onPressed: _busy ? null : _readAllBanks, icon: const Icon(Icons.refresh), label: const Text('Read all banks'))]),
-      ]))),
-      if (_busy) const LinearProgressIndicator(),
-      Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(_message, style: const TextStyle(color: Colors.grey))),
-      for (final bank in <int>[1, 2, 3]) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Expanded(child: Text('${_bankName(bank)} bank · $bank', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))), IconButton(onPressed: _busy ? null : () => _readBank(bank), icon: const Icon(Icons.refresh), tooltip: 'Read ${_bankName(bank)} bank')]),
-        SelectableText(_bankData[bank] ?? 'Not read yet', style: const TextStyle(fontFamily: 'monospace', height: 1.5)),
-        if (bank == 3) Align(alignment: Alignment.centerRight, child: FilledButton.tonalIcon(onPressed: _busy ? null : _writeUserBank, icon: const Icon(Icons.edit_note), label: const Text('Write User bank'))),
-      ]))),
-    ]),
-  );
+        SizedBox(height: 2, child: _busy ? const LinearProgressIndicator() : null),
+        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text(_message, style: theme.textTheme.bodySmall?.copyWith(color: failed ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant))),
+        for (final bank in <int>[1, 2, 3]) SectionCard(
+          title: '${_bankName(bank)} memory',
+          subtitle: 'Bank $bank',
+          icon: _bankIcon(bank),
+          trailing: IconButton(onPressed: _busy ? null : () => _readBank(bank), icon: const Icon(Icons.refresh, size: 20), tooltip: 'Read ${_bankName(bank)} bank', visualDensity: VisualDensity.compact),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: TaglinkColors.of(context).log, borderRadius: BorderRadius.circular(8), border: Border.all(color: theme.colorScheme.outlineVariant)),
+              child: SelectableText(_bankData[bank] ?? 'Not read yet', style: TextStyle(fontFamily: 'monospace', height: 1.5, color: _bankData[bank] == null ? theme.colorScheme.onSurfaceVariant : null)),
+            ),
+            if (bank == 3) Padding(padding: const EdgeInsets.only(top: 12), child: Align(alignment: Alignment.centerRight, child: FilledButton.tonalIcon(onPressed: _busy ? null : _writeUserBank, icon: const Icon(Icons.edit_note), label: const Text('Write User memory')))),
+          ]),
+        ),
+      ]),
+    );
+  }
 }

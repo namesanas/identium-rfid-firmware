@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../protocol/models.dart';
 import '../../transport/reader_client.dart';
 import '../../widgets/ui_helpers.dart';
+import '../../theme.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key, required this.client});
@@ -14,16 +15,19 @@ class LogsScreen extends StatefulWidget {
 }
 
 class _LogsScreenState extends State<LogsScreen> {
-  late List<ProtocolLogEntry> _entries = widget.client.logs;
+  late final List<ProtocolLogEntry> _entries = List<ProtocolLogEntry>.of(widget.client.logs);
   StreamSubscription<ProtocolLogEntry>? _subscription;
+  Timer? _refresh;
   bool _txOnly = false;
 
   @override
   void initState() {
     super.initState();
     _subscription = widget.client.logStream.listen((entry) {
-      if (!mounted) return;
-      setState(() { _entries = <ProtocolLogEntry>[..._entries, entry]; if (_entries.length > 500) _entries.removeRange(0, _entries.length - 500); });
+      _entries.add(entry);
+      if (_entries.length > 500) _entries.removeRange(0, _entries.length - 500);
+      // Inventory produces many lines a second: redraw at most every 200 ms.
+      _refresh ??= Timer(const Duration(milliseconds: 200), () { _refresh = null; if (mounted) setState(() {}); });
     });
   }
 
@@ -32,27 +36,54 @@ class _LogsScreenState extends State<LogsScreen> {
     if (mounted) showMessage(context, 'Protocol log copied.');
   }
 
-  void _clear() { widget.client.clearLogs(); setState(() => _entries = <ProtocolLogEntry>[]); }
+  void _clear() { widget.client.clearLogs(); setState(_entries.clear); }
 
   @override
-  void dispose() { _subscription?.cancel(); super.dispose(); }
+  void dispose() { _subscription?.cancel(); _refresh?.cancel(); super.dispose(); }
+
+  Future<void> _copyLine(ProtocolLogEntry entry) async {
+    await Clipboard.setData(ClipboardData(text: entry.line));
+    if (mounted) showMessage(context, 'Line copied.');
+  }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sentColor = theme.colorScheme.primary;
+    final receivedColor = TaglinkColors.of(context).success;
     final shown = _txOnly ? _entries.where((e) => e.direction == 'TX').toList() : _entries;
     return Column(children: [
-      Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0), child: Row(children: [Expanded(child: Text('Protocol log', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))), Text('${_entries.length}/500', style: Theme.of(context).textTheme.labelMedium)])),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [Expanded(child: SwitchListTile(dense: true, contentPadding: EdgeInsets.zero, title: const Text('Show sent commands only'), value: _txOnly, onChanged: (value) => setState(() => _txOnly = value))), IconButton(tooltip: 'Copy log', onPressed: _copy, icon: const Icon(Icons.copy)), IconButton(tooltip: 'Clear log', onPressed: _clear, icon: const Icon(Icons.delete_outline))])),
-      const Divider(height: 1),
-      Expanded(child: shown.isEmpty ? const Center(child: Text('No protocol traffic yet.')) : ListView.builder(itemCount: shown.length, itemBuilder: (context, index) {
-        final entry = shown[index];
-        final sent = entry.direction == 'TX';
-        return Container(color: sent ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.045) : null, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(width: 64, child: Text('${entry.time.hour.toString().padLeft(2, '0')}:${entry.time.minute.toString().padLeft(2, '0')}:${entry.time.second.toString().padLeft(2, '0')}.${entry.time.millisecond.toString().padLeft(3, '0')}', style: Theme.of(context).textTheme.labelSmall)),
-          SizedBox(width: 28, child: Text(entry.direction, style: TextStyle(color: sent ? Theme.of(context).colorScheme.primary : Colors.teal, fontWeight: FontWeight.bold, fontSize: 11))),
-          Expanded(child: SelectableText(entry.line, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
-        ]));
-      })),
+      Padding(padding: const EdgeInsets.fromLTRB(16, 10, 8, 8), child: Row(children: [
+        SegmentedButton<bool>(
+          showSelectedIcon: false,
+          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+          segments: const [ButtonSegment(value: false, label: Text('All')), ButtonSegment(value: true, label: Text('Sent'))],
+          selected: {_txOnly},
+          onSelectionChanged: (value) => setState(() => _txOnly = value.first),
+        ),
+        const SizedBox(width: 12),
+        Text('${_entries.length} lines', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        const Spacer(),
+        IconButton(tooltip: 'Copy log', onPressed: _entries.isEmpty ? null : _copy, icon: const Icon(Icons.copy_all_outlined)),
+        IconButton(tooltip: 'Clear log', onPressed: _entries.isEmpty ? null : _clear, icon: const Icon(Icons.delete_outline)),
+      ])),
+      Divider(height: 1, color: theme.colorScheme.outlineVariant),
+      Expanded(child: shown.isEmpty
+        ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.terminal, size: 44, color: theme.colorScheme.outline),
+            const SizedBox(height: 10),
+            Text('No traffic yet', style: theme.textTheme.titleMedium),
+          ]))
+        // reverse: the list starts at the newest line and stays there as lines arrive.
+        : Container(color: TaglinkColors.of(context).log, child: ListView.builder(reverse: true, padding: const EdgeInsets.symmetric(vertical: 6), itemCount: shown.length, itemBuilder: (context, index) {
+            final entry = shown[shown.length - 1 - index];
+            final sent = entry.direction == 'TX';
+            return InkWell(onLongPress: () => _copyLine(entry), child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(width: 62, child: Text(timeLabel(entry.time), style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontFeatures: const [FontFeature.tabularFigures()]))),
+              Padding(padding: const EdgeInsets.only(right: 8, top: 1), child: Icon(sent ? Icons.arrow_upward : Icons.arrow_downward, size: 13, color: sent ? sentColor : receivedColor)),
+              Expanded(child: Text(entry.line, style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.35, color: sent ? sentColor : theme.colorScheme.onSurface, fontWeight: sent ? FontWeight.w700 : FontWeight.w400))),
+            ])));
+          }))),
     ]);
   }
 }

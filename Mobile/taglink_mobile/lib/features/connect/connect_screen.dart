@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../protocol/line_framer.dart';
@@ -41,7 +42,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   bool _connecting = false;
   bool _scanning = false;
   String _scanMessage = '';
-  String _connectionMessage = 'Enter the reader IP or use its access-point shortcut.';
+  String _connectionMessage = '';
 
   @override
   void initState() {
@@ -85,7 +86,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   Future<void> _scanNetwork() async {
-    setState(() { _scanning = true; _found = <SavedReader>[]; _scanMessage = 'Finding the phone Wi-Fi subnet…'; });
+    setState(() { _scanning = true; _found = <SavedReader>[]; _scanMessage = 'Looking for the phone’s Wi-Fi network…'; });
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4, includeLoopback: false);
       final localIps = <String>{};
@@ -115,7 +116,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
       int cursor = 0;
       int checked = 0;
       final results = <SavedReader>[];
-      if (mounted) setState(() => _scanMessage = 'Scanning $prefix.0/24 on TCP port 5000 (64 parallel probes)…');
+      if (mounted) setState(() => _scanMessage = 'Scanning $prefix.x for readers…');
       Future<void> worker() async {
         while (true) {
           final i = cursor++;
@@ -123,13 +124,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
           final host = targets[i];
           if (await _probe(host)) results.add(SavedReader(host: host, port: 5000));
           checked++;
-          if (mounted && checked % 16 == 0) setState(() => _scanMessage = 'Scanned $checked/${targets.length} addresses… found ${results.length}.');
+          if (mounted && checked % 16 == 0) setState(() => _scanMessage = 'Scanning $prefix.x… ${(checked * 100 / targets.length).round()}% · ${results.length} found');
         }
       }
       await Future.wait(List<Future<void>>.generate(64, (_) => worker()));
       results.sort((a, b) => _ipNumber(a.host).compareTo(_ipNumber(b.host)));
       if (!mounted) return;
-      setState(() { _found = results; _scanMessage = results.isEmpty ? 'No compatible reader replied to GET_VERSION on $prefix.0/24.' : 'Found ${results.length} reader(s).'; });
+      setState(() { _found = results; _scanMessage = results.isEmpty ? 'No reader found on $prefix.x.' : ''; });
     } catch (error) {
       if (mounted) setState(() => _scanMessage = humanError(error));
     } finally {
@@ -182,40 +183,81 @@ class _ConnectScreenState extends State<ConnectScreen> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('TAGlink Mobile'), actions: [IconButton(tooltip: widget.dark ? 'Use light theme' : 'Use dark theme', icon: Icon(widget.dark ? Icons.light_mode : Icons.dark_mode), onPressed: () => widget.onThemeChanged(!widget.dark))]),
-    body: SafeArea(child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
-      Card(child: Padding(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Icon(Icons.radar, size: 42),
-        const SizedBox(height: 8),
-        Text('Connect to your reader', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text('Connect your phone to the reader Wi-Fi network RFID-Reader (AP mode) or put both devices on the same LAN. TAGlink uses TCP port 5000.'),
-        const SizedBox(height: 14),
-        Row(children: [Expanded(child: TextField(controller: _ip, keyboardType: TextInputType.url, autocorrect: false, decoration: const InputDecoration(labelText: 'Reader IP / hostname', hintText: '192.168.1.80', prefixIcon: Icon(Icons.router), border: OutlineInputBorder()))), const SizedBox(width: 10), SizedBox(width: 92, child: TextField(controller: _port, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port', border: OutlineInputBorder()))) ]),
-        const SizedBox(height: 12),
-        SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: _connecting ? null : () => _connect(), icon: _connecting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.link), label: Text(_connecting ? 'Connecting…' : 'Connect'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: _connecting ? null : () => _connect(host: '192.168.4.1', port: 5000), icon: const Icon(Icons.wifi), label: const Text('Reader access point · 192.168.4.1'))),
-        const SizedBox(height: 6),
-        Text(_connectionMessage, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _connectionMessage.contains('busy') || _connectionMessage.contains('lock') ? Theme.of(context).colorScheme.error : null)),
-      ]))),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Expanded(child: Text('Scan network', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))), if (_scanning) const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))]),
-        const SizedBox(height: 6),
-        const Text('Checks the phone’s IPv4 /24 subnet for port 5000 and validates each result with GET_VERSION.'),
-        const SizedBox(height: 10),
-        SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: _scanning || _connecting ? null : _scanNetwork, icon: const Icon(Icons.radar), label: Text(_scanning ? 'Scanning…' : 'Scan network'))),
-        if (_scanMessage.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(_scanMessage)),
-        for (final reader in _found) ListTile(leading: const Icon(Icons.router), title: Text(reader.label), trailing: const Icon(Icons.chevron_right), onTap: _connecting ? null : () => _connect(host: reader.host, port: reader.port)),
-      ]))),
-      if (_saved.isNotEmpty) ...[
-        sectionTitle('Recent readers', subtitle: 'Up to five addresses are saved on this device.'),
-        for (final reader in _saved) Card(child: ListTile(leading: const Icon(Icons.history), title: Text(reader.host), subtitle: Text('TCP port ${reader.port}'), trailing: const Icon(Icons.chevron_right), onTap: _connecting ? null : () => _connect(host: reader.host, port: reader.port))),
-      ],
-      const SizedBox(height: 8),
-      const Text('If the reader reports no status response, another interface may hold the command lock. Send RELEASE from USB/serial or reset the reader.', style: TextStyle(color: Colors.grey)),
-    ])),
+  bool get _messageIsProblem {
+    final m = _connectionMessage.toLowerCase();
+    return m.contains('lock') || m.contains('busy') || m.contains('fail') || m.contains('error') || m.contains('refused') || m.contains('timed out') || m.contains('retrying');
+  }
+
+  Widget _readerTile(SavedReader reader, IconData icon, {String? subtitle}) => ListTile(
+    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+    dense: true,
+    leading: Icon(icon),
+    title: Text(reader.host, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+    subtitle: subtitle == null ? null : Text(subtitle),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: _connecting ? null : () => _connect(host: reader.host, port: reader.port),
   );
+
+  Widget _label(BuildContext context, String text) => Padding(
+    padding: const EdgeInsets.only(top: 16, bottom: 2),
+    child: Text(text.toUpperCase(), style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.1, fontWeight: FontWeight.w700)),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final busy = _connecting || _scanning;
+    final status = _connecting ? 'Connecting…' : _connectionMessage;
+    return AnnotatedRegion<SystemUiOverlayStyle>(value: (widget.dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(statusBarColor: Colors.transparent), child: Scaffold(body: SafeArea(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 520), child: ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 24), children: [
+      Align(alignment: Alignment.centerRight, child: IconButton(tooltip: widget.dark ? 'Use light theme' : 'Use dark theme', icon: Icon(widget.dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined), onPressed: () => widget.onThemeChanged(!widget.dark))),
+      const SizedBox(height: 8),
+      Center(child: Container(
+        width: 64, height: 64,
+        decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(18)),
+        child: Icon(Icons.attach_file, size: 34, color: theme.colorScheme.onPrimary),
+      )),
+      const SizedBox(height: 14),
+      Text('TAGlink', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.3)),
+      Text('RFID reader control', textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      const SizedBox(height: 24),
+      Card(child: Padding(padding: const EdgeInsets.fromLTRB(18, 18, 18, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Connect to a reader', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: TextField(controller: _ip, keyboardType: TextInputType.url, autocorrect: false, textInputAction: TextInputAction.go, onSubmitted: (_) { if (!busy) _connect(); }, decoration: const InputDecoration(labelText: 'Reader IP address', hintText: '192.168.1.80', prefixIcon: Icon(Icons.router_outlined)))),
+          const SizedBox(width: 10),
+          SizedBox(width: 88, child: TextField(controller: _port, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port'))),
+        ]),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+          onPressed: busy ? null : () => _connect(),
+          icon: _connecting ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.onPrimary)) : const Icon(Icons.link),
+          label: Text(_connecting ? 'Connecting…' : 'Connect'),
+        ),
+        if (_connecting || _messageIsProblem) Padding(padding: const EdgeInsets.only(top: 10), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(_messageIsProblem ? Icons.error_outline : Icons.hourglass_top, size: 18, color: _messageIsProblem ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(child: Text(status, style: theme.textTheme.bodySmall?.copyWith(color: _messageIsProblem ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant))),
+        ])),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(onPressed: busy ? null : () => _connect(host: '192.168.4.1', port: 5000), icon: const Icon(Icons.wifi_tethering, size: 18), label: const Text('Hotspot'))),
+          const SizedBox(width: 10),
+          Expanded(child: OutlinedButton.icon(onPressed: busy ? null : _scanNetwork, icon: _scanning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.travel_explore, size: 18), label: Text(_scanning ? 'Scanning…' : 'Scan'))),
+        ]),
+        if (_scanMessage.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_scanMessage, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+        if (_found.isNotEmpty) ...[
+          _label(context, 'Found on this network'),
+          for (final reader in _found) _readerTile(reader, Icons.sensors, subtitle: 'Port ${reader.port}'),
+        ],
+        if (_saved.isNotEmpty) ...[
+          _label(context, 'Recent'),
+          for (final reader in _saved) _readerTile(reader, Icons.history, subtitle: 'Port ${reader.port}'),
+        ],
+      ]))),
+      const SizedBox(height: 16),
+      Text('Join the reader’s hotspot, or put the phone on the same Wi-Fi as the reader.', textAlign: TextAlign.center, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+    ]))))));
+  }
 }

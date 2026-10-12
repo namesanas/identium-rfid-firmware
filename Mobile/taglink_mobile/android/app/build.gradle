@@ -7,6 +7,8 @@ plugins {
 android {
     namespace "com.taglink.mobile"
     compileSdk flutter.compileSdkVersion
+    // The jni plugin builds native code and requires this NDK.
+    ndkVersion "28.2.13676358"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -14,20 +16,20 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
-    // Keep native symbols: stripping them needs the ~1 GB Android NDK, which
-    // the app (no native code of its own) does not otherwise use.
-    packaging {
-        jniLibs {
-            keepDebugSymbols += ["**/*.so"]
-        }
-    }
-
     defaultConfig {
         applicationId "com.taglink.mobile"
         minSdk flutter.minSdkVersion
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            // Signed with the local debug key so the APK installs directly;
+            // a Play Store build needs its own upload key.
+            signingConfig signingConfigs.debug
+        }
     }
 }
 

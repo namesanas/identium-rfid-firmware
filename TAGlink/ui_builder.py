@@ -587,9 +587,10 @@ def build_ui(window):
     # Diagnostics workspace with a live QtCharts plot.
     diagnostics_page = QWidget(); diagnostics_layout = QVBoxLayout(diagnostics_page); diagnostics_layout.setContentsMargins(0, 0, 0, 0); diagnostics_layout.setSpacing(12)
     diag_header = QHBoxLayout(); diag_title = QLabel("Diagnostics"); diag_title.setObjectName("PageTitle"); diag_header.addWidget(diag_title); diag_header.addWidget(QLabel("Antenna health and module information")); diag_header.addWidget(_spacer()); diagnostics_layout.addLayout(diag_header)
-    diag_split = QSplitter(Qt.Vertical); diag_split.setChildrenCollapsible(False)
-    vswr_area = QWidget(); vswr_area_layout = QVBoxLayout(vswr_area); vswr_area_layout.setContentsMargins(0, 0, 0, 0)
-    vswr_card = QFrame(); vswr_card.setObjectName("Card"); vswr_form = QFormLayout(vswr_card); vswr_form.setContentsMargins(16, 14, 16, 14); vswr_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow); vswr_form.addRow(window.sec("VSWR sweep"))
+    # The page scrolls on short screens rather than squeezing the VSWR chart.
+    diag_scroll = QScrollArea(); diag_scroll.setWidgetResizable(True); diag_scroll.setFrameShape(QFrame.NoFrame)
+    diag_content = QWidget(); diag_content.setObjectName("ScrollContent"); diag_content_layout = QVBoxLayout(diag_content); diag_content_layout.setContentsMargins(0, 0, 0, 0); diag_content_layout.setSpacing(12); diag_scroll.setWidget(diag_content)
+    vswr_card = QFrame(); vswr_card.setObjectName("Card"); vswr_layout = QVBoxLayout(vswr_card); vswr_layout.setContentsMargins(16, 14, 16, 14); vswr_layout.setSpacing(10); vswr_layout.addWidget(window.sec("VSWR sweep"))
     window.vswr_antenna = QSpinBox(); window.vswr_antenna.setRange(1, 64); window.vswr_antenna.setValue(1)
     window.vswr_start = QSpinBox(); window.vswr_start.setRange(100000, 1500000); window.vswr_start.setValue(865000); window.vswr_start.setSuffix(" kHz")
     window.vswr_stop = QSpinBox(); window.vswr_stop.setRange(100000, 1500000); window.vswr_stop.setValue(870000); window.vswr_stop.setSuffix(" kHz")
@@ -597,26 +598,28 @@ def build_ui(window):
     sweep_row = QHBoxLayout()
     for label, widget in (("Antenna", window.vswr_antenna), ("Start", window.vswr_start), ("Stop", window.vswr_stop), ("Step", window.vswr_step)):
         sweep_row.addWidget(QLabel(label)); sweep_row.addWidget(widget)
-    sweep_row.addStretch(); vswr_form.addRow("", sweep_row)
-    vswr_actions = QHBoxLayout(); window.vswr_scan_button = _button("Start scan", window.start_vswr_scan, "Primary"); window.vswr_stop_button = _button("Stop scan", window.stop_vswr_scan, "Danger"); window.vswr_export_button = _button("Export CSV", window.export_vswr); vswr_actions.addWidget(window.vswr_scan_button); vswr_actions.addWidget(window.vswr_stop_button); vswr_actions.addWidget(window.vswr_export_button); vswr_actions.addStretch(); window.vswr_summary = QLabel("No VSWR samples"); window.vswr_summary.setObjectName("Sub"); vswr_actions.addWidget(window.vswr_summary); vswr_form.addRow("", vswr_actions)
-    window.vswr_chart = QChart(); window.vswr_chart.legend().setVisible(True); window.vswr_chart.legend().setAlignment(Qt.AlignTop); window.vswr_chart.setMargins(QMargins(4, 4, 8, 4)); window.vswr_chart.setBackgroundRoundness(0); window.vswr_series = QLineSeries(); window.vswr_series.setName("VSWR"); window.vswr_threshold_series = QLineSeries(); window.vswr_threshold_series.setName("Pass threshold 1.5"); vswr_chart_view = QChartView(window.vswr_chart); vswr_chart_view.setRenderHint(QPainter.Antialiasing); vswr_chart_view.setMinimumHeight(220); vswr_form.addRow(vswr_chart_view)
-    window.vswr_table = QTableWidget(0, 4); _table(window.vswr_table, ["Frequency (kHz)", "Return loss (dB)", "VSWR", "Status"], 3)
-    vswr_form.addRow(window.vswr_table)
-    vswr_area_layout.addWidget(vswr_card)
-    diag_split.addWidget(vswr_area)
+    sweep_row.addStretch(); vswr_layout.addLayout(sweep_row)
+    vswr_actions = QHBoxLayout(); window.vswr_scan_button = _button("Start scan", window.start_vswr_scan, "Primary"); window.vswr_stop_button = _button("Stop scan", window.stop_vswr_scan, "Danger"); window.vswr_export_button = _button("Export CSV", window.export_vswr); vswr_actions.addWidget(window.vswr_scan_button); vswr_actions.addWidget(window.vswr_stop_button); vswr_actions.addWidget(window.vswr_export_button); vswr_actions.addStretch(); window.vswr_summary = QLabel("No VSWR samples"); window.vswr_summary.setObjectName("Sub"); vswr_actions.addWidget(window.vswr_summary); vswr_layout.addLayout(vswr_actions)
+    window.vswr_chart = QChart(); window.vswr_chart.legend().setVisible(True); window.vswr_chart.legend().setAlignment(Qt.AlignTop); window.vswr_chart.setMargins(QMargins(4, 4, 8, 4)); window.vswr_chart.setBackgroundRoundness(0); window.vswr_series = QLineSeries(); window.vswr_series.setName("VSWR"); window.vswr_threshold_series = QLineSeries(); window.vswr_threshold_series.setName("Pass threshold 1.5"); vswr_chart_view = QChartView(window.vswr_chart); vswr_chart_view.setRenderHint(QPainter.Antialiasing); vswr_chart_view.setMinimumSize(420, 320)
+    window.vswr_table = QTableWidget(0, 4); _table(window.vswr_table, ["Frequency (kHz)", "Return loss (dB)", "VSWR", "Status"], 3); window.vswr_table.setMinimumWidth(400)
+    # Chart and results side by side so each keeps its full height.
+    vswr_split = QSplitter(Qt.Horizontal); vswr_split.setChildrenCollapsible(False); vswr_split.addWidget(vswr_chart_view); vswr_split.addWidget(window.vswr_table); vswr_split.setStretchFactor(0, 3); vswr_split.setStretchFactor(1, 2); vswr_split.setSizes([3000, 2000])
+    vswr_layout.addWidget(vswr_split, 1)
+    diag_content_layout.addWidget(vswr_card, 1)
 
     info_card = QFrame(); info_card.setObjectName("Card"); info_layout = QVBoxLayout(info_card); info_layout.setContentsMargins(16, 14, 16, 14); info_layout.setSpacing(10); info_layout.addWidget(window.sec("Reader information"))
-    info_row = QHBoxLayout()
-    for label, command in (("Version", "GET_VERSION"), ("Serial", "GET_SERIAL"), ("Temperature", "GET_TEMPERATURE"), ("Region", "GET_REGION"), ("Antenna", "GET_ANTENNA"), ("Power", "GET_POWER"), ("Protocol", "GET_PROTOCOL"), ("Session", "GET_SESSION"), ("Frequency", "GET_FREQUENCY"), ("Regions", "GET_REGIONS")):
-        info_row.addWidget(_button(label, lambda checked=False, cmd=command: window.request(cmd)))
-    info_row.addStretch(); info_layout.addLayout(info_row)
-    info_fields = QHBoxLayout(); info_fields.addWidget(QLabel("Module")); window.module_model = QLineEdit("Not discovered"); window.module_model.setReadOnly(True); info_fields.addWidget(window.module_model); info_fields.addWidget(QLabel("Firmware")); window.module_firmware = QLineEdit("Not discovered"); window.module_firmware.setReadOnly(True); info_fields.addWidget(window.module_firmware); info_layout.addLayout(info_fields)
+    info_grid = QGridLayout(); info_grid.setHorizontalSpacing(8); info_grid.setVerticalSpacing(8)
+    for index, (label, command) in enumerate((("Version", "GET_VERSION"), ("Serial", "GET_SERIAL"), ("Temperature", "GET_TEMPERATURE"), ("Region", "GET_REGION"), ("Antenna", "GET_ANTENNA"), ("Power", "GET_POWER"), ("Protocol", "GET_PROTOCOL"), ("Session", "GET_SESSION"), ("Frequency", "GET_FREQUENCY"), ("Regions", "GET_REGIONS"))):
+        info_grid.addWidget(_button(label, lambda checked=False, cmd=command: window.request(cmd)), index // 5, index % 5)
+    info_layout.addLayout(info_grid)
+    info_fields = QFormLayout(); info_fields.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow); window.module_model = QLineEdit("Not discovered"); window.module_model.setReadOnly(True); window.module_firmware = QLineEdit("Not discovered"); window.module_firmware.setReadOnly(True); info_fields.addRow("Module", window.module_model); info_fields.addRow("Firmware", window.module_firmware); info_layout.addLayout(info_fields); info_layout.addStretch()
     health_card = QFrame(); health_card.setObjectName("Card"); health_layout = QVBoxLayout(health_card); health_layout.setContentsMargins(16, 14, 16, 14); health_layout.setSpacing(10); health_layout.addWidget(window.sec("Reader health"))
     health_row = QHBoxLayout(); window.diag_refresh = _button("Refresh", lambda: window.request("GET_DIAG")); window.diag_clear = _button("Clear loop timing", lambda: window.request("CLEAR_DIAG")); health_row.addWidget(window.diag_refresh); health_row.addWidget(window.diag_clear); health_row.addStretch(); health_layout.addLayout(health_row)
-    window.diag_table = QTableWidget(0, 2); _table(window.diag_table, ["Item", "Value"], 1); window.diag_table.setMinimumHeight(140); window.diag_table.setToolTip("GET_DIAG: reset cause, last fault, main-loop timing, stack use, brown-out level")
+    window.diag_table = QTableWidget(0, 2); _table(window.diag_table, ["Item", "Value"], 1); window.diag_table.setMinimumHeight(180); window.diag_table.setToolTip("GET_DIAG: reset cause, last fault, main-loop timing, stack use, brown-out level")
     health_layout.addWidget(window.diag_table)
 
-    diag_split.addWidget(info_card); diag_split.addWidget(health_card); diag_split.setStretchFactor(0, 4); diag_split.setStretchFactor(1, 1); diag_split.setStretchFactor(2, 1); diagnostics_layout.addWidget(diag_split, 1)
+    diag_bottom = QHBoxLayout(); diag_bottom.setSpacing(12); diag_bottom.addWidget(info_card, 1); diag_bottom.addWidget(health_card, 1); diag_content_layout.addLayout(diag_bottom)
+    diagnostics_layout.addWidget(diag_scroll, 1)
     window.stack.addWidget(diagnostics_page)
 
     # Log workspace.

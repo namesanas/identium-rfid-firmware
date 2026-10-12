@@ -804,7 +804,10 @@ A RAM-only "current / last fault" with a count and timestamp, set by init failur
 ### 7.3 Reset cause and brown-out
 
 - `reset_cause.c` reads RCC CSR once at start-up: `POWER_ON`, `PIN`, `BROWN_OUT`, `SOFTWARE`, `IWDG`, `WWDG`, `LOW_POWER`. Power-on is checked before brown-out because a power-on also sets BORRSTF.
-- `brownout.c` programs the BOR option byte once if it differs: level 2 (~2.6 V) on the F429, because the Discovery's 3 V rail measures about 2.88 V and level 3 could hold it in reset; level 3 (~2.9 V) on the F411 (3.3 V board).
+- `brownout.c` programs the BOR option byte once if it differs: level 2 (~2.6 V) on the F429, because the Discovery's 3 V rail measures about 2.88 V and level 3 could hold it in reset; level 3 (~2.9 V) on the F411 (3.3 V board). It skips the write while a debugger is attached or when RDP is not level 0: an option-byte write cut short by a reset leaves the chip at RDP level 1 with PCROP on every sector, and debugging fails with "Error finishing flash operation". Recovery (mass-erases flash, including the saved settings, network address and WiFi credentials): PCROP is only cleared by a single OPTCR write that takes RDP from level 1 to level 0 with SPRMOD=0. STM32CubeProgrammer's `-ob RDP=0xAA SPRMOD=0` programs RDP on its own and leaves PCROP on, and its `-w32` fails on FLASH_OPTKEYR (it reads the address back), so write the registers through GDB:
+  1. `"$PROG" -c port=SWD mode=UR -ob RDP=0xBB` (level 1).
+  2. Start `ST-LINK_gdbserver -p 61234 -d -k -cp <STM32CubeProgrammer/bin>`, then in `arm-none-eabi-gdb`: `target extended-remote :61234`, `set *(unsigned*)0x40023C08=0x08192A3B`, `set *(unsigned*)0x40023C08=0x4C5D6E7F`, `set *(unsigned*)0x40023C14=0x0FFFAAE4`, `set *(unsigned*)0x40023C14=0x0FFFAAE6`. OPTCR `0x0FFFAAE4` is the factory value with BOR level 2 (F429); use `0x0FFFAAE0` for level 3 (F411).
+  3. Wait about 20 s for the mass erase, power-cycle the board, then check with `"$PROG" -c port=SWD -ob displ` (RDP 0xAA, SPRMOD 0).
 
 ### 7.4 Stack monitor (`stack_monitor.c`)
 

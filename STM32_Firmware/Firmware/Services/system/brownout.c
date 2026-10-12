@@ -39,6 +39,25 @@ uint8_t Brownout_Init(void)
         return 1U;
     }
 
+    /* An option byte write cut short by a reset leaves the option bytes
+     * unloadable, and the MCU falls back to read protection level 1
+     * with PCROP on every sector: flash can then only be recovered by a
+     * mass erase. A debugger resets the core whenever it likes, so the
+     * write waits for a boot without one. */
+    if((CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) != 0U)
+    {
+        return 0U;
+    }
+
+    /* Option bytes that are not in the plain unprotected state are left
+     * alone. */
+    HAL_FLASHEx_OBGetConfig(&ob);
+
+    if(ob.RDPLevel != OB_RDP_LEVEL_0)
+    {
+        return 0U;
+    }
+
     /* Only the BOR bits of the option bytes are written; read
      * protection and write protection are left as they are. */
     ob.OptionType = OPTIONBYTE_BOR;

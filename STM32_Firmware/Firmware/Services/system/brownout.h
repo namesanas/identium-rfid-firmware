@@ -15,7 +15,10 @@
  *    to the rail and could hold the board in reset, so level 2 (~2.6 V).
  *
  * The level is an option byte: Brownout_Init() programs it once, when
- * it differs, and it then persists across resets and reflashing.
+ * it differs, and it then persists across resets and reflashing. It is
+ * not programmed while a debugger is attached (a reset mid-write locks
+ * the flash behind read protection) or when read protection is set; the
+ * next boot without a debugger programs it.
  */
 
 #ifndef RFID_CONTROLLER_BROWNOUT_H_

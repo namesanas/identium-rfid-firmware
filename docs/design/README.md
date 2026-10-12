@@ -2,6 +2,8 @@
 
 Numbered records of the protocol and configuration design, in the order the changes were made.
 
+File paths in these records are relative to `STM32_Firmware/` unless they name another top-level folder (for example `ESP32_Firmware/`).
+
 - [0001 — Identium Protocol Transport](0001-identium-protocol-transport.md)
 - [0002 — Command Dispatcher and Time Sync](0002-command-dispatcher-and-time-sync.md)
 - [0003 — Hardware I/O Commands](0003-hardware-io-commands.md)

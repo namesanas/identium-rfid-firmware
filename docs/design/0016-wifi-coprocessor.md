@@ -125,7 +125,7 @@ The reader settings record is version 3. Version 2 settings are loaded using the
 
 ## Build and bench verification
 
-The ESP-IDF project is `Esp32/wifi_coprocessor`. Build it once for each target, `esp32` and `esp32c3`, with a separate build directory and sdkconfig per target:
+The ESP-IDF project is `ESP32_Firmware/`. Build it once for each target, `esp32` and `esp32c3`, with a separate build directory and sdkconfig per target:
 
 ```
 idf.py -B build_esp32   -DIDF_TARGET=esp32   -DSDKCONFIG=build_esp32/sdkconfig   build

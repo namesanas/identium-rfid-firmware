@@ -26,9 +26,9 @@ reader_manager/
 *.exe
 
 # TAGlink desktop application: PyInstaller output and review screenshots
-TAGlink/build/
-TAGlink/dist/
-TAGlink/screenshots/
+TAGlink_Desktop/build/
+TAGlink_Desktop/dist/
+TAGlink_Desktop/screenshots/
 
 # Command-line build output (Makefile)
 build/

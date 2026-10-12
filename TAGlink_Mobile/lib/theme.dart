@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// The brown palettes of the TAGlink desktop app (TAGlink/theme.py, 'brown').
+/// The brown palettes of the TAGlink desktop app (TAGlink_Desktop/theme.py, 'brown').
 class _Palette {
   const _Palette({
     required this.window, required this.surface, required this.surfaceAlt, required this.field,

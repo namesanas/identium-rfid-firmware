@@ -219,7 +219,7 @@ Blocking code that does exist: module transactions in host commands (`SILION_App
 
 ### 3.4 Loop monitor
 
-`Firmware/Services/system/loop_monitor.c`: `LOOP_MONITOR_RUN()` measures each task call with the DWT cycle counter and keeps the maximum per task and per pass. `GET_DIAG` reports them (`ETH_US`, `WIFI_US`, `CFG_US`, `PROTO_US`, `GPIO_US`, `RFID_US`, `HOST_US`, `LOOP_MAX_US`, `PASSES`); `CLEAR_DIAG` resets the maxima.
+`Firmware/Services/system/loop_monitor.c`: `LOOP_MONITOR_RUN()` measures each task call with the DWT cycle counter and keeps the maximum per task and per pass. `GET_DIAG` reports them (`ETH_US`, `WIFI_US`, `CFG_US`, `PROTO_US`, `GPIO_US`, `RFID_US`, `HOST_US`, `TLOG_US`, `LOOP_MAX_US`, `PASSES`); `CLEAR_DIAG` resets the maxima.
 
 ---
 
@@ -476,6 +476,7 @@ Each answers `ERROR,<CMD>` on failure.
 |---|---|
 | `GET_DIAG` | `DIAG,...` line, see 7.5 |
 | `CLEAR_DIAG` | `OK,CLEAR_DIAG` (resets the loop-timing maxima only) |
+| `TAGLOG_STATUS` / `TAGLOG_READ,<seq>,<count>` / `TAGLOG_CLEAR` | Tag backup log in the F411's SPI flash, see design note 0019. `ABSENT` on the F429 |
 | `DEBUG_FAULT,USAGE\|BUS\|STACK` | Debug builds only (`DEBUG` defined). Crashes the MCU on purpose; no reply. Unknown argument: `ERROR,DEBUG_FAULT`. In a release build the command does not exist: `ERROR,INVALID_COMMAND` |
 
 ### 5.5 Identium JSON-over-TCP protocol (active mode)

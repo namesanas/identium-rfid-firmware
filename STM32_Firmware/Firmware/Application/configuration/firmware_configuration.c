@@ -30,6 +30,7 @@
 #include "../../Services/configuration/configuration_port.h"
 #include "../../Services/ethernet/host_tcp_server.h"
 #include "../../Services/wifi/wifi_service.h"
+#include "../../Services/storage/tag_log.h"
 #include "../../Services/host/host_transport.h"
 #include "../../Protocol/identium_protocol.h"
 #include "../../BSP/industrial_io.h"
@@ -349,6 +350,11 @@ Status_t  Firmware_Configuration_Init(void)
 
         return STATUS_ERROR;
     }
+
+
+    /* Tag backup flash shares the W5500 SPI bus (F411 only). A missing
+     * or dead chip only disables the backup; the reader still runs. */
+    (void)TagLog_Init(&w5500Spi);
 
 
     if(

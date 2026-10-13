@@ -11,6 +11,7 @@
 #include "sillion_application_port.h"
 #include "../../Services/Time/time_service.h"
 #include "../../Protocol/identium_protocol.h"
+#include "../../Services/storage/tag_log.h"
 
 extern void HOST_SendTag(const SILION_Tag_t *tag);
 extern volatile uint32_t silionTxCompleteEventCount;
@@ -20,6 +21,15 @@ SILION_ReaderConfig_t readerConfig;
 
 static Silion_Handle_t *pSilion = NULL;
 static SILION_ApplicationState_t appState = SILION_APP_IDLE;
+
+/* Every tag read goes to the company protocol, the legacy ASCII line
+ * and the flash backup log. */
+static void SILION_Application_PublishTag(const SILION_Tag_t *tag)
+{
+    (void)Identium_Protocol_ReportTag(tag);
+    HOST_SendTag(tag);
+    TagLog_Append(tag);
+}
 
 static uint8_t SILION_Application_TransactionWithTimeout(
     uint8_t expectedCommand,
@@ -1382,8 +1392,7 @@ void SILION_Application_Task(void)
         )
     )
     {
-        (void)Identium_Protocol_ReportTag(&asyncTag);
-        HOST_SendTag(&asyncTag);
+        SILION_Application_PublishTag(&asyncTag);
     }
 }
 
@@ -1898,8 +1907,7 @@ uint8_t SILION_Application_SingleInventory(
                     {
 
 
-                        (void)Identium_Protocol_ReportTag(&tag);
-                        HOST_SendTag(&tag);
+                        SILION_Application_PublishTag(&tag);
 
                         return 1U;
                     }
@@ -2146,10 +2154,7 @@ uint8_t SILION_Application_SynchronousInventory(
             i++
         )
         {
-            (void)Identium_Protocol_ReportTag(&tags[i]);
-            HOST_SendTag(
-                &tags[i]
-            );
+            SILION_Application_PublishTag(&tags[i]);
         }
     }
 

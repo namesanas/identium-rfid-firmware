@@ -15,7 +15,7 @@
 /* ============================================================
  * STM32F411CEU6 (UFQFPN-48) custom industrial RFID controller
  *
- * Pin map traced from docs/hardware/SCH_Schematic1_2026-10-08.pdf.
+ * Pin map traced from docs/hardware/SCH_Schematic1_2026-10-13.pdf.
  * HSE crystal X1 = 8 MHz, W5500 crystal X2 = 25 MHz. No LSE
  * (PC14/PC15 not connected). SWD on CN7 (PA13/PA14, NRST).
  * See docs/notes/f411-custom-board-port.md.
@@ -101,6 +101,13 @@
 #define BOARD_W5500_INT_PIN           0U
 #define BOARD_W5500_RESET_PORT        GPIOB
 #define BOARD_W5500_RESET_PIN         1U
+
+/* ---------------- GD25Q32E 4 MB SPI flash ---------------- */
+/* Shares SPI1 (PA5/PA6/PA7) with the W5500; own chip select on PA1.
+ * Holds the tag read backup log (Services/storage/tag_log.c). */
+#define BOARD_TAG_LOG_ENABLED         1U
+#define BOARD_FLASH_CS_PORT           GPIOA
+#define BOARD_FLASH_CS_PIN            1U
 
 /* ---------------- USB (USB-C1, OTG_FS) ---------------- */
 /* No VBUS sense GPIO on this board: VBUS sensing must stay disabled. */

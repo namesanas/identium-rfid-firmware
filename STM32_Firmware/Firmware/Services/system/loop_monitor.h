@@ -24,6 +24,7 @@ typedef enum
     LOOP_TASK_GPIO,
     LOOP_TASK_RFID,
     LOOP_TASK_HOST,
+    LOOP_TASK_TAG_LOG,
     LOOP_TASK_COUNT
 } LoopTask_t;
 

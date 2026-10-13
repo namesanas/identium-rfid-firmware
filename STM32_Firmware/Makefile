@@ -129,12 +129,17 @@ flash: $(BUILD)/$(TARGET).elf check-chip
 clean:
 	rm -rf build
 
-# Host-side test of the Identium protocol framing and tag queue. A stub
-# device header (hostcheck/stubs) replaces the ARM CMSIS headers.
+# Host-side tests of the Identium protocol framing and tag queue, and of
+# the tag backup log on a simulated SPI flash. Stub device headers
+# (hostcheck/stubs) replace the ARM CMSIS headers.
 hostcheck:
 	@mkdir -p build/hostcheck
 	$(HOSTCC) -std=gnu11 -Wall -Werror -DSTM32F429xx -Ihostcheck/stubs 		hostcheck/identium_protocol_host_test.c Firmware/Protocol/identium_protocol.c 		-o build/hostcheck/identium_protocol_host_test
 	build/hostcheck/identium_protocol_host_test
+	$(HOSTCC) -std=gnu11 -Wall -Wextra -Werror -DSTM32F411xE -DTARGET_BOARD=2 -Ihostcheck/stubs \
+		hostcheck/tag_log_host_test.c Firmware/Services/storage/tag_log.c \
+		-o build/hostcheck/tag_log_host_test
+	build/hostcheck/tag_log_host_test
 
 .PHONY: all flash check-chip hostcheck clean
 

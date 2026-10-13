@@ -18,6 +18,7 @@
 #include "../../Services/configuration/configuration_service.h"
 #include "../../Services/configuration/vendor_config.h"
 #include "../../Services/wifi/wifi_service.h"
+#include "../../Services/storage/tag_log.h"
 
 
 
@@ -185,6 +186,123 @@ static uint8_t HOST_SetUploadInterface(const char *name)
         return 0U;
 
     return ReaderSettings_Save(&settings);
+}
+
+
+/* Records per TAGLOG_READ, so one reply stays well inside the
+ * transport buffers; the host pages with the returned NEXT. */
+#define HOST_TAGLOG_READ_MAX 20U
+
+static void HOST_SendTagLogStatus(void)
+{
+    TagLog_Status_t status;
+    char line[160];
+    const char *state;
+
+    TagLog_GetStatus(&status);
+
+    if(status.state == TAG_LOG_STATE_READY)
+        state = "READY";
+    else if(status.state == TAG_LOG_STATE_CLEARING)
+        state = "CLEARING";
+    else
+        state = "ABSENT";
+
+    (void)snprintf(
+        line,
+        sizeof(line),
+        "TAGLOG,STATUS,%s,OLDEST=%lu,NEXT=%lu,COUNT=%lu,CAPACITY=%lu,"
+        "PENDING=%lu,DROPPED=%lu\r\n",
+        state,
+        (unsigned long)status.oldestSeq,
+        (unsigned long)status.nextSeq,
+        (unsigned long)(status.nextSeq - status.oldestSeq),
+        (unsigned long)status.capacity,
+        (unsigned long)status.pending,
+        (unsigned long)status.dropped
+    );
+
+    HOST_SendString(line);
+}
+
+/* TAGLOG_READ,<seq>,<count>: one line per stored record, then
+ * OK,TAGLOG_READ,NEXT=<seq to ask for next>. Records that were
+ * overwritten or never written are skipped.
+ * Line: TAGLOG,<seq>,<sec>.<ms>,<E|U>,<ant>,<rssi>,<reads>,<EPC>[,TRUNC]
+ * E = Unix time, U = uptime of the boot that stored it. */
+static uint8_t HOST_SendTagLogRecords(const char *args)
+{
+    TagLog_Record_t record;
+    char line[128];
+    char *end;
+    uint32_t seq;
+    uint32_t count;
+    uint32_t i;
+    int pos;
+    uint8_t b;
+
+    seq = (uint32_t)strtoul(args, &end, 10);
+
+    if((end == args) || (*end != ','))
+        return 0U;
+
+    args = end + 1;
+    count = (uint32_t)strtoul(args, &end, 10);
+
+    if((end == args) || (*end != '\0') || (count == 0U))
+        return 0U;
+
+    if(count > HOST_TAGLOG_READ_MAX)
+        count = HOST_TAGLOG_READ_MAX;
+
+    for(i = 0U; i < count; i++, seq++)
+    {
+        if(TagLog_Read(seq, &record) == 0U)
+            continue;
+
+        pos = snprintf(
+            line,
+            sizeof(line),
+            "TAGLOG,%lu,%lu.%03lu,%c,%u,%d,%u,",
+            (unsigned long)record.seq,
+            (unsigned long)(record.timeMs / 1000U),
+            (unsigned long)(record.timeMs % 1000U),
+            ((record.flags & TAG_LOG_FLAG_EPOCH_TIME) != 0U) ? 'E' : 'U',
+            (unsigned int)record.antenna,
+            (int)record.rssi,
+            (unsigned int)record.readCount
+        );
+
+        for(b = 0U; (b < record.epcLength) && (b < TAG_LOG_EPC_MAX_BYTES); b++)
+        {
+            pos += snprintf(
+                &line[pos],
+                sizeof(line) - (size_t)pos,
+                "%02X",
+                record.epc[b]
+            );
+        }
+
+        (void)snprintf(
+            &line[pos],
+            sizeof(line) - (size_t)pos,
+            "%s\r\n",
+            ((record.flags & TAG_LOG_FLAG_EPC_TRUNCATED) != 0U) ? ",TRUNC" : ""
+        );
+
+        HOST_SendString(line);
+    }
+
+    (void)snprintf(
+        line,
+        sizeof(line),
+        "OK,TAGLOG_READ,NEXT=%lu\r\n",
+        (unsigned long)seq
+    );
+
+    HOST_SendString(line);
+
+    return 1U;
 }
 
 
@@ -996,6 +1114,43 @@ void HOST_Interface_Task(void)
                 HOST_SendString(
                     "OK,CLEAR_DIAG\r\n"
                 );
+            }
+
+
+            /*
+             * =================================================
+             * TAG BACKUP LOG (external flash, F411 board)
+             * =================================================
+             */
+            else if(strcmp(hostRxBuffer, "TAGLOG_STATUS") == 0)
+            {
+                HOST_SendTagLogStatus();
+            }
+
+            else if(strncmp(hostRxBuffer, "TAGLOG_READ,", 12U) == 0)
+            {
+                if(HOST_SendTagLogRecords(&hostRxBuffer[12]) == 0U)
+                {
+                    HOST_SendString(
+                        "ERROR,TAGLOG_READ\r\n"
+                    );
+                }
+            }
+
+            else if(strcmp(hostRxBuffer, "TAGLOG_CLEAR") == 0)
+            {
+                if(TagLog_Clear() != 0U)
+                {
+                    HOST_SendString(
+                        "OK,TAGLOG_CLEAR\r\n"
+                    );
+                }
+                else
+                {
+                    HOST_SendString(
+                        "ERROR,TAGLOG_CLEAR\r\n"
+                    );
+                }
             }
 
 #ifdef DEBUG

@@ -18,7 +18,8 @@ static const char *const g_taskNames[LOOP_TASK_COUNT] =
     "PROTO",
     "GPIO",
     "RFID",
-    "HOST"
+    "HOST",
+    "TLOG"
 };
 
 

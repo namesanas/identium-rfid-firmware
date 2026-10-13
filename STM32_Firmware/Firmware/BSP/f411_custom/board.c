@@ -99,6 +99,20 @@ void Board_F411_W5500_GPIO_Init(void)
         GPIO_PIN_SET
     );
 
+    /* GD25Q32E CS on the same bus: deselect it before the first W5500
+     * transfer, or it could drive MISO against the W5500. */
+    GPIO_WriteToOutputPin(
+        BOARD_FLASH_CS_PORT,
+        BOARD_FLASH_CS_PIN,
+        GPIO_PIN_SET
+    );
+
+    GPIO_ConfigOutput(
+        &gpio,
+        BOARD_FLASH_CS_PORT,
+        BOARD_FLASH_CS_PIN
+    );
+
     /* SPI1 SCK */
     GPIO_ConfigAlternate(
         &gpio,

@@ -61,6 +61,11 @@
 #define BOARD_W5500_INT_PORT          NULL
 #define BOARD_W5500_INT_PIN           0xFFU
 
+/* No external SPI flash on the Discovery setup: tag log disabled. */
+#define BOARD_TAG_LOG_ENABLED         0U
+#define BOARD_FLASH_CS_PORT           NULL
+#define BOARD_FLASH_CS_PIN            0xFFU
+
 /*
  * RS485 driver enable. The Discovery board has no transceiver, so DE is
  * routed to the green user LED (LD3): it lights while the port drives the

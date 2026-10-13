@@ -28,6 +28,7 @@
 #include "../Firmware/Services/wifi/wifi_service.h"
 #include "../Firmware/Services/configuration/configuration_port.h"
 #include "../Firmware/Services/host/host_transport.h"
+#include "../Firmware/Services/storage/tag_log.h"
 #include "../Firmware/Common/status.h"
 #include "../Firmware/Services/watchdog/watchdog.h"
 #include "../Firmware/Protocol/identium_protocol.h"
@@ -141,6 +142,9 @@ int main(void)
 
       /* Legacy ASCII parser remains on native USB during migration. */
       LOOP_MONITOR_RUN(LOOP_TASK_HOST, HOST_Interface_Task());
+
+      /* Tag backup: writes queued reads to the external flash. */
+      LOOP_MONITOR_RUN(LOOP_TASK_TAG_LOG, TagLog_Task());
 
       Loop_Monitor_PassEnd();
 

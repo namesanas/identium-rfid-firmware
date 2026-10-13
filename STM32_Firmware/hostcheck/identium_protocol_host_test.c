@@ -165,12 +165,152 @@ static void test_disconnect_buffer_and_stale(void)
     }
 }
 
+/* Tag whose first two EPC bytes carry an index, so uploads can be
+ * checked for order and loss. */
+static SILION_Tag_t make_indexed_tag(uint16_t index, uint8_t epcLength)
+{
+    SILION_Tag_t tag = make_tag(0x00U);
+    tag.epcLengthBytes = epcLength;
+    for(uint16_t i = 0U; i < epcLength; i++)
+        tag.epc[i] = (uint8_t)(0xA0U + i);
+    tag.epc[0] = (uint8_t)(index >> 8U);
+    tag.epc[1] = (uint8_t)index;
+    tag.antenna = (uint8_t)(1U + (index % 4U));
+    tag.rssi = (int8_t)(-(int)(index % 80U));
+    tag.frequencyKHz = 902000U + index;
+    return tag;
+}
+
+/* Runs the protocol until the queue is flushed and returns the uploaded
+ * tag indices in order. Checks every EPC and field on the way. */
+static uint16_t collect_uploaded(uint16_t *indices, uint16_t max, uint8_t epcLength)
+{
+    uint16_t found = 0U;
+
+    for(int round = 0; round < 200; round++)
+    {
+        reset_tx();
+        g_tick += 10U;
+        Identium_Protocol_Task();
+
+        for(uint16_t m = 0U; m < g_txCount; m++)
+        {
+            const char *p = g_tx[m];
+
+            if(strstr(p, "\"event_type\":\"tag_read\"") == NULL)
+                continue;
+
+            assert(g_txLen[m] <= 1580U);
+
+            while((p = strstr(p, "\"ep\":\"")) != NULL)
+            {
+                unsigned int index;
+                unsigned int at;
+                int ri;
+                unsigned long fq;
+                const char *epc = p + 6;
+                const char *end = strchr(epc, '"');
+
+                assert(end != NULL);
+                assert((size_t)(end - epc) == (size_t)epcLength * 2U);
+                assert(sscanf(epc, "%4x", &index) == 1);
+
+                for(uint16_t i = 2U; i < epcLength; i++)
+                {
+                    unsigned int b;
+                    assert(sscanf(epc + i * 2U, "%2x", &b) == 1);
+                    assert(b == (unsigned int)(0xA0U + i));
+                }
+
+                assert(sscanf(end, "\",\"at\":%u,\"rc\":2,\"ri\":%d,\"fq\":%lu",
+                              &at, &ri, &fq) == 3);
+                assert(at == 1U + (index % 4U));
+                assert(ri == -(int)(index % 80U));
+                assert(fq == 902000UL + index);
+
+                assert(found < max);
+                indices[found++] = (uint16_t)index;
+                p = end;
+            }
+        }
+
+        if(g_txCount == 0U)
+            break;
+    }
+
+    return found;
+}
+
+/* Fills the queue while offline, then checks that exactly the newest
+ * tags that fit are uploaded, in order. */
+static void check_offline_backlog(uint16_t pushed, uint8_t epcLength, uint16_t expectKept)
+{
+    static uint16_t indices[1024];
+    uint16_t found;
+
+    Identium_Protocol_Init();
+    g_connected = 0U;
+    g_tick = 50000U;
+
+    for(uint16_t i = 0U; i < pushed; i++)
+    {
+        SILION_Tag_t tag = make_indexed_tag(i, epcLength);
+        assert(Identium_Protocol_ReportTag(&tag) == 1U);
+    }
+
+    g_connected = 1U;
+    found = collect_uploaded(indices, 1024U, epcLength);
+
+    assert(found == expectKept);
+    for(uint16_t i = 0U; i < found; i++)
+        assert(indices[i] == (uint16_t)(pushed - expectKept + i));
+}
+
+static void test_packed_tag_queue(void)
+{
+    static uint16_t indices[4096];
+
+    /* 96-bit EPCs: the 256-tag limit applies, newest kept. */
+    check_offline_backlog(300U, 12U, 256U);
+    /* 128-bit EPCs: 28-byte records, still 256 tags. */
+    check_offline_backlog(256U, 16U, 256U);
+    /* 496-bit EPCs: 74-byte records, the 8 KB ring holds 110. */
+    check_offline_backlog(200U, 62U, 110U);
+
+    /* Streaming while connected: push and flush in uneven steps so the
+     * ring offsets wrap many times; nothing may be lost or reordered. */
+    Identium_Protocol_Init();
+    g_connected = 1U;
+    g_tick = 90000U;
+    {
+        uint16_t next = 0U;
+        uint16_t total = 0U;
+
+        for(uint16_t burst = 0U; burst < 120U; burst++)
+        {
+            uint16_t n = (uint16_t)(5U + (burst * 7U) % 23U);
+            for(uint16_t i = 0U; i < n; i++)
+            {
+                SILION_Tag_t tag = make_indexed_tag(next++, 12U);
+                assert(Identium_Protocol_ReportTag(&tag) == 1U);
+            }
+            total = (uint16_t)(total + collect_uploaded(&indices[total],
+                                                        (uint16_t)(4096U - total), 12U));
+        }
+
+        assert(total == next);
+        for(uint16_t i = 0U; i < total; i++)
+            assert(indices[i] == i);
+    }
+}
+
 int main(void)
 {
     Identium_Protocol_Init();
     test_framing();
     test_tag_queue();
     test_disconnect_buffer_and_stale();
+    test_packed_tag_queue();
     printf("HOST PROTOCOL TEST: PASS\n");
     return 0;
 }

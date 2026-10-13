@@ -80,4 +80,15 @@ To fetch everything: `TAGLOG_STATUS`, then `TAGLOG_READ,<OLDEST>,20` repeatedly,
 - queue overflow
 - a missing chip
 
-On the F411 the log adds ~2.3 KB of RAM.
+## RAM
+
+The log adds about 2.3 KB of RAM, which took the F411 to 99.4 % of its 128 KB (static RAM + 16 KB stack reserve, release build). To make room, the Identium tag queue in `identium_protocol.c` no longer stores whole `SILION_Tag_t` structs (88 bytes each, with a 64-byte EPC buffer). It now packs records into an 8 KB byte ring: a 12-byte header (queue time, frequency, EPC length, antenna, read count, RSSI) plus only the EPC bytes the tag has.
+
+- The 256-tag limit is unchanged. A 96-bit EPC record is 24 bytes and a 128-bit one 28 bytes, so the ring still holds 256 of either.
+- Only very long EPCs hit the byte limit first: 110 of the longest (62-byte) EPCs fit. Either limit drops the oldest tag, as before.
+- Upload JSON is unchanged.
+
+The queue went from 22.5 KB to 8 KB. The F411 is now at 88.5 % (about 15 KB free), and the F429 at 59 %. `hostcheck/identium_protocol_host_test.c` checks the packed queue:
+
+- offline backlogs of 12-, 16- and 62-byte EPCs keep exactly the newest tags that fit, in order, with every field intact
+- 1,900 tags streamed in uneven bursts wrap the ring many times without loss or reordering

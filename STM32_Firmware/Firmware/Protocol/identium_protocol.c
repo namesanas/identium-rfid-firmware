@@ -44,21 +44,33 @@ static uint8_t identiumRxSeekingObject = 1U;
  * serialize only the batch that is actually going to be transmitted.
  * This keeps the queue bounded and prevents stale network outages from
  * consuming unbounded RAM.
+ *
+ * Records are packed into a byte ring with only the fields the upload
+ * uses and only as many EPC bytes as the tag has:
+ *
+ *   0  queuedAtMs    u32
+ *   4  frequencyKHz  u32
+ *   8  epcLength     u8
+ *   9  antenna       u8
+ *  10  readCount     u8
+ *  11  rssi          s8
+ *  12  epc           epcLength bytes
+ *
+ * A 96-bit EPC takes 24 bytes instead of a full SILION_Tag_t, so the
+ * ring holds the 256-tag limit for EPCs up to 128 bits, and still 110
+ * of the longest (62-byte) EPCs.
  */
-typedef struct
-{
-    SILION_Tag_t tag;
-    uint32_t queuedAtMs;
-} Identium_TagQueueEntry_t;
-
-#define IDENTIUM_TAG_QUEUE_SIZE        256U
+#define IDENTIUM_TAG_QUEUE_SIZE        256U     /* tags */
+#define IDENTIUM_TAG_QUEUE_BYTES       8192U
+#define IDENTIUM_TAG_RECORD_HEADER     12U
 #define IDENTIUM_TAG_BATCH_MAX_TAGS    64U
 #define IDENTIUM_TAG_FLUSH_LIMIT       4U
 #define IDENTIUM_TAG_BATCH_BUFFER_SIZE  8193U
 
-static Identium_TagQueueEntry_t identiumTagQueue[IDENTIUM_TAG_QUEUE_SIZE];
-static uint16_t identiumTagQueueHead = 0U;
+static uint8_t identiumTagQueue[IDENTIUM_TAG_QUEUE_BYTES];
+static uint16_t identiumTagQueueHead = 0U;  /* byte offsets */
 static uint16_t identiumTagQueueTail = 0U;
+static uint16_t identiumTagQueueUsed = 0U;
 static uint16_t identiumTagQueueCount = 0U;
 static uint32_t identiumTagAggregationStartMs = 0U;
 static uint8_t identiumTagAggregationActive = 0U;
@@ -287,28 +299,97 @@ static uint8_t Identium_Protocol_SendCommandReply(
     return Identium_Protocol_SendJsonLine(buffer);
 }
 
-static uint16_t Identium_Protocol_TagQueueIndex(
-    uint16_t offset
+static void Identium_Protocol_TagRingWrite(
+    uint16_t offset,
+    const uint8_t *data,
+    uint16_t length
 )
 {
-    return (uint16_t)(
-        (identiumTagQueueTail + offset) %
-        IDENTIUM_TAG_QUEUE_SIZE
-    );
+    uint16_t i;
+
+    for(i = 0U; i < length; i++)
+    {
+        identiumTagQueue[(offset + i) % IDENTIUM_TAG_QUEUE_BYTES] = data[i];
+    }
+}
+
+static void Identium_Protocol_TagRingRead(
+    uint16_t offset,
+    uint8_t *data,
+    uint16_t length
+)
+{
+    uint16_t i;
+
+    for(i = 0U; i < length; i++)
+    {
+        data[i] = identiumTagQueue[(offset + i) % IDENTIUM_TAG_QUEUE_BYTES];
+    }
+}
+
+/* Unpacks the record at a byte offset. Returns its size in the ring. */
+static uint16_t Identium_Protocol_TagRecordRead(
+    uint16_t offset,
+    SILION_Tag_t *tag,
+    uint32_t *queuedAtMs
+)
+{
+    uint8_t header[IDENTIUM_TAG_RECORD_HEADER];
+
+    Identium_Protocol_TagRingRead(offset, header, sizeof(header));
+
+    if(queuedAtMs != NULL)
+    {
+        *queuedAtMs = (uint32_t)header[0] |
+                      ((uint32_t)header[1] << 8U) |
+                      ((uint32_t)header[2] << 16U) |
+                      ((uint32_t)header[3] << 24U);
+    }
+
+    if(tag != NULL)
+    {
+        memset(tag, 0, sizeof(*tag));
+        tag->frequencyKHz = (uint32_t)header[4] |
+                            ((uint32_t)header[5] << 8U) |
+                            ((uint32_t)header[6] << 16U) |
+                            ((uint32_t)header[7] << 24U);
+        tag->epcLengthBytes = header[8];
+        tag->antenna = header[9];
+        tag->readCount = header[10];
+        tag->rssi = (int8_t)header[11];
+
+        Identium_Protocol_TagRingRead(
+            (uint16_t)((offset + IDENTIUM_TAG_RECORD_HEADER) %
+                       IDENTIUM_TAG_QUEUE_BYTES),
+            tag->epc,
+            tag->epcLengthBytes
+        );
+    }
+
+    return (uint16_t)(IDENTIUM_TAG_RECORD_HEADER + header[8]);
 }
 
 static void Identium_Protocol_TagQueuePop(
     uint16_t count
 )
 {
+    uint16_t recordSize;
+
     while(
         (count > 0U) &&
         (identiumTagQueueCount > 0U)
     )
     {
-        identiumTagQueueTail =
-            (uint16_t)((identiumTagQueueTail + 1U) % IDENTIUM_TAG_QUEUE_SIZE);
+        recordSize = Identium_Protocol_TagRecordRead(
+            identiumTagQueueTail,
+            NULL,
+            NULL
+        );
 
+        identiumTagQueueTail = (uint16_t)(
+            (identiumTagQueueTail + recordSize) % IDENTIUM_TAG_QUEUE_BYTES
+        );
+        identiumTagQueueUsed = (uint16_t)(identiumTagQueueUsed - recordSize);
         identiumTagQueueCount--;
         count--;
     }
@@ -320,8 +401,11 @@ static void Identium_Protocol_TagQueuePop(
     }
     else
     {
-        identiumTagAggregationStartMs =
-            identiumTagQueue[identiumTagQueueTail].queuedAtMs;
+        (void)Identium_Protocol_TagRecordRead(
+            identiumTagQueueTail,
+            NULL,
+            &identiumTagAggregationStartMs
+        );
         identiumTagAggregationActive = 1U;
     }
 }
@@ -332,8 +416,16 @@ static void Identium_Protocol_DiscardStaleTags(
 {
     while(identiumTagQueueCount > 0U)
     {
-        uint32_t ageMs =
-            nowMs - identiumTagQueue[identiumTagQueueTail].queuedAtMs;
+        uint32_t queuedAtMs;
+        uint32_t ageMs;
+
+        (void)Identium_Protocol_TagRecordRead(
+            identiumTagQueueTail,
+            NULL,
+            &queuedAtMs
+        );
+
+        ageMs = nowMs - queuedAtMs;
 
         uint32_t clearSeconds = Configuration_Service_GetClearBufferTimeSeconds();
 
@@ -355,6 +447,9 @@ static uint8_t Identium_Protocol_QueueTag(
     uint32_t nowMs
 )
 {
+    uint8_t header[IDENTIUM_TAG_RECORD_HEADER];
+    uint16_t recordSize;
+
     if(tag == NULL)
     {
         return 0U;
@@ -368,8 +463,13 @@ static uint8_t Identium_Protocol_QueueTag(
         return 0U;
     }
 
+    recordSize = (uint16_t)(IDENTIUM_TAG_RECORD_HEADER + tag->epcLengthBytes);
+
     /* Keep the newest information when the bounded queue is full. */
-    if(identiumTagQueueCount >= IDENTIUM_TAG_QUEUE_SIZE)
+    while(
+        (identiumTagQueueCount >= IDENTIUM_TAG_QUEUE_SIZE) ||
+        ((uint32_t)identiumTagQueueUsed + recordSize > IDENTIUM_TAG_QUEUE_BYTES)
+    )
     {
         Identium_Protocol_TagQueuePop(1U);
     }
@@ -380,12 +480,35 @@ static uint8_t Identium_Protocol_QueueTag(
         identiumTagAggregationActive = 1U;
     }
 
-    identiumTagQueue[identiumTagQueueHead].tag = *tag;
-    identiumTagQueue[identiumTagQueueHead].queuedAtMs = nowMs;
+    header[0] = (uint8_t)nowMs;
+    header[1] = (uint8_t)(nowMs >> 8U);
+    header[2] = (uint8_t)(nowMs >> 16U);
+    header[3] = (uint8_t)(nowMs >> 24U);
+    header[4] = (uint8_t)tag->frequencyKHz;
+    header[5] = (uint8_t)(tag->frequencyKHz >> 8U);
+    header[6] = (uint8_t)(tag->frequencyKHz >> 16U);
+    header[7] = (uint8_t)(tag->frequencyKHz >> 24U);
+    header[8] = (uint8_t)tag->epcLengthBytes;
+    header[9] = tag->antenna;
+    header[10] = tag->readCount;
+    header[11] = (uint8_t)tag->rssi;
 
-    identiumTagQueueHead =
-        (uint16_t)((identiumTagQueueHead + 1U) % IDENTIUM_TAG_QUEUE_SIZE);
+    Identium_Protocol_TagRingWrite(
+        identiumTagQueueHead,
+        header,
+        sizeof(header)
+    );
+    Identium_Protocol_TagRingWrite(
+        (uint16_t)((identiumTagQueueHead + IDENTIUM_TAG_RECORD_HEADER) %
+                   IDENTIUM_TAG_QUEUE_BYTES),
+        tag->epc,
+        tag->epcLengthBytes
+    );
 
+    identiumTagQueueHead = (uint16_t)(
+        (identiumTagQueueHead + recordSize) % IDENTIUM_TAG_QUEUE_BYTES
+    );
+    identiumTagQueueUsed = (uint16_t)(identiumTagQueueUsed + recordSize);
     identiumTagQueueCount++;
     return 1U;
 }
@@ -477,6 +600,7 @@ static uint8_t Identium_Protocol_BuildTagBatch(
     uint16_t pos = 0U;
     uint16_t count = 0U;
     uint16_t i;
+    uint16_t recordOffset = identiumTagQueueTail;
     int written;
     const uint16_t reserveForClosing = 3U; /* ]}\n */
 
@@ -513,12 +637,18 @@ static uint8_t Identium_Protocol_BuildTagBatch(
 
     for(i = 0U; (i < maximumTags) && (i < identiumTagQueueCount); i++)
     {
-        uint16_t queueIndex = Identium_Protocol_TagQueueIndex(i);
+        SILION_Tag_t tag;
         uint16_t objectLength;
+
+        recordOffset = (uint16_t)(
+            (recordOffset +
+             Identium_Protocol_TagRecordRead(recordOffset, &tag, NULL)) %
+            IDENTIUM_TAG_QUEUE_BYTES
+        );
 
         if(
             Identium_Protocol_BuildTagObject(
-                &identiumTagQueue[queueIndex].tag,
+                &tag,
                 identiumTagObjectBuffer,
                 sizeof(identiumTagObjectBuffer)
             ) == 0U
@@ -759,6 +889,7 @@ void Identium_Protocol_Init(void)
 
     identiumTagQueueHead = 0U;
     identiumTagQueueTail = 0U;
+    identiumTagQueueUsed = 0U;
     identiumTagQueueCount = 0U;
     identiumTagAggregationStartMs = 0U;
     identiumTagAggregationActive = 0U;

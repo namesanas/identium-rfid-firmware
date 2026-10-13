@@ -282,7 +282,7 @@ Notes:
 | Stack budget | `_Min_Stack_Size = 0x4000` (16 KB) | 16 KB |
 | `.noinit` | fault record | fault record |
 
-Design 0017 measured static RAM at about 105 KB plus the 16 KB stack reserve, which leaves about 7 KB on the F411. The largest RAM users are the Identium tag queue (~22.5 KB), the HTTP upload queue (12 KB) and the HTTP request buffer.
+Static RAM plus the 16 KB stack reserve is about 113 KB (88.5 % of the F411, release build), which leaves about 15 KB. That figure includes the tag backup log, and the Identium tag queue packed into an 8 KB ring (design 0019). The largest RAM users are now the HTTP upload queue (12 KB), the HTTP request buffer (8.7 KB), the tag batch buffer (8 KB) and the Identium tag ring (8 KB).
 
 ---
 

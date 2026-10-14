@@ -89,4 +89,54 @@ void main() {
       await server.close();
     }
   }, timeout: const Timeout(Duration(seconds: 12)));
+
+  test('restartReader sends REBOOT and reconnects when the reader is back', () async {
+    final received = <String>[];
+    void serve(Socket socket) {
+      var buffer = '';
+      socket.listen((bytes) {
+        buffer += utf8.decode(bytes);
+        while (buffer.contains('\n')) {
+          final index = buffer.indexOf('\n');
+          final command = buffer.substring(0, index).replaceAll('\r', '');
+          buffer = buffer.substring(index + 1);
+          received.add(command);
+          if (command == 'GET_STATUS') socket.add(utf8.encode('STATUS,IDLE\r\n'));
+          if (command == 'RELEASE') socket.add(utf8.encode('OK,RELEASE\r\n'));
+          if (command == 'REBOOT') {
+            socket.add(utf8.encode('OK,REBOOT\r\n'));
+            Timer(const Duration(milliseconds: 50), socket.destroy);
+          }
+        }
+      }, onError: (_) {});
+    }
+
+    var server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = server.port;
+    server.listen(serve);
+    final client = ReaderClient();
+    try {
+      await client.connect('127.0.0.1', port: port);
+      // The reader is down while it restarts: nothing listens on the port.
+      await client.restartReader();
+      await server.close();
+      expect(client.connected.value, isFalse);
+      expect(client.restarting.value, isTrue);
+      await Future<void>.delayed(const Duration(seconds: 6));
+      expect(client.connected.value, isFalse);
+      server = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      server.listen(serve);
+      final deadline = DateTime.now().add(const Duration(seconds: 8));
+      while (!client.connected.value && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      expect(client.connected.value, isTrue);
+      expect(client.restarting.value, isFalse);
+      expect(received.contains('RELEASE'), isFalse);
+      expect(received.where((c) => c == 'REBOOT').length, 1);
+    } finally {
+      await client.disconnect();
+      await server.close();
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

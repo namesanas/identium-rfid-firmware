@@ -49,6 +49,7 @@ A power-on reset sets BORRSTF as well as PORRSTF. The old order checked BOR firs
 |---|---|
 | `GET_DIAG` | `DIAG,RESET=…,UPTIME_MS=…,FAULTS=…,LAST_FAULT=…[,PC=…,LR=…,CFSR=…,HFSR=…,MMFAR=…,BFAR=…,AT_MS=…],LOOP_MAX_US=…,PASSES=…,ETH_US=…,CFG_US=…,PROTO_US=…,GPIO_US=…,RFID_US=…,HOST_US=…,STACK_USED=…,STACK_SIZE=…,BOR=…` |
 | `CLEAR_DIAG` | `OK,CLEAR_DIAG`; restarts the loop-timing maxima |
+| `REBOOT` | `OK,REBOOT`; the reader resets itself 500 ms later so the reply still reaches the host |
 | `DEBUG_FAULT,USAGE\|BUS\|STACK` | Debug builds only (`DEBUG` defined): crashes the reader on purpose to test the record. A release build answers `ERROR,INVALID_COMMAND`. |
 
 `FAULTS` counts faults since power-on. `LAST_FAULT` is the fault that ended the previous run. To find the source line: `arm-none-eabi-addr2line -f -e rfid_controller.elf <PC>`.

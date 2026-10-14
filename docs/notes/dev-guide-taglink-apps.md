@@ -60,6 +60,7 @@ Both apps depend on these rules. They come from `host_interface.c` and `Services
 | `SET_WIFI,<0/1>,<STA\|AP>,<ssid>,<password>` (`****` keeps the stored password) | `OK,SET_WIFI` | Desktop, Mobile |
 | `SET_UPLOAD_IF,AUTO\|ETH\|WIFI` | `OK,SET_UPLOAD_IF` | Desktop |
 | `GET_DIAG` / `CLEAR_DIAG` | `DIAG,RESET=..,UPTIME_MS=..,...` / `OK,CLEAR_DIAG` | Desktop, Mobile (GET only) |
+| `REBOOT` | `OK,REBOOT`, then the reader resets 500 ms later | Desktop, Mobile |
 | `RELEASE` | `OK,RELEASE` | Desktop, Mobile, both network scans |
 | `SET_BUZZER,<ms>,<tone>` | `OK,SET_BUZZER`; `ERROR,SET_BUZZER` on boards without a buzzer (`BUZZER=0`) | Desktop UI only |
 | `SET_GEN2,<A\|B\|A/B>,<q>,<profile>,<fast>,<hop>` | `OK,SET_GEN2` / `ERROR,SET_GEN2` (profile, fast and hop must be 0) | Desktop UI only, sent when `GET_CAPABILITIES` has `SET_GEN2=1` |
@@ -141,7 +142,7 @@ All tag buttons are disabled while inventory runs.
 |---|---|
 | VSWR sweep | Antenna, start, stop and step in kHz. Start scan builds one ModuleAPI `ReturnLossTest` frame (`vswr_transport.build_vswr_frame`, at most 78 points). Over **Ethernet** it opens TCP to `<Reader IP>:<Config port>` (8080 by default). Over **USB/serial** it switches `SerialManager` to binary mode and sends the frame on the same COM link (the firmware routes a line that starts with `FF` to the module bridge). It is **not available over WiFi**. The sweep must stay inside the region's `GET_FREQUENCY` table, otherwise the module answers 0x0105. The results go to a chart and table with PASS when VSWR ≤ 1.5. Export CSV saves them. |
 | Reader information | Ten buttons send `GET_VERSION`, `GET_SERIAL`, `GET_TEMPERATURE`, `GET_REGION`, `GET_ANTENNA`, `GET_POWER`, `GET_PROTOCOL`, `GET_SESSION`, `GET_FREQUENCY` and `GET_REGIONS`. Module and Firmware fields come from `VERSION` (HWVER/FWVER). |
-| Reader health | Refresh sends `GET_DIAG`. Clear loop timing sends `CLEAR_DIAG`, then `GET_DIAG`. The table labels the known keys (RESET, UPTIME_MS, FAULTS, LAST_FAULT, PC/LR/CFSR/HFSR/MMFAR/BFAR, LOOP_MAX_US, per-task `*_US`, STACK_USED/SIZE, BOR). |
+| Reader health | Refresh sends `GET_DIAG`. Clear loop timing sends `CLEAR_DIAG`, then `GET_DIAG`. Restart reader (after a confirmation) sends `REBOOT`; on `OK,REBOOT` TAGlink closes the link without `RELEASE` and retries the same port every 2.5 s for up to 45 s, whatever the auto-reconnect setting, then refreshes `GET_DIAG` (`RESET=SOFTWARE`). The table labels the known keys (RESET, UPTIME_MS, FAULTS, LAST_FAULT, PC/LR/CFSR/HFSR/MMFAR/BFAR, LOOP_MAX_US, per-task `*_US`, STACK_USED/SIZE, BOR). |
 
 #### Log
 
@@ -350,7 +351,7 @@ Tags reach the screen as batches every 200 ms (`ReaderClient.tagBatches`). A TAG
 
 #### Info (`features/info/info_screen.dart`)
 
-Refresh sends `GET_VERSION`, `GET_SERIAL`, `GET_TEMPERATURE` and `GET_DIAG`. The screen shows module temperature and FWVER cards, a Module section (labelled VERSION fields, FWDATE formatted), Identity (SN, YEAR) and Health (the DIAG fields, with UPTIME_MS formatted).
+Refresh sends `GET_VERSION`, `GET_SERIAL`, `GET_TEMPERATURE` and `GET_DIAG`. The screen shows module temperature and FWVER cards, a Module section (labelled VERSION fields, FWDATE formatted), Identity (SN, YEAR) and Health (the DIAG fields, with UPTIME_MS formatted). Restart reader (after a confirmation) calls `ReaderClient.restartReader()`: `REBOOT`, close without `RELEASE` on `OK,REBOOT`, then reconnect to the same address every 3 s from 4 s until 60 s (the ESP32 is reset too and must rejoin WiFi). `ReaderClient.restarting` is true meanwhile; connecting or disconnecting cancels the wait.
 
 #### Wi-Fi (`features/wifi/wifi_screen.dart`)
 
@@ -394,7 +395,7 @@ START->OK,START  STOP->OK,STOP  SINGLE_POLL->OK,SINGLE_POLL  GET_POWER->POWER,
 SET_POWER->OK,SET_POWER  GET_REGION->REGION,  GET_ANTENNA->ANTENNA,  GET_SESSION->SESSION,
 SET_SESSION->OK,SET_SESSION  READ_TAG->READ_DATA,  WRITE_TAG->OK,WRITE_TAG
 WRITE_EPC->OK,WRITE_EPC  GET_GPI->GPI,  SET_GPO->OK,SET_GPO  GET_CAPABILITIES->CAPABILITIES,
-GET_WIFI->WIFI,  SET_WIFI->OK,SET_WIFI  GET_DIAG->DIAG,  RELEASE->OK,RELEASE
+GET_WIFI->WIFI,  SET_WIFI->OK,SET_WIFI  GET_DIAG->DIAG,  RELEASE->OK,RELEASE  REBOOT->OK,REBOOT
 ```
 
 **A command that is not in this table can only finish with an ERROR or a timeout.** This is the first thing to update when you add a command (see 3.7). `READ_TAG` completes on `READ_DATA`. The `OK,READ_TAG` that follows is ignored, because it matches no other command's prefix.

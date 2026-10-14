@@ -7,7 +7,7 @@ class CommandBuilder {
     const allowed = <String>{
       'GET_STATUS', 'GET_VERSION', 'GET_SERIAL', 'GET_TEMPERATURE', 'START', 'STOP',
       'GET_POWER', 'GET_REGION', 'GET_ANTENNA', 'GET_SESSION', 'GET_GPI',
-      'GET_CAPABILITIES', 'GET_WIFI', 'GET_DIAG', 'RELEASE',
+      'GET_CAPABILITIES', 'GET_WIFI', 'GET_DIAG', 'RELEASE', 'REBOOT',
     };
     if (!allowed.contains(command)) throw ArgumentError.value(command, 'command', 'Unsupported command');
     return command;

@@ -1119,6 +1119,23 @@ void HOST_Interface_Task(void)
 
             /*
              * =================================================
+             * REBOOT
+             * =================================================
+             * The reset is delayed so OK,REBOOT still reaches the
+             * host, including over the polled ESP32 WiFi link.
+             */
+            else if(strcmp(hostRxBuffer, "REBOOT") == 0)
+            {
+                HOST_SendString(
+                    "OK,REBOOT\r\n"
+                );
+
+                ReaderSettings_RequestReboot(500U);
+            }
+
+
+            /*
+             * =================================================
              * TAG BACKUP LOG (external flash, F411 board)
              * =================================================
              */

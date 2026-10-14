@@ -49,6 +49,23 @@ class _InfoScreenState extends State<InfoScreen> {
     finally { if (mounted) setState(() => _loading = false); }
   }
 
+  Future<void> _restart() async {
+    final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Restart reader?'),
+      content: const Text('A running inventory stops and the connection drops while the reader restarts. The app reconnects when the reader is back on Wi-Fi.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Restart'))],
+    ));
+    if (yes != true || !mounted) return;
+    setState(() { _loading = true; _error = ''; });
+    try {
+      await widget.client.restartReader();
+    } catch (error) {
+      if (!mounted) return;
+      final text = error.toString();
+      setState(() => _error = text.contains('INVALID_COMMAND') ? 'This reader firmware cannot be restarted from the app. Update the firmware.' : humanError(error));
+    } finally { if (mounted) setState(() => _loading = false); }
+  }
+
   Widget _stat(BuildContext context, IconData icon, String label, String value) {
     final theme = Theme.of(context);
     return Expanded(child: Card(child: Padding(padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12), child: Column(children: [
@@ -73,6 +90,13 @@ class _InfoScreenState extends State<InfoScreen> {
       SectionCard(title: 'Module', icon: Icons.developer_board, child: KeyValueList(labelled(_version, versionLabels, format: (k, v) => k == 'FWDATE' ? dateLabel(v) : v))),
       SectionCard(title: 'Identity', icon: Icons.qr_code_2, child: KeyValueList(labelled(_serial, serialLabels))),
       SectionCard(title: 'Health', icon: Icons.monitor_heart_outlined, child: KeyValueList(labelled(_diagnostics, diagLabels, format: (k, v) => k == 'UPTIME_MS' ? uptimeLabel(v) : v))),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: _loading ? null : _restart,
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48), foregroundColor: Theme.of(context).colorScheme.error),
+        icon: const Icon(Icons.restart_alt),
+        label: const Text('Restart reader'),
+      ),
     ]));
   }
 }

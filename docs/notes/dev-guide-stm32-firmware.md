@@ -476,6 +476,7 @@ Each answers `ERROR,<CMD>` on failure.
 |---|---|
 | `GET_DIAG` | `DIAG,...` line, see 7.5 |
 | `CLEAR_DIAG` | `OK,CLEAR_DIAG` (resets the loop-timing maxima only) |
+| `REBOOT` | `OK,REBOOT`, then a software reset 500 ms later (`RESET=SOFTWARE` in `GET_DIAG` afterwards). Tag-log records still queued in RAM are lost |
 | `TAGLOG_STATUS` / `TAGLOG_READ,<seq>,<count>` / `TAGLOG_CLEAR` | Tag backup log in the F411's SPI flash, see design note 0019. `ABSENT` on the F429 |
 | `DEBUG_FAULT,USAGE\|BUS\|STACK` | Debug builds only (`DEBUG` defined). Crashes the MCU on purpose; no reply. Unknown argument: `ERROR,DEBUG_FAULT`. In a release build the command does not exist: `ERROR,INVALID_COMMAND` |
 

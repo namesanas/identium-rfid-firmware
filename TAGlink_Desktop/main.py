@@ -27,6 +27,8 @@ class Main(QMainWindow):
         self.connection_generation=0
         self.manual_disconnect=False
         self.release_pending=False
+        self.restart_requested=False
+        self.restart_deadline=None
         self.wifi_form_dirty=False
         self.io=SerialManager()
         self.io.line_signal.connect(self.on_line)
@@ -87,7 +89,7 @@ class Main(QMainWindow):
         for w in getattr(self,'gpo_state',[]): w.setEnabled(on)
         for w in getattr(self,'gpo_duration',[]): w.setEnabled(on)
         for w in getattr(self,'gpo_buttons',[]): w.setEnabled(on)
-        for name in ('wifi_enable','wifi_mode','wifi_ssid','wifi_password','wifi_open','upload_interface','wifi_refresh','wifi_apply','upload_if_apply','diag_refresh','diag_clear'):
+        for name in ('wifi_enable','wifi_mode','wifi_ssid','wifi_password','wifi_open','upload_interface','wifi_refresh','wifi_apply','upload_if_apply','diag_refresh','diag_clear','diag_restart'):
             if hasattr(self,name): getattr(self,name).setEnabled(on)
         for w in (self.work_mode_passive,self.work_mode_active): w.setEnabled(on)
         self.return_passive.setVisible(on and self.work_mode == 'ACTIVE')
@@ -149,13 +151,46 @@ class Main(QMainWindow):
             self.connect.setText("Disconnect"); self.conn.setText("● Connected"); self.conn.setToolTip(detail); self.conn.setStyleSheet(f"color:{theme.colors(self.dark,self.theme_name)['success']};font-weight:700"); self.kv[0].setText("Online"); self.set_controls(True); self.log("Connected: "+detail)
             self.info_scheduled=True
             QTimer.singleShot(500, lambda g=generation: self.request_info_staged(g))
+            if self.restart_deadline is not None:
+                self.restart_deadline=None
+                self.log('Reader restarted.')
+                QTimer.singleShot(3000, lambda: self.connected and not self.inventory and self.request('GET_DIAG'))
         else:
             self.connect.setText("Connect"); self.conn.setText("● Disconnected"); self.conn.setToolTip(""); self.conn.setStyleSheet(""); self.kv[0].setText("Offline"); self.apply_work_mode(''); self.pending=None; self.epc_write_pending=''; self.queue=[]; self.pump_scheduled=False; self.info_scheduled=False; self.set_controls(False); self.log("Disconnected")
             reconnect=self.reconnect.isChecked() and not self.manual_disconnect
             self.manual_disconnect=False
-            if reconnect:
+            self.restart_requested=False
+            if self.restart_deadline is not None:
+                # The reader is restarting: keep retrying until it is back,
+                # whatever the auto-reconnect setting says.
+                if time.monotonic() < self.restart_deadline:
+                    QTimer.singleShot(2500, self.reconnect_after_restart)
+                else:
+                    self.restart_deadline=None
+                    self.log('The reader did not come back after the restart. Check the connection and connect again.')
+                    self.set_log_badge(True)
+                    self.statusBar().showMessage('The reader did not come back after the restart.',8000)
+            elif reconnect:
                 QTimer.singleShot(1200, lambda g=generation: self.try_reconnect(g))
         self.statusBar().showMessage("Connected" if on else "Disconnected")
+    def restart_reader(self):
+        if not self.connected or self.restart_requested or self.restart_deadline is not None:
+            return
+        answer=QMessageBox.question(self,'Restart reader',
+            'Restart the reader now?\n\nA running inventory stops and the connection drops for a few seconds; TAGlink reconnects when the reader is back.')
+        if answer != QMessageBox.Yes or not self.connected:
+            return
+        # REBOOT goes out next, ahead of anything still queued.
+        self.queue=[]
+        self.pending=None
+        self.restart_requested=True
+        self.enqueue('REBOOT')
+
+    def reconnect_after_restart(self):
+        if self.connected or self.restart_deadline is None or not self.port.currentData():
+            return
+        self.io.connect(self.port.currentData(),int(self.baud.currentData()),self.tcp_host())
+
     def try_reconnect(self,generation=None):
         if generation is not None and generation != self.connection_generation:
             return
@@ -273,6 +308,8 @@ class Main(QMainWindow):
                 self.log(f"TIMEOUT waiting for {cmd}")
                 if cmd.startswith('WRITE_EPC,'):
                     self.epc_write_pending=''
+                if cmd == 'REBOOT':
+                    self.restart_requested=False
                 self.pending=None; self.pump()
     def status_poll(self):
         # Polled during inventory too, so a reader stopped elsewhere (work
@@ -336,6 +373,9 @@ class Main(QMainWindow):
 
         if kind == 'ERROR':
             self.set_log_badge(True)
+            if self.restart_requested and data in ('REBOOT','INVALID_COMMAND'):
+                self.restart_requested=False
+                self.statusBar().showMessage('This reader firmware cannot be restarted from TAGlink. Update the firmware.',8000)
 
         # During a transport handoff, ignore everything except the firmware's
         # explicit RELEASE acknowledgement. This prevents stale responses or
@@ -394,6 +434,16 @@ class Main(QMainWindow):
                 self.statusBar().showMessage('Upload interface saved.',4000)
             elif data=='CLEAR_DIAG':
                 self.request('GET_DIAG')
+            elif data=='REBOOT':
+                # The reader resets 500 ms after this reply. Close our side
+                # now and reconnect once it is back (USB re-enumerates,
+                # Ethernet/WiFi come back up); WiFi can take up to ~45 s.
+                self.restart_requested=False
+                self.restart_deadline=time.monotonic()+45.0
+                self.log('Reader is restarting...')
+                self.statusBar().showMessage('Reader is restarting. TAGlink reconnects when it is back.',8000)
+                self.manual_disconnect=True
+                self.io.disconnect()
             elif data=='SET_HTTP':
                 message='HTTP settings saved. They are used the next time the reader is in active mode.'
                 self.log(message); self.statusBar().showMessage(message,6000)

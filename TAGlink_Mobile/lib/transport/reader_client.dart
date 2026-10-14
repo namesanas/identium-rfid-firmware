@@ -30,6 +30,8 @@ class ReaderClient {
   final ValueNotifier<String> connectionMessage = ValueNotifier<String>('Not connected');
   final ValueNotifier<String> readerStatus = ValueNotifier<String>('UNKNOWN');
   final ValueNotifier<bool> appStartedInventory = ValueNotifier<bool>(false);
+  /// True from OK,REBOOT until the reader is back or the wait gives up.
+  final ValueNotifier<bool> restarting = ValueNotifier<bool>(false);
   final StreamController<List<ReaderTag>> _tagBatches = StreamController<List<ReaderTag>>.broadcast();
   final StreamController<ProtocolLogEntry> _logStream = StreamController<ProtocolLogEntry>.broadcast();
   final Queue<_PendingCommand> _queue = Queue<_PendingCommand>();
@@ -56,6 +58,7 @@ class ReaderClient {
   bool _hasConnectedBefore = false;
   bool _lockRetryRunning = false;
   int _reconnectAttempt = 0;
+  int _restartToken = 0;
   Future<void>? _disconnectFuture;
 
   static const List<Duration> _retryDelays = <Duration>[
@@ -67,6 +70,8 @@ class ReaderClient {
     if (target.isEmpty) throw const FormatException('Enter a reader IP address or hostname.');
     if (port < 1 || port > 65535) throw const FormatException('Port must be between 1 and 65535.');
     final sameReader = target == _host && port == _port;
+    _restartToken++;
+    restarting.value = false;
     _intentionalDisconnect = true;
     _cancelReconnect();
     _lockRetryTimer?.cancel();
@@ -182,6 +187,7 @@ class ReaderClient {
       'SET_WIFI' => 'OK,SET_WIFI',
       'GET_DIAG' => 'DIAG,',
       'RELEASE' => 'OK,RELEASE',
+      'REBOOT' => 'OK,REBOOT',
       _ => '',
     };
     if (replyKey.isEmpty || !line.startsWith(replyKey)) return false;
@@ -367,6 +373,57 @@ class ReaderClient {
     _reconnectTimer = null;
   }
 
+  /// Restarts the reader (REBOOT), then reconnects to the same address once
+  /// it is back. The reader resets 500 ms after OK,REBOOT and also resets
+  /// the ESP32, so WiFi needs several seconds to rejoin the network.
+  /// Throws if the reader rejects the command (firmware without REBOOT).
+  Future<void> restartReader() async {
+    final reply = await send(CommandBuilder.simple('REBOOT'));
+    if (reply != 'OK,REBOOT') throw StateError(reply.isEmpty ? 'No reply to REBOOT.' : reply);
+    final token = ++_restartToken;
+    restarting.value = true;
+    _intentionalDisconnect = true;
+    _cancelReconnect();
+    _lockRetryTimer?.cancel();
+    // Set before closing: the connect screen shows it as soon as it appears.
+    connectionMessage.value = 'Reader is restarting. Reconnecting when it is back…';
+    appStartedInventory.value = false;
+    readerStatus.value = 'UNKNOWN';
+    await _closeSocketOnly();
+    unawaited(_reconnectAfterRestart(token));
+  }
+
+  Future<void> _reconnectAfterRestart(int token) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    await Future<void>.delayed(const Duration(seconds: 4));
+    while (token == _restartToken) {
+      try {
+        await _openSocket();
+        if (token != _restartToken) {
+          // The user connected elsewhere or disconnected meanwhile.
+          await _closeSocketOnly();
+          return;
+        }
+        restarting.value = false;
+        _intentionalDisconnect = false;
+        _reconnectAttempt = 0;
+        connectionMessage.value = 'Connected to $_host:$_port';
+        unawaited(_probeStatus());
+        return;
+      } catch (_) {
+        connected.value = false;
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        if (token == _restartToken) {
+          restarting.value = false;
+          connectionMessage.value = 'The reader did not come back after the restart. Check its Wi-Fi and tap Connect.';
+        }
+        return;
+      }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+  }
+
   /// Sends STOP (only if this app started inventory), RELEASE, then closes the socket.
   /// Coalesces lifecycle/dispose/user requests so they cannot close the socket
   /// underneath another cleanup sequence.
@@ -381,6 +438,8 @@ class ReaderClient {
   }
 
   Future<void> _disconnectImpl({required bool background}) async {
+    _restartToken++;
+    restarting.value = false;
     _intentionalDisconnect = true;
     _cancelReconnect();
     _lockRetryTimer?.cancel();
@@ -429,5 +488,6 @@ class ReaderClient {
     connectionMessage.dispose();
     readerStatus.dispose();
     appStartedInventory.dispose();
+    restarting.dispose();
   }
 }

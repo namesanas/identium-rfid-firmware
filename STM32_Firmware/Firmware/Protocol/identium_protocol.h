@@ -23,6 +23,11 @@ void Identium_Protocol_PushTcpByte(uint8_t receivedByte);
 
 /* Events emitted by the reader. */
 uint8_t Identium_Protocol_SendHeartbeat(void);
+
+/* Tags lost before upload since boot: dropped because the queue was
+ * full, or discarded after clear_buf_time. Shown by GET_DIAG. */
+uint32_t Identium_Protocol_GetTagsDropped(void);
+uint32_t Identium_Protocol_GetTagsExpired(void);
 uint8_t Identium_Protocol_ReportTag(const SILION_Tag_t *tag);
 
 /* Report the complete four-input state snapshot. */

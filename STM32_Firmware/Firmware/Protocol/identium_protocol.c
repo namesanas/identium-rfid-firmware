@@ -74,6 +74,9 @@ static uint16_t identiumTagQueueUsed = 0U;
 static uint16_t identiumTagQueueCount = 0U;
 static uint32_t identiumTagAggregationStartMs = 0U;
 static uint8_t identiumTagAggregationActive = 0U;
+/* Tags lost before upload, since boot (GET_DIAG). */
+static uint32_t identiumTagDropped = 0U;  /* queue full: oldest dropped */
+static uint32_t identiumTagExpired = 0U;  /* older than clear_buf_time */
 
 static char identiumTagBatchBuffer[IDENTIUM_TAG_BATCH_BUFFER_SIZE];
 static char identiumTagObjectBuffer[256U];
@@ -439,6 +442,7 @@ static void Identium_Protocol_DiscardStaleTags(
         }
 
         Identium_Protocol_TagQueuePop(1U);
+        identiumTagExpired++;
     }
 }
 
@@ -472,6 +476,7 @@ static uint8_t Identium_Protocol_QueueTag(
     )
     {
         Identium_Protocol_TagQueuePop(1U);
+        identiumTagDropped++;
     }
 
     if(identiumTagQueueCount == 0U)
@@ -593,6 +598,7 @@ static uint8_t Identium_Protocol_BuildTagObject(
 
 static uint8_t Identium_Protocol_BuildTagBatch(
     uint16_t maximumTags,
+    uint32_t maximumBytes,
     uint16_t *tagCount,
     uint16_t *messageLength
 )
@@ -666,7 +672,7 @@ static uint8_t Identium_Protocol_BuildTagBatch(
              (count > 0U ? 1U : 0U) +
              objectLength +
              reserveForClosing) >
-            Configuration_Service_GetSBufSize()
+            maximumBytes
         )
         {
             break;
@@ -726,6 +732,50 @@ static void Identium_Protocol_FlushTags(
         return;
     }
 
+    /* HTTP sends one POST at a time and waits for the response, so a
+     * few tags per message cap the upload at a few tags per round trip
+     * and a busy reader overflows the queue. Wait until the previous
+     * POST is done, then send as much of the queue as fits in one 8 KB
+     * POST (about 130 tags with 96-bit EPCs). */
+    if(ActiveUpload_Transport_IsHttp() != 0U)
+    {
+        uint16_t batchCount;
+        uint16_t messageLength;
+
+        if(
+            (ActiveUpload_Transport_IsHttpBusy() != 0U) ||
+            (
+                (Configuration_Service_GetDataAggregationMode() != 0U) &&
+                (
+                    (identiumTagAggregationActive == 0U) ||
+                    ((nowMs - identiumTagAggregationStartMs) <
+                     Configuration_Service_GetDataAggregationTimeMs())
+                )
+            )
+        )
+        {
+            return;
+        }
+
+        if(
+            (Identium_Protocol_BuildTagBatch(
+                IDENTIUM_TAG_QUEUE_SIZE,
+                IDENTIUM_TAG_BATCH_BUFFER_SIZE - 1U,
+                &batchCount,
+                &messageLength
+            ) != 0U) &&
+            (ActiveUpload_Transport_SendComplete(
+                (const uint8_t *)identiumTagBatchBuffer,
+                messageLength
+            ) == messageLength)
+        )
+        {
+            Identium_Protocol_TagQueuePop(batchCount);
+        }
+
+        return;
+    }
+
     if(Configuration_Service_GetDataAggregationMode() == 0U)
     {
         flushBudget = IDENTIUM_TAG_FLUSH_LIMIT;
@@ -755,6 +805,7 @@ static void Identium_Protocol_FlushTags(
         if(
             Identium_Protocol_BuildTagBatch(
                 flushBudget,
+                Configuration_Service_GetSBufSize(),
                 &batchCount,
                 &messageLength
             ) == 0U
@@ -1000,6 +1051,16 @@ uint8_t Identium_Protocol_SendHeartbeat(void)
 
     identiumHeartbeatCounter = nextCounter;
     return 1U;
+}
+
+uint32_t Identium_Protocol_GetTagsDropped(void)
+{
+    return identiumTagDropped;
+}
+
+uint32_t Identium_Protocol_GetTagsExpired(void)
+{
+    return identiumTagExpired;
 }
 
 uint8_t Identium_Protocol_ReportTag(

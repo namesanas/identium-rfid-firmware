@@ -76,3 +76,13 @@ uint16_t ActiveUpload_Transport_SendComplete(const uint8_t *data, uint16_t lengt
     }
     return Ethernet_Service_SendComplete(data, length);
 }
+
+uint8_t ActiveUpload_Transport_IsHttp(void)
+{
+    return (ReaderSettings_GetUploadMode() == READER_SETTINGS_UPLOAD_HTTP) ? 1U : 0U;
+}
+
+uint8_t ActiveUpload_Transport_IsHttpBusy(void)
+{
+    return HttpUpload_IsBusy();
+}

@@ -119,6 +119,7 @@ const diagLabels = <String, String>{
   'PC': 'Fault PC', 'LR': 'Fault LR', 'CFSR': 'CFSR', 'HFSR': 'HFSR', 'MMFAR': 'MMFAR', 'BFAR': 'BFAR', 'AT_MS': 'Fault at uptime (ms)',
   'LOOP_MAX_US': 'Longest main-loop pass (µs)', 'PASSES': 'Main-loop passes', 'STACK_USED': 'Stack used (bytes)',
   'STACK_SIZE': 'Stack size (bytes)', 'BOR': 'Brown-out level',
+  'TAG_DROPPED': 'Upload: tags dropped (queue full)', 'TAG_EXPIRED': 'Upload: tags expired (waited too long)',
 };
 
 String uptimeLabel(String ms) {

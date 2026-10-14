@@ -15,4 +15,8 @@ uint16_t ActiveUpload_Transport_Receive(uint8_t *data, uint16_t capacity);
 uint8_t ActiveUpload_Transport_Close(void);
 uint16_t ActiveUpload_Transport_SendComplete(const uint8_t *data, uint16_t length);
 
+/* HTTP upload (either interface): one POST per message, one at a time. */
+uint8_t ActiveUpload_Transport_IsHttp(void);
+uint8_t ActiveUpload_Transport_IsHttpBusy(void);
+
 #endif /* RFID_CONTROLLER_ACTIVE_UPLOAD_TRANSPORT_H_ */

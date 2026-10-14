@@ -70,10 +70,12 @@ Active mode can upload over HTTP instead of TCP, as described in the protocol sp
 - **Allowed URLs:** only `http://` with a numeric IPv4 host and an optional port (default 80) and path. `https://` and host names are rejected with an error status (no TLS, no DNS on the F429).
 - **Requests:** every event (tag_read, heart_beat, gpi_changed, command_reply, sync_time_req, reader_exception) becomes one `POST <path>` with an exact `Content-Length` and `Connection: keep-alive`. `reader_name` is sent as `name/reader-ip`, as Part B.1 requires for HTTP.
 - **One request at a time:** events produced while a request is in flight wait in a 12 KB queue. A full queue makes tag batches retry later, exactly as with TCP.
+- **Tag batches:** tags are not handed to HTTP while a POST is in flight; when it completes, as much of the queue as fits in 8 KB goes out in one POST (about 130 tags with 96-bit EPCs; the host test uploads 200 reads/s without loss against a 400 ms round trip). Without this, each POST carried at most 4 tags, so a busy reader uploaded only a few tags per round trip and lost the rest from its queue (seen as `TAG_DROPPED` / `TAG_EXPIRED` in `GET_DIAG`). With data aggregation on, the aggregation window still applies; `s_buf_size` only limits TCP messages.
 - **Responses:**
   - A non-empty 2xx body is one command and is executed by the same command parser as TCP JSON lines.
   - Its `command_reply` is sent as the next POST, from its own buffer, so the Part D.6 corrupted-reply defect does not occur.
   - Non-2xx bodies (e.g. 404 `{"error":"unknown endpoint"}`) are not executed.
+  - A 2xx body is executed only if it contains `"command_type"`. Servers that acknowledge every POST with a status object (e.g. `{"status":"success","message":"Data received successfully"}`) used to get an `invalid command_type` reply for each acknowledgement, which they acknowledged again: an endless POST loop that kept the link busy and starved tag uploads.
   - Content-Length, chunked and close-delimited bodies are supported.
 - **Failures:** with no response within `upload.http.timeout` (or `upload.recv_timeout`, default 10 s, limited to 2–120 s), the connection is closed and the request is sent again on a new connection. After 3 attempts the event is dropped.
 - **Connection:** the W5500 uses socket 0, the same socket as TCP upload; only one upload transport is active at a time. A new source port (50000–50999) is used per connection. Socket 0 sends now wait for the previous SEND to finish, as on socket 1.

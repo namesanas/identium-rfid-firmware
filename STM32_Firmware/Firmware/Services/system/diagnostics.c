@@ -9,6 +9,7 @@
 #include "reset_cause.h"
 #include "stack_monitor.h"
 #include "../../Services/Time/time_service.h"
+#include "../../Protocol/identium_protocol.h"
 
 
 static const char *Diagnostics_ResetName(ResetCause_t cause)
@@ -104,6 +105,12 @@ uint16_t Diagnostics_Format(char *buffer, uint16_t size)
                 Loop_Monitor_GetTaskName((LoopTask_t)task),
                 (unsigned long)Loop_Monitor_GetTaskMaxUs((LoopTask_t)task)));
     }
+
+    Diagnostics_Append(buffer, size, &pos,
+        snprintf(&buffer[pos], size - pos,
+            ",TAG_DROPPED=%lu,TAG_EXPIRED=%lu",
+            (unsigned long)Identium_Protocol_GetTagsDropped(),
+            (unsigned long)Identium_Protocol_GetTagsExpired()));
 
     Diagnostics_Append(buffer, size, &pos,
         snprintf(&buffer[pos], size - pos,

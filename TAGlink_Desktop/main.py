@@ -778,7 +778,8 @@ class Main(QMainWindow):
             return
         names = {'RESET':'Last reset cause','UPTIME_MS':'Uptime (ms)','FAULTS':'Faults since power-on','LAST_FAULT':'Fault that ended the previous run',
                  'PC':'Fault PC','LR':'Fault LR','CFSR':'CFSR','HFSR':'HFSR','MMFAR':'MMFAR','BFAR':'BFAR','AT_MS':'Fault at uptime (ms)',
-                 'LOOP_MAX_US':'Longest main-loop pass (µs)','PASSES':'Main-loop passes','STACK_USED':'Stack used (bytes)','STACK_SIZE':'Stack size (bytes)','BOR':'Brown-out level'}
+                 'LOOP_MAX_US':'Longest main-loop pass (µs)','PASSES':'Main-loop passes','STACK_USED':'Stack used (bytes)','STACK_SIZE':'Stack size (bytes)','BOR':'Brown-out level',
+                 'TAG_DROPPED':'Upload: tags dropped (queue full)','TAG_EXPIRED':'Upload: tags expired (waited too long)'}
         self.diag_table.setRowCount(0)
         for key, value in data.items():
             if key == '_csv':

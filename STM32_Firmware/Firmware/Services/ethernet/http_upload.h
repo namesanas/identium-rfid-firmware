@@ -49,6 +49,9 @@ void HttpUpload_OnDisconnected(void);
  * when queued, 0 when the queue is full (caller retries). */
 uint16_t HttpUpload_Submit(const uint8_t *json, uint16_t length);
 
+/* 1 while a request is in flight or events are waiting. */
+uint8_t HttpUpload_IsBusy(void);
+
 /* Last HTTP status received (0 = none yet). For diagnostics. */
 uint16_t HttpUpload_GetLastStatus(void);
 

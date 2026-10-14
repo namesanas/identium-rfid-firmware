@@ -11,7 +11,11 @@ static uint8_t g_connected = 1U;
 static uint32_t g_heartbeatSeconds = 10U;
 static uint8_t g_inventoryRunning = 1U;
 
-static char g_tx[64][1600];
+static char g_tx[64][8200];
+static uint8_t g_http = 0U;          /* HTTP upload selected */
+static uint32_t g_httpRttMs = 0U;    /* simulated POST round trip */
+static uint32_t g_httpBusyUntil = 0U;
+static uint16_t g_httpMaxBatch = 0U;  /* largest tag_read POST seen */
 static uint16_t g_txLen[64];
 static uint16_t g_txCount = 0U;
 static uint32_t g_commandCount = 0U;
@@ -58,8 +62,18 @@ uint8_t SILION_Application_IsInventoryRunning(void) { return g_inventoryRunning;
 void NVIC_SystemReset(void) { assert(0 && "unexpected reset"); }
 
 uint8_t ActiveUpload_Transport_IsConnected(void) { return g_connected; }
+uint8_t ActiveUpload_Transport_IsHttp(void) { return g_http; }
+uint8_t ActiveUpload_Transport_IsHttpBusy(void)
+{
+    return (g_http && ((int32_t)(g_tick - g_httpBusyUntil) < 0)) ? 1U : 0U;
+}
 uint16_t ActiveUpload_Transport_SendComplete(const uint8_t *buffer, uint16_t length)
 {
+    if(g_http)
+    {
+        assert(ActiveUpload_Transport_IsHttpBusy() == 0U || strstr((const char *)buffer, "tag_read") == NULL);
+        g_httpBusyUntil = g_tick + g_httpRttMs;
+    }
     assert(g_txCount < 64U);
     assert(length < sizeof(g_tx[0]));
     memcpy(g_tx[g_txCount], buffer, length);
@@ -304,6 +318,90 @@ static void test_packed_tag_queue(void)
     }
 }
 
+static uint16_t count_tags(const char *message)
+{
+    uint16_t n = 0U;
+    for(const char *p = message; (p = strstr(p, "\"ep\":")) != NULL; p++) n++;
+    return n;
+}
+
+/* Reads tags at a fixed rate for a while, uploading over a simulated HTTP
+ * server, and returns how many tags reached the server. */
+static uint32_t run_http(uint32_t tags, uint32_t readEveryMs, uint32_t rttMs)
+{
+    uint32_t uploaded = 0U;
+    uint32_t read = 0U;
+
+    g_http = 1U;
+    g_httpRttMs = rttMs;
+    g_httpBusyUntil = g_tick;
+    g_connected = 1U;
+
+    /* Read for tags * readEveryMs, then give the upload 30 s to drain. */
+    const uint32_t end = g_tick + (tags * readEveryMs) + 30000U;
+
+    while(g_tick != end)
+    {
+        if((read < tags) && ((g_tick % readEveryMs) == 0U))
+        {
+            SILION_Tag_t tag = make_indexed_tag((uint16_t)read, 12U);
+            assert(Identium_Protocol_ReportTag(&tag) == 1U);
+            read++;
+        }
+
+        reset_tx();
+        Identium_Protocol_Task();
+        for(uint16_t i = 0U; i < g_txCount; i++)
+        {
+            if(strstr(g_tx[i], "\"tag_read\"") != NULL)
+            {
+                uint16_t n = count_tags(g_tx[i]);
+                assert(g_txLen[i] <= 8192U);
+                if(n > g_httpMaxBatch) g_httpMaxBatch = n;
+                uploaded += n;
+            }
+        }
+        g_tick++;
+    }
+
+    g_http = 0U;
+    return uploaded;
+}
+
+static void test_http_batches(void)
+{
+    uint32_t dropped = Identium_Protocol_GetTagsDropped();
+    uint32_t expired = Identium_Protocol_GetTagsExpired();
+    uint32_t uploaded;
+
+    /* 200 tag reads/s for 10 s against a 400 ms server round trip: with
+     * 4 tags per POST only ~10 tags/s got through; batching keeps up
+     * (about 80 tags per POST here). */
+    g_tick = 10000000U;
+    uploaded = run_http(2000U, 5U, 400U);
+    printf("http: 2000 read, %lu uploaded, dropped %lu, expired %lu, largest POST %u tags\n",
+        (unsigned long)uploaded,
+        (unsigned long)(Identium_Protocol_GetTagsDropped() - dropped),
+        (unsigned long)(Identium_Protocol_GetTagsExpired() - expired),
+        (unsigned int)g_httpMaxBatch);
+    assert(uploaded == 2000U);
+    assert(g_httpMaxBatch > 4U);
+    assert(Identium_Protocol_GetTagsDropped() == dropped);
+    assert(Identium_Protocol_GetTagsExpired() == expired);
+
+    /* A server too slow to keep up: losses show in the counters. */
+    g_tick = 20000000U;
+    uploaded = run_http(2000U, 1U, 20000U);
+    printf("http slow server: 2000 read, %lu uploaded, dropped %lu, expired %lu\n",
+        (unsigned long)uploaded,
+        (unsigned long)(Identium_Protocol_GetTagsDropped() - dropped),
+        (unsigned long)(Identium_Protocol_GetTagsExpired() - expired));
+    assert(uploaded < 2000U);
+    assert(uploaded +
+           (Identium_Protocol_GetTagsDropped() - dropped) +
+           (Identium_Protocol_GetTagsExpired() - expired) == 2000U);
+}
+
 int main(void)
 {
     Identium_Protocol_Init();
@@ -311,6 +409,7 @@ int main(void)
     test_tag_queue();
     test_disconnect_buffer_and_stale();
     test_packed_tag_queue();
+    test_http_batches();
     printf("HOST PROTOCOL TEST: PASS\n");
     return 0;
 }

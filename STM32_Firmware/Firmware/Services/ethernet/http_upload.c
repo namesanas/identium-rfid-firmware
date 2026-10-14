@@ -602,15 +602,20 @@ static void HttpUpload_FinishResponse(uint8_t closeSocket)
         (g_rxCallback != NULL)
     );
 
+    /* Only a body naming a command is one. Servers commonly acknowledge
+     * every POST with a status object ({"status":"success",...}); passing
+     * that to the command parser produced an "invalid command_type" reply,
+     * which the server acknowledged again: an endless POST loop that kept
+     * the link busy and starved the tag uploads. */
     if(deliver != 0U)
     {
+        static const char key[] = "\"command_type\"";
+        const uint16_t keyLength = (uint16_t)(sizeof(key) - 1U);
+
         deliver = 0U;
-        for(i = 0U; i < g_bodyLength; i++)
+        for(i = 0U; (uint32_t)i + keyLength <= g_bodyLength; i++)
         {
-            if(
-                (g_body[i] != ' ') && (g_body[i] != '\t') &&
-                (g_body[i] != '\r') && (g_body[i] != '\n')
-            )
+            if(memcmp(&g_body[i], key, keyLength) == 0)
             {
                 deliver = 1U;
                 break;
@@ -783,6 +788,11 @@ void HttpUpload_OnDisconnected(void)
     g_state = HTTP_STATE_SENDING;
     g_requestSent = 0U;
     HttpUpload_ResetParser();
+}
+
+uint8_t HttpUpload_IsBusy(void)
+{
+    return ((g_state != HTTP_STATE_IDLE) || (g_queueUsed != 0U)) ? 1U : 0U;
 }
 
 void HttpUpload_Task(void)

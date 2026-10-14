@@ -821,7 +821,7 @@ A RAM-only "current / last fault" with a count and timestamp, set by init failur
 
 ```
 DIAG,RESET=POWER_ON,UPTIME_MS=123456,FAULTS=0,LAST_FAULT=NONE,LOOP_MAX_US=1700,PASSES=987654,
-ETH_US=..,WIFI_US=..,CFG_US=..,PROTO_US=..,GPIO_US=..,RFID_US=..,HOST_US=..,STACK_USED=1600,STACK_SIZE=16384,BOR=2
+ETH_US=..,WIFI_US=..,CFG_US=..,PROTO_US=..,GPIO_US=..,RFID_US=..,HOST_US=..,TLOG_US=..,TAG_DROPPED=0,TAG_EXPIRED=0,STACK_USED=1600,STACK_SIZE=16384,BOR=2
 ```
 
 (one line, wrapped here). With a recorded fault, `LAST_FAULT=<type>` is followed by `PC=0x..,LR=0x..,CFSR=0x..,HFSR=0x..,MMFAR=0x..,BFAR=0x..,AT_MS=..`.
@@ -834,6 +834,7 @@ ETH_US=..,WIFI_US=..,CFG_US=..,PROTO_US=..,GPIO_US=..,RFID_US=..,HOST_US=..,STAC
 | `LAST_FAULT` | `NONE`, `HARDFAULT`, `MEMMANAGE`, `BUSFAULT`, `USAGEFAULT`, `NMI`, `ERROR_HANDLER` (the fault that ended the previous run) |
 | `LOOP_MAX_US`, `PASSES` | Longest loop pass, number of passes |
 | `<TASK>_US` | Longest single call of each task |
+| `TAG_DROPPED`, `TAG_EXPIRED` | Tags lost before upload since boot: dropped because the 256-tag upload queue was full, or discarded after waiting longer than `clear_buf_time` (default 8 s). Non-zero means the server link is slower than the reads |
 | `STACK_USED`, `STACK_SIZE` | Stack high-water mark and budget, bytes |
 | `BOR` | BOR level read from the option bytes |
 

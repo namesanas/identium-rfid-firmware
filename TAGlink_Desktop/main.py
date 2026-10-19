@@ -10,6 +10,10 @@ import theme
 from ui_builder import build_ui, refresh_theme, set_vswr_x_range
 
 INFO=["GET_VERSION","GET_SERIAL","GET_CAPABILITIES","GET_TEMPERATURE","GET_REGION","GET_ANTENNA","GET_POWER","GET_PROTOCOL","GET_SESSION","GET_FREQUENCY","GET_GPI","GET_NETWORK","GET_WORK_MODE","GET_WIFI"]
+# Queried fresh for a support report. While the reader inventories it only
+# answers status, work mode and health.
+REPORT_COMMANDS=["GET_STATUS"]+INFO+["GET_DIAG"]
+REPORT_COMMANDS_BUSY=["GET_STATUS","GET_WORK_MODE","GET_DIAG"]
 
 class Main(QMainWindow):
     ports_ready = Signal(list)
@@ -30,6 +34,7 @@ class Main(QMainWindow):
         self.restart_requested=False
         self.restart_deadline=None
         self.wifi_form_dirty=False
+        self.report=None   # support report being collected: {'path','commands','replies'}
         self.io=SerialManager()
         self.io.line_signal.connect(self.on_line)
         self.io.raw_signal.connect(self.on_raw)
@@ -310,7 +315,12 @@ class Main(QMainWindow):
                     self.epc_write_pending=''
                 if cmd == 'REBOOT':
                     self.restart_requested=False
+                self.note_report_reply(cmd,'(no reply within timeout)')
                 self.pending=None; self.pump()
+        if self.report:
+            # Also catches report queries dropped from the queue (Stop,
+            # disconnect, a STATUS reply that shows inventory running).
+            self.check_report_done()
     def status_poll(self):
         # Polled during inventory too, so a reader stopped elsewhere (work
         # mode, another tool) never leaves the GUI stuck at LIVE.
@@ -394,6 +404,7 @@ class Main(QMainWindow):
         # arrived before the requested response.
         matched=self.response_matches_pending(kind,data)
         if kind!='TAG' and self.pending and matched:
+            self.note_report_reply(self.pending[0],line)
             self.pending=None
             self.pump()
 
@@ -789,6 +800,131 @@ class Main(QMainWindow):
                 label = f"Longest {key[:-3].lower()} task (µs)"
             row = self.diag_table.rowCount(); self.diag_table.insertRow(row)
             self.diag_table.setItem(row,0,QTableWidgetItem(label or key)); self.diag_table.setItem(row,1,QTableWidgetItem(str(value)))
+
+    # ------------------------------------------------------------ support report
+    def save_support_report(self):
+        """One text file a customer can send to support: what TAGlink knows
+        about the PC and the connection, fresh replies from the reader, and
+        the logs."""
+        if self.report:
+            self.statusBar().showMessage('A support report is already being collected.',4000)
+            return
+        name=f"TAGlink_support_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        path,_=QFileDialog.getSaveFileName(self,'Save support report',name,'Text (*.txt)')
+        if not path:
+            return
+        commands=[]
+        if self.connected and not self.vswr_scanning and not self.release_pending and self.restart_deadline is None:
+            commands=list(REPORT_COMMANDS_BUSY if self.inventory else REPORT_COMMANDS)
+        self.report={'path':path,'commands':commands,'replies':[]}
+        if not commands:
+            self.finish_report()
+            return
+        self.support_report_btn.setEnabled(False)
+        self.statusBar().showMessage('Collecting the support report from the reader...',8000)
+        self.queue.extend(commands)
+        self.pump()
+
+    def note_report_reply(self,cmd,line):
+        if self.report and cmd in self.report['commands'] and len(self.report['replies']) < len(self.report['commands']):
+            self.report['replies'].append((cmd,line))
+
+    def check_report_done(self):
+        if not self.report:
+            return
+        waiting=set(self.report['commands'])
+        if any(cmd in waiting for cmd in self.queue) or (self.pending and self.pending[0] in waiting):
+            return
+        self.finish_report()
+
+    def finish_report(self):
+        report=self.report
+        self.report=None
+        self.support_report_btn.setEnabled(True)
+        try:
+            with open(report['path'],'w',encoding='utf-8',newline='\n') as stream:
+                stream.write(self.support_report_text(report))
+        except OSError as error:
+            QMessageBox.warning(self,'Support report not saved',f'The report could not be written:\n{error}')
+            return
+        self.log('Support report saved: '+report['path'])
+        QMessageBox.information(self,'Support report saved',
+            f"The support report is saved as\n{report['path']}\n\nSend this file to your Identium support contact.")
+
+    def support_report_text(self,report):
+        import platform
+        from PySide6 import __version__ as pyside_version
+        out=[]
+        def section(title):
+            out.append(''); out.append('== '+title+' '+'='*max(3,60-len(title)))
+        def row(label,value):
+            out.append(f'{label:<24}{value}')
+
+        out.append('TAGlink support report')
+        row('Created',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        section('Computer')
+        row('Windows',platform.platform())
+        row('Computer name',platform.node())
+        if getattr(sys,'frozen',False):
+            row('TAGlink',f"{sys.executable} (built {datetime.fromtimestamp(os.path.getmtime(sys.executable)).strftime('%Y-%m-%d %H:%M')})")
+        else:
+            row('TAGlink','run from source')
+        row('Python / PySide6',f'{platform.python_version()} / {pyside_version}')
+
+        section('Connection')
+        link=self.port.currentData()
+        row('Connection',self.port.currentText() or '-')
+        if link in (ETHERNET_OPTION,WIFI_OPTION):
+            row('Reader address',f'{self.tcp_host() or "(not set)"}:{ETHERNET_PORT}')
+        else:
+            row('Baud rate',self.baud.currentText())
+        row('Connected','yes' if self.connected else 'no')
+        row('Inventory','running' if self.inventory else 'idle')
+        row('Work mode',self.work_mode or 'unknown')
+        row('Auto reconnect','on' if self.reconnect.isChecked() else 'off')
+        if self.discovered_readers:
+            out.append('Discovered readers:')
+            for reader in self.discovered_readers:
+                out.append('  '+'  '.join(f'{key}={value}' for key,value in reader.items() if value not in ('',None)))
+
+        section('Reader replies')
+        if not report['commands']:
+            out.append('Not queried: TAGlink was not connected to a reader (or was busy with a scan or restart).')
+        else:
+            answered=dict(report['replies'])
+            for cmd in report['commands']:
+                out.append(f'{cmd:<20}{answered.get(cmd,"(not sent: the reader was inventorying or the link dropped)")}')
+
+        section('TAGlink settings')
+        for label,value in (
+            ('Region',self.region.text()),('TX / RX antenna',f'{self.tx.value()} / {self.rx.value()}'),
+            ('Power',f'{self.power.value():.2f} dBm'),('Session',self.session.value()),
+            ('Inventory antennas',self.inventory_antennas.text()),
+            ('Reader IP',self.net_ip.text()),('Netmask',self.net_mask.text()),('Gateway',self.net_gateway.text()),('DNS',self.net_dns.text()),
+            ('Config port',self.net_config_port.value()),
+            ('HTTP URL',self.http_url.text() or '-'),('HTTP timeout',f'{self.http_timeout.value()} s'),
+            ('Start at boot','yes' if self.http_start_boot.isChecked() else 'no'),
+            ('Reader WiFi IP',self.wifi_host.text() or '-'),('WiFi status',self.wifi_status.text()),
+            ('Upload over',self.upload_interface.currentText())):
+            row(label,value)
+
+        section('Inventory this session')
+        row('Total reads',self.total)
+        row('Unique tags',len(self.epcs))
+        if self.antenna_stats:
+            row('Reads per antenna',', '.join(f'A{antenna}: {count}' for antenna,count in sorted(self.antenna_stats.items())))
+
+        if self.vswr_samples:
+            section('Last VSWR scan')
+            out.append(f'{"Frequency (kHz)":<18}{"Return loss (dB)":<18}VSWR')
+            for frequency,return_loss,vswr in self.vswr_samples:
+                out.append(f'{frequency:<18.0f}{"" if return_loss is None else f"{return_loss:.2f}":<18}{vswr:.3f}')
+
+        for title,widget in (('Event log',self.event),('Command console',self.responses),('Raw serial',self.raw)):
+            section(title)
+            out.append(widget.toPlainText() or '(empty)')
+        out.append('')
+        return '\n'.join(out)
 
     def discover_readers(self):
         self.statusBar().showMessage('Searching for readers on the local network...',3000)

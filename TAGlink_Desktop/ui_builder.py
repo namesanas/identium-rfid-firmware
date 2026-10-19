@@ -586,7 +586,9 @@ def build_ui(window):
 
     # Diagnostics workspace with a live QtCharts plot.
     diagnostics_page = QWidget(); diagnostics_layout = QVBoxLayout(diagnostics_page); diagnostics_layout.setContentsMargins(0, 0, 0, 0); diagnostics_layout.setSpacing(12)
-    diag_header = QHBoxLayout(); diag_title = QLabel("Diagnostics"); diag_title.setObjectName("PageTitle"); diag_header.addWidget(diag_title); diag_header.addWidget(QLabel("Antenna health and module information")); diag_header.addWidget(_spacer()); diagnostics_layout.addLayout(diag_header)
+    diag_header = QHBoxLayout(); diag_title = QLabel("Diagnostics"); diag_title.setObjectName("PageTitle"); diag_header.addWidget(diag_title); diag_header.addWidget(QLabel("Antenna health and module information")); diag_header.addWidget(_spacer())
+    window.support_report_btn = _button("Save support report", window.save_support_report, "Primary"); window.support_report_btn.setToolTip("Save one text file with the reader's settings and health, this PC's details and the logs, to send to Identium support")
+    diag_header.addWidget(window.support_report_btn); diagnostics_layout.addLayout(diag_header)
     # The page scrolls on short screens rather than squeezing the VSWR chart.
     diag_scroll = QScrollArea(); diag_scroll.setWidgetResizable(True); diag_scroll.setFrameShape(QFrame.NoFrame)
     diag_content = QWidget(); diag_content.setObjectName("ScrollContent"); diag_content_layout = QVBoxLayout(diag_content); diag_content_layout.setContentsMargins(0, 0, 0, 0); diag_content_layout.setSpacing(12); diag_scroll.setWidget(diag_content)

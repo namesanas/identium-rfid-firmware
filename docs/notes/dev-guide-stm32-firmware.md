@@ -455,7 +455,7 @@ Each answers `ERROR,<CMD>` on failure.
 | Command | Purpose | Reply |
 |---|---|---|
 | `GET_CAPABILITIES` | Feature list for the desktop app | `CAPABILITIES,GPI=4,GPO=<3\|4>,ANTENNAS=1,HTTP=1,VSWR=1,SET_GPO=1,SET_HTTP=1,SET_GEN2=1,BUZZER=<0\|1>` |
-| `GET_GEN2` | Gen2 target and Q read back from the module | `GEN2,TARGET=<A\|B\|AB>,Q=<DYNAMIC\|0..15>` |
+| `GET_GEN2` | Gen2 target, Q and RF mode read back from the module (`PROFILE` is left out if the module does not answer that query) | `GEN2,TARGET=<A\|B\|AB>,Q=<DYNAMIC\|0..15>,PROFILE=<n>` |
 | `GET_GPI` | Input states | `GPI,GPI1=<0/1>,GPI2=..,GPI3=..,GPI4=..` |
 | `SET_GPO,<n>,<state>,<seconds>` | Output n (1–4), state 0/1, duration 0–3600 s (0 = stay); a timed pulse restores the previous state; rejected while a timed pulse is running | `OK,SET_GPO` / `ERROR,SET_GPO` |
 | `GET_NETWORK` | Stored Ethernet settings | `NETWORK,IP=a.b.c.d,MASK=..,GATEWAY=..,DNS=..,PORT=8080,MAC=xx:..` (PORT is the configuration port) |
@@ -467,7 +467,7 @@ Each answers `ERROR,<CMD>` on failure.
 | `SET_WIFI,<0\|1>,<STA\|AP>,<ssid>,<password>` | Persisted and applied. SSID without commas; password = rest of the line, empty or 8–64 chars; `****` keeps the stored password. `SET_WIFI,0,STA,,` disables WiFi and clears the station credentials | `OK,SET_WIFI` / `ERROR,SET_WIFI` |
 | `SET_UPLOAD_IF,ETH\|WIFI\|AUTO` | Interface for active uploads (persisted) | `OK,SET_UPLOAD_IF` / `ERROR,SET_UPLOAD_IF` |
 | `SET_BUZZER,<ms>[,<tone>]` | Sound the buzzer for 1..10000 ms (fixed-tone buzzer, `<tone>` ignored). Boards without a buzzer answer ERROR | `OK,SET_BUZZER` / `ERROR,SET_BUZZER` |
-| `SET_GEN2,<A\|B\|A/B>,<q>[,<profile>,<fast>,<hop>]` | Gen2 target and Q (`-1` = dynamic, 0..15 static); saved. Profile, fast mode and hopping must be 0 (not implemented) | `OK,SET_GEN2` / `ERROR,SET_GEN2` |
+| `SET_GEN2,<A\|B\|A/B>,<q>[,<profile>,<fast>,<hop>]` | Gen2 target and Q (`-1` = dynamic, 0..15 static). `profile` = Gen2 RF mode, the module's gen2tagEncoding (101, 103, 105, 107, 111, 112, 113, 115, 203, 220, 45, 123; 0 = leave the module as it is), sent as module frame `9B 05 02 <value>`. `fast=1` = Reader Manager Fast Mode: forces Session 0 (saved) and Target A/B. `hop` must be 0. Target, Q and profile are saved (`gen2Profile` uses the former always-zero `reserved` byte, so the record version is unchanged) and re-applied at boot | `OK,SET_GEN2` / `ERROR,SET_GEN2` |
 | `SET_ANTENNAS,<port>[,<port>...]` | Inventory antenna; the list must name one port (repeats allowed), same as `SET_ANTENNA,p,p`; saved | `OK,SET_ANTENNAS` / `ERROR,SET_ANTENNAS` |
 
 #### Diagnostics
@@ -1178,7 +1178,7 @@ Verified in the code, listed so nobody relies on them:
 | `tag_coming` (event 5), empty-data event (4), `gpo_act`, `gpi_trigger`, `tag_json_format` | Rejected over JSON, ignored from the vendor tools |
 | Positive `client_ack`, `crc_enable` | Only 0 accepted |
 | RS232/RS485 mode switching at run time | No command; `PRODUCT_SERIAL_DEFAULT_MODE` at build time |
-| Gen2 RF profile, fast mode, hopping (`SET_GEN2` fields 3-5) | Only 0 accepted |
+| Gen2 frequency hopping (`SET_GEN2` field 5) | Only 0 accepted |
 | Multi-antenna inventory (`SET_ANTENNAS` with several ports) | Not implemented; one port only |
 | Buzzer on the F411 board | Implemented, not yet run on hardware |
 | Ethernet DHCP | Not supported (static only; `ip = 0.0.0.0` from the tools keeps the current address) |

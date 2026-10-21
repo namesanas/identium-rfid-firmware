@@ -443,6 +443,13 @@ Status_t  Firmware_Configuration_Init(void)
             ReaderSettings_Get()->gen2Target,
             ReaderSettings_Get()->gen2Q
         );
+
+        if(ReaderSettings_Get()->gen2Profile != 0U)
+        {
+            (void)SILION_Application_SetGen2Profile(
+                ReaderSettings_Get()->gen2Profile
+            );
+        }
     }
 
 

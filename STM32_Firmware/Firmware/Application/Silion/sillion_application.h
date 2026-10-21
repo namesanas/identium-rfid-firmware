@@ -56,6 +56,11 @@ uint8_t SILION_Application_SetSession(uint8_t session);
 
 uint8_t SILION_Application_SetGen2(uint8_t target, uint8_t q);
 
+/* Gen2 RF mode (module gen2tagEncoding, e.g. 113 = RF mode 13).
+ * 0 means "module default" and is not sent. */
+uint8_t SILION_Application_IsGen2Profile(uint8_t profile);
+uint8_t SILION_Application_SetGen2Profile(uint8_t profile);
+
 uint8_t SILION_Application_WriteTagData(
     const uint8_t *epc,
     uint8_t epcLengthBytes,

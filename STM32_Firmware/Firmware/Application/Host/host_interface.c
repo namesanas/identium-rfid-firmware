@@ -376,14 +376,15 @@ static uint8_t HOST_PersistAntenna(uint8_t txAntenna, uint8_t rxAntenna)
     return ReaderSettings_Save(&settings);
 }
 
-static uint8_t HOST_PersistGen2(uint8_t target, uint8_t q)
+static uint8_t HOST_PersistGen2(uint8_t target, uint8_t q, uint8_t profile)
 {
     ReaderSettings_t settings = *ReaderSettings_Get();
 
     if(
         (settings.gen2Valid != 0U) &&
         (settings.gen2Target == target) &&
-        (settings.gen2Q == q)
+        (settings.gen2Q == q) &&
+        (settings.gen2Profile == profile)
     )
     {
         return 1U;
@@ -392,6 +393,7 @@ static uint8_t HOST_PersistGen2(uint8_t target, uint8_t q)
     settings.gen2Valid = 1U;
     settings.gen2Target = target;
     settings.gen2Q = q;
+    settings.gen2Profile = profile;
 
     return ReaderSettings_Save(&settings);
 }
@@ -399,11 +401,18 @@ static uint8_t HOST_PersistGen2(uint8_t target, uint8_t q)
 /*
  * SET_GEN2,<target>,<q>[,<profile>,<fast>,<hop>]
  *
- * target: A, B or A/B (AB); q: -1 = dynamic, 0..15 = static. The RF
- * profile, fast mode and hopping fields are accepted only at 0 (module
- * default): the module setting behind them is not implemented.
+ * target: A, B or A/B (AB); q: -1 = dynamic, 0..15 = static.
+ * profile: 0 = module default (not sent), otherwise a Gen2 RF mode
+ * (gen2tagEncoding, e.g. 113). fast: 1 = Reader Manager "Fast Mode",
+ * which forces Session 0 and Target A/B. hop: only 0 is accepted (the
+ * hopping setting behind it is not implemented).
  */
-static uint8_t HOST_ParseGen2(const char *args, uint8_t *target, uint8_t *q)
+static uint8_t HOST_ParseGen2(
+    const char *args,
+    uint8_t *target,
+    uint8_t *q,
+    uint8_t *profile,
+    uint8_t *fast)
 {
     char targetText[8];
     int qValue;
@@ -447,7 +456,27 @@ static uint8_t HOST_ParseGen2(const char *args, uint8_t *target, uint8_t *q)
         return 0U;
     }
 
-    return ((extra[0] == 0) && (extra[1] == 0) && (extra[2] == 0)) ? 1U : 0U;
+    if((extra[0] != 0) &&
+       ((extra[0] < 0) || (extra[0] > 255) ||
+        (SILION_Application_IsGen2Profile((uint8_t)extra[0]) == 0U)))
+    {
+        return 0U;
+    }
+
+    if(((extra[1] != 0) && (extra[1] != 1)) || (extra[2] != 0))
+    {
+        return 0U;
+    }
+
+    *profile = (uint8_t)extra[0];
+    *fast = (uint8_t)extra[1];
+
+    if(*fast != 0U)
+    {
+        *target = SILION_GEN2_TARGET_AB;
+    }
+
+    return 1U;
 }
 
 /*
@@ -2425,11 +2454,16 @@ void HOST_Interface_Task(void)
             {
                 uint8_t target;
                 uint8_t q;
+                uint8_t profile;
+                uint8_t fast;
 
                 if(
-                    (HOST_ParseGen2(&hostRxBuffer[9U], &target, &q) == 1U) &&
+                    (HOST_ParseGen2(&hostRxBuffer[9U], &target, &q, &profile, &fast) == 1U) &&
+                    ((fast == 0U) || (SILION_Application_SetSession(0U) == 1U)) &&
+                    ((fast == 0U) || (Configuration_Service_SaveSession(0U) == 1U)) &&
                     (SILION_Application_SetGen2(target, q) == 1U) &&
-                    (HOST_PersistGen2(target, q) == 1U)
+                    ((profile == 0U) || (SILION_Application_SetGen2Profile(profile) == 1U)) &&
+                    (HOST_PersistGen2(target, q, profile) == 1U)
                 )
                 {
                     HOST_SendString("OK,SET_GEN2\r\n");

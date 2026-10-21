@@ -47,7 +47,9 @@ typedef struct
      * Only used when rfValid != 0; otherwise product defaults apply. */
     uint8_t rfValid;
     uint8_t region;
-    uint8_t reserved;
+    /* Gen2 RF mode (module gen2tagEncoding) saved with SET_GEN2;
+     * 0 = module default. Was an always-zero reserved byte. */
+    uint8_t gen2Profile;
     uint16_t readPower;
     uint16_t writePower;
 

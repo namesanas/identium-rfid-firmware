@@ -1239,7 +1239,63 @@ uint8_t SILION_Application_SetGen2(uint8_t target, uint8_t q)
     return 1U;
 }
 
-/* Replies GEN2,TARGET=<A|B|AB|raw>,Q=<DYNAMIC|0..15> read from the module. */
+/*
+ * Gen2 RF modes offered by Reader Manager (its "Profile" list); the
+ * value is the module's gen2tagEncoding, sent as 9B 05 02 <value>.
+ * Fast Mode presets there use 113 (reading distance) and 111
+ * (reading count).
+ */
+static const uint8_t gen2Profiles[] =
+{
+    101U, 103U, 105U, 107U, 111U, 112U, 113U, 115U, 203U, 220U, 45U, 123U
+};
+
+uint8_t SILION_Application_IsGen2Profile(uint8_t profile)
+{
+    uint32_t i;
+
+    for(i = 0U; i < (sizeof(gen2Profiles) / sizeof(gen2Profiles[0])); i++)
+    {
+        if(gen2Profiles[i] == profile)
+            return 1U;
+    }
+
+    return 0U;
+}
+
+uint8_t SILION_Application_SetGen2Profile(uint8_t profile)
+{
+    if(pSilion == NULL)
+        return 0U;
+
+    if(appState != SILION_APP_IDLE)
+        return 0U;
+
+    if(SILION_Application_IsGen2Profile(profile) == 0U)
+        return 0U;
+
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+    txComplete = 0U;
+
+    if(SILION_SetProtocolMiller(pSilion, profile) == 0U)
+    {
+        return 0U;
+    }
+
+    if(SILION_Application_Transaction(
+           SILION_CMD_SET_PROTOCOL_CONFIG) == 0U)
+    {
+        return 0U;
+    }
+
+    SILION_ClearFrame(pSilion);
+
+    return 1U;
+}
+
+/* Replies GEN2,TARGET=<A|B|AB|raw>,Q=<DYNAMIC|0..15>,PROFILE=<n> read
+ * from the module (PROFILE is the gen2tagEncoding value). */
 uint8_t SILION_Application_GetGen2(void)
 {
     char response[48];
@@ -1247,6 +1303,8 @@ uint8_t SILION_Application_GetGen2(void)
     uint8_t target;
     uint8_t qOption;
     uint8_t qValue;
+    uint8_t profile = 0U;
+    uint8_t profileValid;
     const char *targetName;
 
     if(pSilion == NULL)
@@ -1303,6 +1361,24 @@ uint8_t SILION_Application_GetGen2(void)
     qOption = pSilion->rxBuffer[7U];
     qValue = (pSilion->rxIndex >= 10U) ? pSilion->rxBuffer[8U] : 0U;
 
+    /* Not fatal: PROFILE is left out if the module does not answer. */
+    profileValid = 0U;
+    SILION_ClearFrame(pSilion);
+    SILION_ClearUartFlags();
+    txComplete = 0U;
+
+    if((SILION_GetProtocolConfiguration(
+            pSilion,
+            SILION_PROTOCOL_GEN2,
+            SILION_PROTOCOL_PARAM_MILLER) == 1U) &&
+       (SILION_Application_Transaction(
+            SILION_CMD_GET_PROTOCOL_CONFIG) == 1U) &&
+       (pSilion->rxIndex >= 9U))
+    {
+        profile = pSilion->rxBuffer[7U];
+        profileValid = 1U;
+    }
+
     if((flip == 0x01U) && (target == 0x00U))
         targetName = "A";
     else if((flip == 0x01U) && (target == 0x01U))
@@ -1323,14 +1399,23 @@ uint8_t SILION_Application_GetGen2(void)
 
     if(qOption == 0x00U)
     {
-        (void)strncat(response, "Q=DYNAMIC\r\n", sizeof(response) - strlen(response) - 1U);
+        (void)strncat(response, "Q=DYNAMIC", sizeof(response) - strlen(response) - 1U);
     }
     else
     {
         char q[12];
-        (void)snprintf(q, sizeof(q), "Q=%u\r\n", (unsigned int)qValue);
+        (void)snprintf(q, sizeof(q), "Q=%u", (unsigned int)qValue);
         (void)strncat(response, q, sizeof(response) - strlen(response) - 1U);
     }
+
+    if(profileValid != 0U)
+    {
+        char text[16];
+        (void)snprintf(text, sizeof(text), ",PROFILE=%u", (unsigned int)profile);
+        (void)strncat(response, text, sizeof(response) - strlen(response) - 1U);
+    }
+
+    (void)strncat(response, "\r\n", sizeof(response) - strlen(response) - 1U);
 
     HOST_SendString(response);
 

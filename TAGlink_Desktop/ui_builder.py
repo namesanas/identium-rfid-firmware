@@ -12,8 +12,8 @@ from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 import theme
 
 # Segoe Fluent Icons / Segoe MDL2 Assets glyphs (both ship with Windows):
-# list, tag, settings, diagnostic, document.
-RAIL_ICONS = tuple(chr(code) for code in (0xE8FD, 0xE8EC, 0xE713, 0xE9D9, 0xE7C3))
+# list, tag, settings, diagnostic, document, toolbox.
+RAIL_ICONS = tuple(chr(code) for code in (0xE8FD, 0xE8EC, 0xE713, 0xE9D9, 0xE7C3, 0xE90F))
 
 
 def _button(text, handler, object_name=None):
@@ -251,6 +251,7 @@ def build_ui(window):
         ("⚙", "Settings", "Reader, RF, network and peripherals"),
         ("⌁", "Diagnostics", "VSWR and reader information"),
         ("≡", "Log", "Event log, raw serial and command console"),
+        ("✦", "Tools", "Read-rate tuner, stock check and batch encoding"),
     ]
     for index, (icon, label, tooltip) in enumerate(nav_items):
         button = QToolButton()
@@ -522,8 +523,14 @@ def build_ui(window):
     update_antenna_picker(window.antenna_count.value())
     window.gen2_target = QComboBox(); window.gen2_target.addItems(["A", "B", "A/B"])
     window.gen2_q = QSpinBox(); window.gen2_q.setRange(-1, 15); window.gen2_q.setValue(-1); window.gen2_q.setSpecialValueText("Auto")
-    window.rf_profile = QComboBox(); window.rf_profile.addItems(["Module default", "Fast", "Dense reader", "Max sensitivity"])
-    window.fast_mode = QCheckBox("Fast mode"); window.frequency_hop = QCheckBox("Frequency hopping")
+    # RF profile = module gen2tagEncoding (Reader Manager's Profile list); 0 leaves the module as it is.
+    window.rf_profile = QComboBox()
+    for label, value in (("Module default", 0), ("RF mode 1", 101), ("RF mode 3", 103), ("RF mode 5", 105), ("RF mode 7", 107), ("RF mode 11 (reading count)", 111), ("RF mode 12", 112), ("RF mode 13 (reading distance)", 113), ("RF mode 15", 115), ("RF mode 103", 203), ("RF mode 120", 220), ("RF mode 345", 45)):
+        window.rf_profile.addItem(label, value)
+    window.fast_mode = QCheckBox("Fast mode"); window.fast_mode.setToolTip("Session 0 + Target A/B: tags are reported continuously instead of about once per second.")
+    window.fast_mode.toggled.connect(lambda checked: checked and (window.session.setValue(0), window.gen2_target.setCurrentText("A/B")))
+    # Hopping is not implemented in the firmware; SET_GEN2 always sends 0.
+    window.frequency_hop = QCheckBox("Frequency hopping"); window.frequency_hop.setVisible(False)
     rf_form.addRow("Detected antennas", _field(window.antenna_count, 150)); rf_form.addRow("Inventory antennas", _field(window.inventory_antennas)); rf_form.addRow("Select antennas", antenna_picker); rf_form.addRow("Gen2 target", _field(window.gen2_target)); rf_form.addRow("Gen2 Q", _field(window.gen2_q, 150)); rf_form.addRow("RF profile", _field(window.rf_profile))
     mode_row = QHBoxLayout(); mode_row.addWidget(window.fast_mode); mode_row.addWidget(window.frequency_hop); mode_row.addStretch(); rf_form.addRow("Reader mode", mode_row)
     rf_actions = QHBoxLayout(); window.rf_refresh = _button("Discover capabilities", window.request_capabilities); window.rf_apply = _button("Apply RF settings", window.apply_rf_settings, "Primary"); rf_actions.addWidget(window.rf_refresh); rf_actions.addWidget(window.rf_apply); rf_form.addRow("", rf_actions)
@@ -629,6 +636,9 @@ def build_ui(window):
     log_tabs = QTabWidget(); window.event = QPlainTextEdit(); window.event.setReadOnly(True); log_tabs.addTab(window.event, "Event Log"); window.raw = QPlainTextEdit(); window.raw.setReadOnly(True); log_tabs.addTab(window.raw, "Raw Serial")
     console = QWidget(); console_layout = QVBoxLayout(console); command_row = QHBoxLayout(); window.command = QLineEdit(); window.command.setPlaceholderText("GET_POWER / SET_REGION,01"); window.command.returnPressed.connect(window.manual); command_row.addWidget(window.command); command_row.addWidget(_button("Send", window.manual, "Primary")); console_layout.addLayout(command_row); window.responses = QPlainTextEdit(); window.responses.setReadOnly(True); console_layout.addWidget(window.responses); log_tabs.addTab(console, "Command Console")
     about = QLabel("TAGlink — reader control, tag operations, RF settings, antenna diagnostics and transport logs for the Identium RFID controller." + chr(10) * 2 + "Commands are sent one at a time; a reply (or a 5 s timeout) completes each one before the next is sent."); about.setObjectName("AboutText"); about.setWordWrap(True); about.setAlignment(Qt.AlignTop | Qt.AlignLeft); log_tabs.addTab(about, "About"); log_layout.addWidget(log_tabs, 1); window.stack.addWidget(log_page)
+
+    # Tools workspace (tools_page.py).
+    window.tools.build()
 
     # Chart axes are created once and then updated by Main.handle_vswr_point.
     window.vswr_chart.addSeries(window.vswr_series); window.vswr_chart.addSeries(window.vswr_threshold_series)

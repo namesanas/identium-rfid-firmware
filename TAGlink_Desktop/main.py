@@ -8,6 +8,7 @@ from protocol import parse_line
 from vswr_transport import VSWRBridge
 import theme
 from ui_builder import build_ui, refresh_theme, set_vswr_x_range
+from tools_page import ToolsController
 
 INFO=["GET_VERSION","GET_SERIAL","GET_CAPABILITIES","GET_TEMPERATURE","GET_REGION","GET_ANTENNA","GET_POWER","GET_PROTOCOL","GET_SESSION","GET_FREQUENCY","GET_GPI","GET_NETWORK","GET_WORK_MODE","GET_WIFI"]
 # Queried fresh for a support report. While the reader inventories it only
@@ -42,6 +43,7 @@ class Main(QMainWindow):
         self.io.error_signal.connect(self.on_error)
         self.io.tx_signal.connect(self.on_tx)
         
+        self.tools=ToolsController(self)
         build_ui(self)
         # A WiFi status refresh must not overwrite what the user is typing.
         self.wifi_enable.toggled.connect(self.mark_wifi_dirty); self.wifi_mode.currentIndexChanged.connect(self.mark_wifi_dirty)
@@ -107,6 +109,7 @@ class Main(QMainWindow):
         self.sync.setEnabled(on and not self.inventory)
         self.stop.setEnabled(on and self.inventory)
         if hasattr(self,'rfid_nav_button'): self.rfid_nav_button.setEnabled(True)
+        self.tools.on_connection(on)
 
     def toggle(self):
         if self.connected:
@@ -356,6 +359,7 @@ class Main(QMainWindow):
             'GET_WORK_MODE':'WORK_MODE',
             'GET_WIFI':'WIFI',
             'GET_DIAG':'DIAG',
+            'GET_GEN2':'GEN2',
         }.get(base)
 
         # All command-style operations complete with OK,<COMMAND>
@@ -407,6 +411,10 @@ class Main(QMainWindow):
             self.note_report_reply(self.pending[0],line)
             self.pending=None
             self.pump()
+
+        if kind!='TAG':
+            # After this handler has updated the inventory state.
+            QTimer.singleShot(0, lambda k=kind, d=data: self.tools.on_reply(k, d))
 
         if kind=='TAG':
             self.handle_tag(data)
@@ -645,7 +653,7 @@ class Main(QMainWindow):
         self.enqueue(f'SET_REGION,{region_value:02X}')
         self.enqueue(f'SET_SESSION,{self.session.value()}')
         if self.module_capabilities.get('SET_GEN2') in (1, '1', True, 'true', 'TRUE'):
-            self.enqueue(f'SET_GEN2,{self.gen2_target.currentText()},{self.gen2_q.value()},{self.rf_profile.currentIndex()},{int(self.fast_mode.isChecked())},{int(self.frequency_hop.isChecked())}')
+            self.enqueue(f'SET_GEN2,{self.gen2_target.currentText()},{self.gen2_q.value()},{self.rf_profile.currentData()},{int(self.fast_mode.isChecked())},0')
         else:
             self.log('Advanced Gen2 options retained locally; waiting for module capability SET_GEN2.')
 
@@ -1143,7 +1151,9 @@ class Main(QMainWindow):
         self.read_tag_btn.setEnabled(self.connected and not on)
         self.lock_tag_btn.setEnabled(self.connected and not on)
         self.kill_tag_btn.setEnabled(self.connected and not on)
+        self.tools.on_inventory(on)
     def handle_tag(self,t):
+        self.tools.on_tag(t)
         self.total+=1
         self.epcs[t.epc]=self.epcs.get(t.epc,0)+1
         now_wall=datetime.now()

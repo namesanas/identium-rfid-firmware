@@ -66,7 +66,7 @@ if window.table.rowCount():
     window.table.selectRow(0)
     window.use_selected_epc()
 window.update_write_mode()
-assert window.stack.count() == 5
+assert window.stack.count() == 6
 assert window.table.columnCount() == 6
 assert window.table.rowCount() == 2
 assert window.selected_epc_display.text() == window.target_epc.text()

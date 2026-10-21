@@ -9,6 +9,7 @@ import '../../protocol/command_builder.dart';
 import '../../protocol/models.dart';
 import '../../transport/reader_client.dart';
 import '../../widgets/ui_helpers.dart';
+import '../tags/find_tag_screen.dart';
 import '../tags/tag_detail_screen.dart';
 import '../../theme.dart';
 
@@ -203,6 +204,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           return Card(child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TagDetailScreen(client: widget.client, epc: tag.epc))),
+            onLongPress: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => FindTagScreen(client: widget.client, epc: tag.epc))),
             child: Padding(padding: const EdgeInsets.fromLTRB(14, 12, 8, 12), child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(tag.epc, maxLines: 1, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700, fontSize: 15, letterSpacing: 0.2))),

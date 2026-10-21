@@ -6,6 +6,7 @@ import '../../protocol/parser.dart';
 import '../../transport/reader_client.dart';
 import '../../theme.dart';
 import '../../widgets/ui_helpers.dart';
+import 'find_tag_screen.dart';
 
 class TagDetailScreen extends StatefulWidget {
   const TagDetailScreen({super.key, required this.client, required this.epc});
@@ -129,6 +130,12 @@ class _TagDetailScreenState extends State<TagDetailScreen> {
             const SizedBox(width: 10),
             Expanded(child: FilledButton.icon(onPressed: _busy ? null : _readAllBanks, icon: const Icon(Icons.refresh, size: 18), label: const Text('Read memory'))),
           ]),
+          const SizedBox(height: 10),
+          FilledButton.tonalIcon(
+            onPressed: _busy ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => FindTagScreen(client: widget.client, epc: _epc))),
+            icon: const Icon(Icons.radar, size: 18),
+            label: const Text('Find this tag'),
+          ),
         ]))),
         const SizedBox(height: 6),
         SizedBox(height: 2, child: _busy ? const LinearProgressIndicator() : null),

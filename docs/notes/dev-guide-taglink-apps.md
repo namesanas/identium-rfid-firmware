@@ -63,7 +63,8 @@ Both apps depend on these rules. They come from `host_interface.c` and `Services
 | `REBOOT` | `OK,REBOOT`, then the reader resets 500 ms later | Desktop, Mobile |
 | `RELEASE` | `OK,RELEASE` | Desktop, Mobile, both network scans |
 | `SET_BUZZER,<ms>,<tone>` | `OK,SET_BUZZER`; `ERROR,SET_BUZZER` on boards without a buzzer (`BUZZER=0`) | Desktop UI only |
-| `SET_GEN2,<A\|B\|A/B>,<q>,<profile>,<fast>,<hop>` | `OK,SET_GEN2` / `ERROR,SET_GEN2` (profile, fast and hop must be 0) | Desktop UI only, sent when `GET_CAPABILITIES` has `SET_GEN2=1` |
+| `SET_GEN2,<A\|B\|A/B>,<q>,<profile>,<fast>,<hop>` | `OK,SET_GEN2` / `ERROR,SET_GEN2` (profile = RF mode value or 0, fast 0/1, hop must be 0) | Desktop (RF & Gen2 card, Read-rate tuner), sent when `GET_CAPABILITIES` has `SET_GEN2=1` |
+| `GET_GEN2` | `GEN2,TARGET=<A\|B\|AB>,Q=<DYNAMIC\|n>,PROFILE=<n>` | Desktop (Read-rate tuner) |
 | `SET_ANTENNAS,<ports>` | `OK,SET_ANTENNAS` for a single port / `ERROR,SET_ANTENNAS` | Not sent by either app |
 
 Reader behaviour seen from the mobile app (recorded during hardware tests, not re-checked today):
@@ -98,7 +99,7 @@ The **top bar** (`ui_builder.build_ui`) is always visible:
 | Return to passive | Visible only in active mode. Replaces the queue with `STOP`, `SET_WORK_MODE,PASSIVE`, `GET_STATUS` and the info batch. |
 | Theme / sun-moon | Colour theme (Blue, Brown, Grey; Brown is the default) and dark/light mode. Both are saved in QSettings. |
 
-The **navigation rail** has five workspaces. The Log button shows a red dot when an `ERROR` line or a transport error arrives while you are on another page.
+The **navigation rail** has six workspaces. The Log button shows a red dot when an `ERROR` line or a transport error arrives while you are on another page.
 
 #### Inventory
 
@@ -130,7 +131,7 @@ All tag buttons are disabled while inventory runs.
 | Card | Controls and commands |
 |---|---|
 | Reader | Work mode Passive/Active sends `SET_WORK_MODE,<mode>`. The UI changes only after `OK`, then sends `GET_STATUS`. Region (hex) with Set region sends `SET_REGION,XX`. TX/RX with Set antenna sends `SET_ANTENNA,tx,rx`. Power (0–33 dBm, 0.25 steps) with Set power sends `SET_POWER,<dBm×100>`. Session with Set session sends `SET_SESSION,n`. |
-| RF & Gen2 | Discover capabilities queues `GET_VERSION, GET_CAPABILITIES, GET_ANTENNA, GET_GPI`. Apply RF settings checks the antenna list, then queues `SET_ANTENNA`, `SET_POWER`, `SET_REGION`, `SET_SESSION`. It sends `SET_GEN2,...` only when the reader reports `SET_GEN2=1`, and the current firmware never does. Gen2 target, Q, profile, fast mode and hopping are kept in the UI only. |
+| RF & Gen2 | Discover capabilities queues `GET_VERSION, GET_CAPABILITIES, GET_ANTENNA, GET_GPI`. Apply RF settings checks the antenna list, then queues `SET_ANTENNA`, `SET_POWER`, `SET_REGION`, `SET_SESSION`. It sends `SET_GEN2,<target>,<q>,<profile>,<fast>,0` only when the reader reports `SET_GEN2=1`. RF profile lists Reader Manager's RF modes (the combo item data is the gen2tagEncoding value; Module default = 0). Ticking Fast mode sets Session 0 and Target A/B. The Frequency hopping checkbox is hidden (not implemented in the firmware). |
 | Network & HTTP | Reader IP, mask, gateway, DNS and config port are filled by `GET_NETWORK` or by Discover readers. They are display and target fields only: no `SET_NETWORK` is sent. Apply HTTP checks for an `http://` URL with no commas, then sends `SET_HTTP,<url>,<timeout>,<startAtBoot>`. Discover readers runs UDP discovery (port 15000, ReaderManager format) **and** a TCP scan of every local /24 on port 5000. Clicking a row sets the IP and selects Ethernet (UDP hit) or WiFi (TCP-only hit). |
 | WiFi | Status line from `GET_WIFI`. Reader WiFi IP is the address used when the port combo is set to WiFi. WiFi enabled, mode (STA/AP), SSID, password and open network feed Apply WiFi, which sends `SET_WIFI,...`. An empty password becomes `****` (keep stored); "Open network" sends an empty password. It warns you when you are connected over WiFi and re-reads `GET_WIFI` after 6 s. Upload over with Apply upload interface sends `SET_UPLOAD_IF,AUTO\|ETH\|WIFI`. Refresh sends `GET_WIFI`. A status refresh never overwrites a form you are editing (`wifi_form_dirty`). |
 | Peripherals | GPI 1–4 chips come from `GET_GPI`. GPO 1–4 each have state, duration and Set, which sends `SET_GPO,n,state,seconds`. Sound buzzer sends `SET_BUZZER,...` and the current firmware always answers `ERROR,SET_BUZZER`. Refresh GPI sends `GET_GPI`. |
@@ -152,6 +153,16 @@ All tag buttons are disabled while inventory runs.
 | Raw Serial | Every received chunk as it arrived, including binary bridge bytes |
 | Command Console | Type any command and press Enter or Send. It goes through the same queue. Shows every received line. |
 | About | Short description |
+
+#### Tools (`tools_page.py`)
+
+`ToolsController` drives the reader through the same queue: it sends one command, waits for its `OK`/`ERROR` (8 s watchdog), then sends the next. `Main.handle_tag` passes every tag to `tools.on_tag`, and `Main.on_line` passes every other reply to `tools.on_reply` (deferred with `QTimer.singleShot(0)` so Main has updated the inventory state first).
+
+| Tab | What it does |
+|---|---|
+| Read-rate tuner | `GET_GEN2` to save the current target/Q/RF mode, then for each preset (Standard S0 + A; Fast S0 + A/B; Fast + RF mode 13; Fast + RF mode 11, Q=2): `SET_SESSION`, `SET_GEN2`, `START`, count reads/unique tags/RSSI for the test time, `STOP`. Best = most unique tags, then most reads/s. The old settings are restored at the end; Apply best mode sends the best preset again (saved by the firmware) and updates the Settings controls. Needs `SET_GEN2=1`. |
+| Stock check | Import a CSV/TXT list (an `EPC` column, else the first column; invalid lines skipped) or use the current inventory. Start check starts inventory (`START`) and marks each EPC Found / Missing / Unexpected live. Stopping inventory anywhere ends the check. Export writes Missing, Unexpected, Found. |
+| Batch encode | EPC = hex prefix + number (decimal digits or hex), zero-padded to the EPC length (multiple of 4 hex digits). Each tag: 1.5 s scan (`START`/`STOP`), refuse if no new tag or more than one, `WRITE_EPC,<old>,<new>`, optional read-back scan, optional `LOCK_TAG` with the password/mask/action from Tags › Lock. The number advances only after success. Encode continuously keeps scanning and ignores tags already encoded in this run. |
 
 ### 2.3 Connections, connect flow and timeouts
 
@@ -206,6 +217,7 @@ All I/O runs on one worker thread in `SerialManager` (a command queue plus `_rx(
 
 | File | Lines | Responsibility | Change policy |
 |---|---|---|---|
+| `tools_page.py` | ~660 | Tools workspace (read-rate tuner, stock check, batch encode) and its command sequencer | Normal work |
 | `main.py` | ~1350 | `Main(QMainWindow)`: state, command queue, reply dispatch (`on_line`), every button handler, QSettings save/restore, app start-up (last line, no `__main__` guard) | Normal work happens here |
 | `ui_builder.py` | ~640 | `build_ui(window)` creates every widget **as an attribute on the window** (`window.tx`, `window.wifi_ssid`, …) and wires the handlers. Also `refresh_theme` and `set_vswr_x_range`. | Layout only |
 | `theme.py` | ~265 | `COLORS` palettes (blue/brown/grey × dark/light), the style-sheet template, and `stylesheet(dark, name)`. Qt style sheets cannot draw CSS-border triangles, so `_draw_images()` paints the arrow and tick PNGs at run time into `%TEMP%\taglink_theme\`. Call it only after `QApplication` exists. | Style only |
@@ -337,6 +349,11 @@ Tags reach the screen as batches every 200 ms (`ReaderClient.tagBatches`). A TAG
 | Per-bank refresh | `READ_TAG` for that bank, 8 words from address 0 |
 | Change EPC | Dialog, then confirmation, then `WRITE_EPC,<old>,<new>`. The EPC must be hex with a length that is a multiple of 4. |
 | Write User memory | Dialog (password, word address, data), then confirmation, then `WRITE_TAG,<epc>,3,<addr>,<pw>,<hex>`. Bank 3 is fixed. Data must be a multiple of 4 hex characters. The bank is read again afterwards. |
+| Find this tag | Opens Find tag for this EPC |
+
+#### Find tag (`features/tags/find_tag_screen.dart`)
+
+Opened from Tag detail ("Find this tag") or by long-pressing a row in Inventory. Sends `START` if the reader is not already inventorying and `STOP` on close only if it started it. Only reads of the chosen EPC count: RSSI is smoothed (0.65 old / 0.35 new) and mapped from -80 dBm (empty) to -30 dBm (full gauge); the tag counts as lost 1.5 s after its last read. Labels: Far, Nearby, Close (> 0.55), Very close (> 0.8). A 50 ms ticker plays `SystemSound.click` and haptic feedback, from about 1 per second (weak) to about 11 per second (very close); the click follows the phone's touch-sound setting. Test: `test/find_tag_test.dart` (fake reader on a loopback socket).
 
 #### Settings (`features/settings/settings_screen.dart`)
 

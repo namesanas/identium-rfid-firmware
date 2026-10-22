@@ -160,7 +160,7 @@ All tag buttons are disabled while inventory runs.
 
 | Tab | What it does |
 |---|---|
-| Read-rate tuner | `GET_GEN2` to save the current target/Q/RF mode, then for each preset (Standard S0 + A; Fast S0 + A/B; Fast + RF mode 13; Fast + RF mode 11, Q=2): `SET_SESSION`, `SET_GEN2`, `START`, count reads/unique tags/RSSI for the test time, `STOP`. Best = most unique tags, then most reads/s. The old settings are restored at the end; Apply best mode sends the best preset again (saved by the firmware) and updates the Settings controls. Needs `SET_GEN2=1`. |
+| Read-rate tuner | `GET_GEN2` to save the current target/Q/RF mode, then for each preset (Standard S0 + A; Fast S0 + A/B; Fast + RF mode 13; Fast + Q=2): `SET_SESSION`, `SET_GEN2`, `START`, count reads/unique tags/RSSI for the test time, `STOP`. Best = most unique tags, then most reads/s. The old settings are restored at the end; Apply best mode sends the best preset again (saved by the firmware) and updates the Settings controls. Needs `SET_GEN2=1`. |
 | Stock check | Import a CSV/TXT list (an `EPC` column, else the first column; invalid lines skipped) or use the current inventory. Start check starts inventory (`START`) and marks each EPC Found / Missing / Unexpected live. Stopping inventory anywhere ends the check. Export writes Missing, Unexpected, Found. |
 | Batch encode | EPC = hex prefix + number (decimal digits or hex), zero-padded to the EPC length (multiple of 4 hex digits). Each tag: 1.5 s scan (`START`/`STOP`), refuse if no new tag or more than one, `WRITE_EPC,<old>,<new>`, optional read-back scan, optional `LOCK_TAG` with the password/mask/action from Tags › Lock. The number advances only after success. Encode continuously keeps scanning and ignores tags already encoded in this run. |
 

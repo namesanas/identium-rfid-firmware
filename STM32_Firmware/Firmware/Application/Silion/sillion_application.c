@@ -1240,14 +1240,15 @@ uint8_t SILION_Application_SetGen2(uint8_t target, uint8_t q)
 }
 
 /*
- * Gen2 RF modes offered by Reader Manager (its "Profile" list); the
- * value is the module's gen2tagEncoding, sent as 9B 05 02 <value>.
- * Fast Mode presets there use 113 (reading distance) and 111
- * (reading count).
+ * Gen2 RF modes this module (E310) supports, from Reader Manager's
+ * "Profile" list; the value is the module's gen2tagEncoding, sent as
+ * 9B 05 02 <value>. Reader Manager also lists 101, 111, 115, 203,
+ * 220, 45 and 123: the E310 acknowledges them but stays on 107
+ * (tested 2026-10-22), so they are rejected here.
  */
 static const uint8_t gen2Profiles[] =
 {
-    101U, 103U, 105U, 107U, 111U, 112U, 113U, 115U, 203U, 220U, 45U, 123U
+    103U, 105U, 107U, 112U, 113U
 };
 
 uint8_t SILION_Application_IsGen2Profile(uint8_t profile)

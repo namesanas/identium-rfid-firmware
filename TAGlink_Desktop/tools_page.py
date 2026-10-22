@@ -311,7 +311,7 @@ class ToolsController(QObject):
             ('Standard (Session 0, Target A)', 0, 'A', -1, profile, 0),
             ('Fast mode (Session 0, Target A/B)', 0, 'A/B', -1, profile, 1),
             ('Fast: reading distance (RF mode 13)', 0, 'A/B', -1, 113, 1),
-            ('Fast: reading count (RF mode 11, Q=2)', 0, 'A/B', 2, 111, 1),
+            ('Fast: reading count (Q=2)', 0, 'A/B', 2, profile, 1),
         ]
         for preset in self.tuner_presets:
             row = self.tuner_table.rowCount(); self.tuner_table.insertRow(row)

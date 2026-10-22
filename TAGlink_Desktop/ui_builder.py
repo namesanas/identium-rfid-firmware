@@ -523,9 +523,9 @@ def build_ui(window):
     update_antenna_picker(window.antenna_count.value())
     window.gen2_target = QComboBox(); window.gen2_target.addItems(["A", "B", "A/B"])
     window.gen2_q = QSpinBox(); window.gen2_q.setRange(-1, 15); window.gen2_q.setValue(-1); window.gen2_q.setSpecialValueText("Auto")
-    # RF profile = module gen2tagEncoding (Reader Manager's Profile list); 0 leaves the module as it is.
+    # RF profile = module gen2tagEncoding (the modes of Reader Manager's Profile list the E310 supports); 0 leaves the module as it is.
     window.rf_profile = QComboBox()
-    for label, value in (("Module default", 0), ("RF mode 1", 101), ("RF mode 3", 103), ("RF mode 5", 105), ("RF mode 7", 107), ("RF mode 11 (reading count)", 111), ("RF mode 12", 112), ("RF mode 13 (reading distance)", 113), ("RF mode 15", 115), ("RF mode 103", 203), ("RF mode 120", 220), ("RF mode 345", 45)):
+    for label, value in (("Module default", 0), ("RF mode 3", 103), ("RF mode 5", 105), ("RF mode 7", 107), ("RF mode 12", 112), ("RF mode 13 (reading distance)", 113)):
         window.rf_profile.addItem(label, value)
     window.fast_mode = QCheckBox("Fast mode"); window.fast_mode.setToolTip("Session 0 + Target A/B: tags are reported continuously instead of about once per second.")
     window.fast_mode.toggled.connect(lambda checked: checked and (window.session.setValue(0), window.gen2_target.setCurrentText("A/B")))

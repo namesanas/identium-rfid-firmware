@@ -8,6 +8,8 @@ static volatile ErrorCode_t g_lastFault = ERROR_NONE;
 static volatile uint32_t g_faultCount = 0U;
 static volatile uint32_t g_faultTimestamp = 0U;
 
+static volatile uint8_t g_degraded = 0U;
+
 
 void System_Fault_Init(void)
 {
@@ -16,6 +18,8 @@ void System_Fault_Init(void)
 
     g_faultCount = 0U;
     g_faultTimestamp = 0U;
+
+    g_degraded = 0U;
 }
 
 
@@ -65,4 +69,22 @@ uint32_t System_Fault_GetCount(void)
 uint32_t System_Fault_GetTimestamp(void)
 {
     return g_faultTimestamp;
+}
+
+
+void System_Fault_SetDegraded(uint8_t part)
+{
+    g_degraded = (uint8_t)(g_degraded | part);
+}
+
+
+void System_Fault_ClearDegraded(uint8_t part)
+{
+    g_degraded = (uint8_t)(g_degraded & (uint8_t)~part);
+}
+
+
+uint8_t System_Fault_GetDegraded(void)
+{
+    return g_degraded;
 }

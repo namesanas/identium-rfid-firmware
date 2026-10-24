@@ -9,6 +9,11 @@
 #   make flash           build, check that the chip on SWD matches BOARD, then
 #                        program it with STM32_Programmer_CLI
 #   make check-chip      only the chip check (reads the device ID, no reset)
+#   make protect         production: set the brown-out level and read
+#                        protection level 1 (flash can no longer be read
+#                        or programmed over SWD). Run after make flash.
+#   make unprotect       back to level 0. MASS-ERASES the chip, firmware
+#                        and saved settings included.
 #   make hostcheck       build and run the host-side protocol test with the
 #                        PC compiler (HOSTCC, default gcc)
 #   make clean
@@ -35,6 +40,7 @@ LDSCRIPT := STM32F429ZITX_FLASH.ld
 S_SRCS   := $(wildcard Startup/*.s)
 DEFS     := -DUSE_HAL_DRIVER -DSTM32F429xx
 DEBUG_OPT := -O0 -g3
+BOR_LEV  := 0x1
 else ifeq ($(BOARD),f411)
 # Chip files from the STM32CubeMX project (Boards/f411/F411_custom.ioc).
 # They live outside Startup/ so the F429 CubeIDE project never builds them.
@@ -45,6 +51,7 @@ LDSCRIPT := Boards/f411/STM32F411CEUX_FLASH.ld
 S_SRCS   := Boards/f411/startup_stm32f411ceux.s
 DEFS     := -DUSE_HAL_DRIVER -DSTM32F411xE -DTARGET_BOARD=2
 DEBUG_OPT := -Og -g3
+BOR_LEV  := 0x0
 else
 $(error BOARD must be f429 or f411)
 endif
@@ -126,6 +133,19 @@ check-chip:
 flash: $(BUILD)/$(TARGET).elf check-chip
 	$(PROGRAMMER) -c port=SWD mode=UR -w $< -v -rst
 
+# Read protection level 1 for shipped readers. The firmware leaves the
+# option bytes alone once protection is set (brownout.c), so the
+# brown-out level (BOR_LEV register value: 0x0 = level 3, 0x1 = level 2,
+# matching brownout.c) is written in the same step. Level 2 is never
+# used: it is permanent and also locks out every later recovery.
+protect: check-chip
+	$(PROGRAMMER) -c port=SWD mode=UR -ob BOR_LEV=$(BOR_LEV) RDP=0xBB
+	$(PROGRAMMER) -c port=SWD mode=HOTPLUG -ob displ | grep -E "RDP|BOR_LEV"
+
+unprotect: check-chip
+	@echo "unprotect: this mass-erases the chip (firmware and saved settings)."
+	$(PROGRAMMER) -c port=SWD mode=UR -ob RDP=0xAA
+
 clean:
 	rm -rf build
 
@@ -141,6 +161,6 @@ hostcheck:
 		-o build/hostcheck/tag_log_host_test
 	build/hostcheck/tag_log_host_test
 
-.PHONY: all flash check-chip hostcheck clean
+.PHONY: all flash check-chip protect unprotect hostcheck clean
 
 -include $(OBJS:.o=.d)

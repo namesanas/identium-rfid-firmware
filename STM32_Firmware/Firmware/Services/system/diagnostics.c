@@ -8,6 +8,8 @@
 #include "loop_monitor.h"
 #include "reset_cause.h"
 #include "stack_monitor.h"
+#include "system_fault.h"
+#include "stm32f4xx_hal.h"
 #include "../../Services/Time/time_service.h"
 #include "../../Protocol/identium_protocol.h"
 
@@ -24,6 +26,23 @@ static const char *Diagnostics_ResetName(ResetCause_t cause)
         case RESET_CAUSE_POWER_ON:  return "POWER_ON";
         case RESET_CAUSE_PIN:       return "PIN";
         default:                    return "UNKNOWN";
+    }
+}
+
+
+/* Read protection level, so a shipped unit can be checked for it
+ * (make protect): 0 = none, 1 = flash locked against SWD readout. */
+static uint8_t Diagnostics_ReadProtection(void)
+{
+    FLASH_OBProgramInitTypeDef ob;
+
+    HAL_FLASHEx_OBGetConfig(&ob);
+
+    switch(ob.RDPLevel)
+    {
+        case OB_RDP_LEVEL_0: return 0U;
+        case OB_RDP_LEVEL_2: return 2U;
+        default:             return 1U;
     }
 }
 
@@ -54,9 +73,23 @@ static void Diagnostics_Append(
 
 uint16_t Diagnostics_Format(char *buffer, uint16_t size)
 {
+    static const struct
+    {
+        uint8_t mask;
+        const char *name;
+    } degradedParts[] =
+    {
+        { SYSTEM_DEGRADED_RFID,     "RFID" },
+        { SYSTEM_DEGRADED_ETHERNET, "ETH"  },
+        { SYSTEM_DEGRADED_WATCHDOG, "WDG"  }
+    };
+
     FaultRecord_t fault;
     uint16_t pos = 0U;
     uint32_t task;
+    uint32_t part;
+    uint8_t degraded;
+    const char *separator;
 
     if((buffer == 0) || (size < 4U))
     {
@@ -114,10 +147,38 @@ uint16_t Diagnostics_Format(char *buffer, uint16_t size)
 
     Diagnostics_Append(buffer, size, &pos,
         snprintf(&buffer[pos], size - pos,
-            ",STACK_USED=%lu,STACK_SIZE=%lu,BOR=%u\r\n",
+            ",STACK_USED=%lu,STACK_SIZE=%lu,BOR=%u,RDP=%u",
             (unsigned long)Stack_Monitor_GetUsed(),
             (unsigned long)Stack_Monitor_GetSize(),
-            (unsigned int)Brownout_GetLevel()));
+            (unsigned int)Brownout_GetLevel(),
+            (unsigned int)Diagnostics_ReadProtection()));
+
+    /* Parts that failed to start, e.g. DEGRADED=RFID+ETH. */
+    Diagnostics_Append(buffer, size, &pos,
+        snprintf(&buffer[pos], size - pos, ",DEGRADED="));
+
+    degraded = System_Fault_GetDegraded();
+    separator = "";
+
+    if(degraded == 0U)
+    {
+        Diagnostics_Append(buffer, size, &pos,
+            snprintf(&buffer[pos], size - pos, "NONE"));
+    }
+
+    for(part = 0U; part < (sizeof(degradedParts) / sizeof(degradedParts[0])); part++)
+    {
+        if((degraded & degradedParts[part].mask) != 0U)
+        {
+            Diagnostics_Append(buffer, size, &pos,
+                snprintf(&buffer[pos], size - pos, "%s%s",
+                    separator, degradedParts[part].name));
+            separator = "+";
+        }
+    }
+
+    Diagnostics_Append(buffer, size, &pos,
+        snprintf(&buffer[pos], size - pos, "\r\n"));
 
     return pos;
 }

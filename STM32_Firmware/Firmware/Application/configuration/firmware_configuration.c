@@ -67,6 +67,12 @@ Silion_Handle_t silion;
 
 extern SILION_ReaderConfig_t readerConfig;
 
+/* Interval between bring-up retries of an RFID module that did not
+ * start. Each retry blocks the main loop for about a second. */
+#define FIRMWARE_RFID_RETRY_MS   10000U
+
+static uint32_t g_rfidRetryAtMs = 0U;
+
 
 /*
  * ============================================================
@@ -147,6 +153,121 @@ static void Firmware_Configuration_UART_Start(void)
 }
 
 
+/*
+ * ============================================================
+ * RFID MODULE BRING-UP
+ *
+ * The proven application-level sequence: configure, then apply
+ * the persisted session, Gen2 settings and boot-time inventory.
+ * Used at start-up and for the retries of a degraded module.
+ * ============================================================
+ */
+
+static uint8_t Firmware_Configuration_StartReader(uint8_t attempts)
+{
+    uint8_t attempt;
+
+    /* A module that answered garbage once gets another chance. */
+    for(attempt = 0U; attempt < attempts; attempt++)
+    {
+        Watchdog_Refresh();
+
+        if(SILION_Application_ConfigureReader() != 0U)
+        {
+            break;
+        }
+    }
+
+    if(attempt >= attempts)
+    {
+        return 0U;
+    }
+
+    /*
+     * The existing ConfigureReader sequence deliberately keeps the
+     * Gen2 session command disabled. Apply the persisted session here
+     * after the module is known to be alive and in application phase.
+     */
+    if(SILION_Application_SetSession(readerConfig.session) == 0U)
+    {
+        return 0U;
+    }
+
+    /* Gen2 target and Q saved with SET_GEN2. Not fatal: if the module
+     * rejects them it keeps its own defaults and reading still works. */
+    if(ReaderSettings_Get()->gen2Valid != 0U)
+    {
+        (void)SILION_Application_SetGen2(
+            ReaderSettings_Get()->gen2Target,
+            ReaderSettings_Get()->gen2Q
+        );
+
+        if(ReaderSettings_Get()->gen2Profile != 0U)
+        {
+            (void)SILION_Application_SetGen2Profile(
+                ReaderSettings_Get()->gen2Profile
+            );
+        }
+    }
+
+    /* Passive work state (vendor tools): no autonomous reading. */
+    if(
+        (Configuration_Service_GetStartInventoryAtBoot() != 0U) &&
+        (ReaderSettings_GetWorkState() == READER_SETTINGS_WORK_ACTIVE)
+    )
+    {
+        if(SILION_Application_StartInventory() == 0U)
+        {
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+
+/*
+ * ============================================================
+ * DEGRADED RFID RETRY
+ *
+ * Only while the module is idle: a vendor tool may be talking to
+ * it through the module bridge, or a host may have started an
+ * inventory by hand.
+ * ============================================================
+ */
+
+void Firmware_Configuration_Task(void)
+{
+    if((System_Fault_GetDegraded() & SYSTEM_DEGRADED_RFID) == 0U)
+    {
+        return;
+    }
+
+    if((int32_t)(Time_GetTickMs() - g_rfidRetryAtMs) < 0)
+    {
+        return;
+    }
+
+    if(SILION_Application_GetState() != SILION_APP_IDLE)
+    {
+        g_rfidRetryAtMs = Time_GetTickMs() + FIRMWARE_RFID_RETRY_MS;
+        return;
+    }
+
+    if(Firmware_Configuration_StartReader(1U) != 0U)
+    {
+        System_Fault_ClearDegraded(SYSTEM_DEGRADED_RFID);
+
+        if(System_Fault_Get() == ERROR_RFID_INIT)
+        {
+            System_Fault_Clear();
+        }
+    }
+
+    g_rfidRetryAtMs = Time_GetTickMs() + FIRMWARE_RFID_RETRY_MS;
+}
+
+
 
 /*
  * ============================================================
@@ -156,8 +277,6 @@ static void Firmware_Configuration_UART_Start(void)
 
 Status_t  Firmware_Configuration_Init(void)
 {
-    uint8_t rfidAttempt;
-
     /*
      * --------------------------------------------------------
      * TIME
@@ -167,6 +286,24 @@ Status_t  Firmware_Configuration_Init(void)
     Reset_Cause_Init();
     (void)Brownout_Init();
     System_Fault_Init();
+
+    /*
+     * --------------------------------------------------------
+     * WATCHDOG
+     *
+     * Started before any peripheral or external chip, so a hang
+     * anywhere in the start-up below resets the reader instead of
+     * leaving it dead. Parts that fail to start leave the reader
+     * running degraded (System_Fault_GetDegraded) rather than
+     * halting it. A watchdog that does not start is degraded too.
+     * --------------------------------------------------------
+     */
+    if(Watchdog_Init() == 0U)
+    {
+        System_Fault_Set(ERROR_WATCHDOG_INIT);
+        System_Fault_SetDegraded(SYSTEM_DEGRADED_WATCHDOG);
+    }
+
     HOST_Transport_Init();
     Identium_Protocol_Init();
     Configuration_Service_Init();
@@ -334,6 +471,8 @@ Status_t  Firmware_Configuration_Init(void)
      * rewriting its protocol implementation in this step.
      * --------------------------------------------------------
      */
+    /* A W5500 that does not start leaves Ethernet down; USB, serial
+     * and WiFi still work, so the reader keeps running. */
     if(
         W5500_Init(
             &w5500Spi,
@@ -347,14 +486,17 @@ Status_t  Firmware_Configuration_Init(void)
         System_Fault_Set(
             ERROR_W5500_INIT
         );
-
-        return STATUS_ERROR;
+        System_Fault_SetDegraded(SYSTEM_DEGRADED_ETHERNET);
     }
+
+    Watchdog_Refresh();
 
 
     /* Tag backup flash shares the W5500 SPI bus (F411 only). A missing
      * or dead chip only disables the backup; the reader still runs. */
     (void)TagLog_Init(&w5500Spi);
+
+    Watchdog_Refresh();
 
 
     if(
@@ -364,8 +506,7 @@ Status_t  Firmware_Configuration_Init(void)
         System_Fault_Set(
             ERROR_W5500_INIT
         );
-
-        return STATUS_ERROR;
+        System_Fault_SetDegraded(SYSTEM_DEGRADED_ETHERNET);
     }
 
 
@@ -381,8 +522,7 @@ Status_t  Firmware_Configuration_Init(void)
         System_Fault_Set(
             ERROR_ETHERNET_INIT
         );
-
-        return STATUS_ERROR;
+        System_Fault_SetDegraded(SYSTEM_DEGRADED_ETHERNET);
     }
 
     /* WiFi is optional: a missing ESP32 never prevents normal reader boot. */
@@ -394,104 +534,28 @@ Status_t  Firmware_Configuration_Init(void)
      * --------------------------------------------------------
      * SILION READER STARTUP / CONFIGURATION
      *
-     * This is the proven application-level sequence.
+     * A module that does not come up leaves the reader running
+     * without RFID, reachable over the network to diagnose
+     * (GET_DIAG); Firmware_Configuration_Task keeps retrying.
      * --------------------------------------------------------
      */
-
-    /* A failed start-up halts the reader for good (Error_Handler), so
-     * a module that answered garbage once gets another chance. */
-    for(
-        rfidAttempt = 0U;
-        (rfidAttempt < 3U) && (SILION_Application_ConfigureReader() == 0U);
-        rfidAttempt++
-    )
-    {
-    }
-
-    if(rfidAttempt >= 3U)
+    if(Firmware_Configuration_StartReader(3U) == 0U)
     {
         System_Fault_Set(
             ERROR_RFID_INIT
         );
+        System_Fault_SetDegraded(SYSTEM_DEGRADED_RFID);
 
-        return STATUS_ERROR;
+        g_rfidRetryAtMs = Time_GetTickMs() + FIRMWARE_RFID_RETRY_MS;
     }
 
+    Watchdog_Refresh();
 
-    /*
-     * The existing ConfigureReader sequence deliberately keeps the
-     * Gen2 session command disabled. Apply the persisted session here
-     * after the module is known to be alive and in application phase.
-     */
-    if(
-        SILION_Application_SetSession(readerConfig.session)
-        == 0U
-    )
+
+    if(System_Fault_GetDegraded() == 0U)
     {
-        System_Fault_Set(
-            ERROR_RFID_INIT
-        );
-
-        return STATUS_ERROR;
+        System_Fault_Clear();
     }
-
-    /* Gen2 target and Q saved with SET_GEN2. Not fatal: if the module
-     * rejects them it keeps its own defaults and reading still works. */
-    if(ReaderSettings_Get()->gen2Valid != 0U)
-    {
-        (void)SILION_Application_SetGen2(
-            ReaderSettings_Get()->gen2Target,
-            ReaderSettings_Get()->gen2Q
-        );
-
-        if(ReaderSettings_Get()->gen2Profile != 0U)
-        {
-            (void)SILION_Application_SetGen2Profile(
-                ReaderSettings_Get()->gen2Profile
-            );
-        }
-    }
-
-
-    /* Passive work state (vendor tools): no autonomous reading. */
-    if(
-        (Configuration_Service_GetStartInventoryAtBoot() != 0U) &&
-        (ReaderSettings_GetWorkState() == READER_SETTINGS_WORK_ACTIVE)
-    )
-    {
-        if(SILION_Application_StartInventory() == 0U)
-        {
-            System_Fault_Set(
-                ERROR_RFID_INIT
-            );
-
-            return STATUS_ERROR;
-        }
-    }
-
-
-    /*
-     * --------------------------------------------------------
-     * WATCHDOG
-     *
-     * Start the independent watchdog only after the complete
-     * firmware startup sequence has succeeded.
-     * --------------------------------------------------------
-     */
-    if(
-        Watchdog_Init()
-        == 0U
-    )
-    {
-        System_Fault_Set(
-            ERROR_WATCHDOG_INIT
-        );
-
-        return STATUS_ERROR;
-    }
-
-
-    System_Fault_Clear();
 
     return STATUS_OK;
 }

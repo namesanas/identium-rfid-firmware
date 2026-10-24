@@ -13,7 +13,19 @@ Before this change, HardFault / MemManage / BusFault / UsageFault / NMI spun in 
 - The stacked frame is only read when the hardware managed to push it (no MSTKERR / STKERR) and it lies in RAM.
 - A magic word and a check word tell a record left by a reset from the random RAM contents left by power-on. A record survives every reset except a power cycle and is lost when the firmware image changes (the section moves).
 - `Fault_Record_Init()` runs first in `main()`. It takes over the previous record and enables the separate MemManage / BusFault / UsageFault exceptions, so faults are reported as their real type.
-- `Error_Handler()` records its caller (`ERROR_HANDLER`) but keeps halting. A start-up failure, such as no RFID module, must not turn into a reset loop.
+- `Error_Handler()` records its caller (`ERROR_HANDLER`) and halts. Once the watchdog runs, it resets the reader about 32 s later. Failing external chips no longer get here (see below), so a reset loop would point to an MCU-level error.
+
+## Watchdog and degraded start-up (`Application/configuration/firmware_configuration.c`)
+
+The watchdog used to start only after a fully successful start-up. Any failure, such as an RFID module that did not answer, halted the reader with no watchdog running, and it stayed dead until a power cycle.
+
+- The IWDG now starts right after the time, reset-cause and brown-out set-up, before any peripheral or external chip. Long start-up steps refresh it.
+- A part that fails to start no longer stops start-up. It is flagged with `System_Fault_SetDegraded()` and the reader keeps running without it:
+  - **RFID** (`ConfigureReader`, session or boot-time inventory failed after 3 attempts): `Firmware_Configuration_Task()` retries the whole bring-up every 10 s, but only while the module is idle, so a vendor tool using the module bridge is not disturbed. Each retry blocks the loop for about 1 s. On success the flag and `ERROR_RFID_INIT` clear.
+  - **ETH** (W5500 start or network set-up failed): Ethernet stays down. USB, serial and WiFi still work.
+  - **WDG** (the LSI clock did not start): the reader runs without a watchdog.
+- `GET_DIAG` reports the flags as `DEGRADED=NONE` or e.g. `DEGRADED=RFID+ETH`.
+- A broken I/O pin table (`Industrial_IO_Init`) is a build error and still ends start-up.
 
 ## Stack budget and overflow guard (`Services/system/stack_monitor.c`)
 
@@ -39,6 +51,16 @@ BOR is off from the factory. `Brownout_Init()` programs the option byte once, wh
 
 Level 3 is too close to the Discovery's rail: it could hold the board in reset for good.
 
+## Read protection (`make protect`)
+
+Shipped readers get read protection level 1, so the firmware cannot be read out over SWD.
+
+- `make protect BOARD=…` sets level 1 (`RDP=0xBB`) after `make flash`. It writes the board's BOR level in the same step, because `Brownout_Init()` leaves protected option bytes alone.
+- The firmware still writes its own settings sectors under level 1.
+- `make unprotect` goes back to level 0. The chip mass-erases itself, firmware and saved settings included.
+- Level 2 is never used: it is permanent and also blocks every later recovery or re-flash.
+- `GET_DIAG` reports the level as `RDP=0|1|2`.
+
 ## Reset cause fix (`Services/system/reset_cause.c`)
 
 A power-on reset sets BORRSTF as well as PORRSTF. The old order checked BOR first, so every power-up was reported as a brown-out. POR is now checked first.
@@ -47,7 +69,7 @@ A power-on reset sets BORRSTF as well as PORRSTF. The old order checked BOR firs
 
 | Command | Reply |
 |---|---|
-| `GET_DIAG` | `DIAG,RESET=…,UPTIME_MS=…,FAULTS=…,LAST_FAULT=…[,PC=…,LR=…,CFSR=…,HFSR=…,MMFAR=…,BFAR=…,AT_MS=…],LOOP_MAX_US=…,PASSES=…,ETH_US=…,CFG_US=…,PROTO_US=…,GPIO_US=…,RFID_US=…,HOST_US=…,STACK_USED=…,STACK_SIZE=…,BOR=…` |
+| `GET_DIAG` | `DIAG,RESET=…,UPTIME_MS=…,FAULTS=…,LAST_FAULT=…[,PC=…,LR=…,CFSR=…,HFSR=…,MMFAR=…,BFAR=…,AT_MS=…],LOOP_MAX_US=…,PASSES=…,ETH_US=…,WIFI_US=…,CFG_US=…,PROTO_US=…,GPIO_US=…,RFID_US=…,HOST_US=…,TLOG_US=…,TAG_DROPPED=…,TAG_EXPIRED=…,STACK_USED=…,STACK_SIZE=…,BOR=…,RDP=…,DEGRADED=…` |
 | `CLEAR_DIAG` | `OK,CLEAR_DIAG`; restarts the loop-timing maxima |
 | `REBOOT` | `OK,REBOOT`; the reader resets itself 500 ms later so the reply still reaches the host |
 | `DEBUG_FAULT,USAGE\|BUS\|STACK` | Debug builds only (`DEBUG` defined): crashes the reader on purpose to test the record. A release build answers `ERROR,INVALID_COMMAND`. |

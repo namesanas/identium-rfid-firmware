@@ -20,6 +20,7 @@
 #include "main.h"
 
 #include "../Firmware/Application/Run_time/firmware_runtime.h"
+#include "../Firmware/Application/configuration/firmware_configuration.h"
 
 #include "../Firmware/Application/Silion/sillion_application.h"
 #include "../Firmware/Application/Host/host_interface.h"
@@ -138,7 +139,8 @@ int main(void)
       LOOP_MONITOR_RUN(LOOP_TASK_PROTOCOL, Identium_Protocol_Task());
       LOOP_MONITOR_RUN(LOOP_TASK_GPIO, GPIO_Service_Task());
 
-      LOOP_MONITOR_RUN(LOOP_TASK_RFID, SILION_Application_Task());
+      /* Retries a degraded RFID module, then serves the module. */
+      LOOP_MONITOR_RUN(LOOP_TASK_RFID, Firmware_Configuration_Task(); SILION_Application_Task());
 
       /* Legacy ASCII parser remains on native USB during migration. */
       LOOP_MONITOR_RUN(LOOP_TASK_HOST, HOST_Interface_Task());
@@ -269,8 +271,10 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* Recorded for GET_DIAG after the next reset; the reader stays halted
-   * (a start-up failure must not turn into a reset loop). */
+  /* Recorded for GET_DIAG after the next reset. Failing external chips
+   * only degrade start-up, so this is reached for MCU-level errors;
+   * once the watchdog runs it resets the reader (about 32 s), before
+   * that (clock set-up) the reader stays halted. */
   Fault_Record_SaveErrorHandler((uint32_t)__builtin_return_address(0));
   __disable_irq();
   while (1)

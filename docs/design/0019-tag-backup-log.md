@@ -2,7 +2,7 @@
 
 ## Scope
 
-The F411 custom board has a 4 MB GigaDevice GD25Q32E SPI NOR flash. Every tag read the reader reports is also stored there, so the latest ~130,000 reads survive host outages and resets. A host reads them back with the text commands below. The F429 Discovery has no such chip: the feature compiles to no-ops there (`BOARD_TAG_LOG_ENABLED 0`), and the commands report `ABSENT`.
+The F411 custom board has a 4 MB GigaDevice GD25Q32E SPI NOR flash. Every tag read the reader reports is also stored there, so the latest ~65,000 reads survive host outages and resets. A host reads them back with the text commands below. The F429 Discovery has no such chip: the feature compiles to no-ops there (`BOARD_TAG_LOG_ENABLED 0`), and the commands report `ABSENT`.
 
 Not yet tested on hardware: so far only the host-side simulation (below) has checked it.
 
@@ -25,7 +25,7 @@ Sharing the bus needs no lock: the W5500 is polled and every SPI access, W5500 o
 
 ## Record format
 
-32 bytes, little endian. 8 records per page, 128 per 4 KB sector, 131,072 slots.
+32 bytes, little endian. 8 records per page, 128 per 4 KB sector, 65,536 slots in the lower 2 MB (the upper 2 MB stages firmware updates, [0020](0020-bootloader-and-signed-update.md)).
 
 | Offset | Size | Field |
 |---|---|---|
@@ -42,13 +42,13 @@ EPCs up to 128 bits are stored whole. Longer ones keep their first 16 bytes and 
 
 ## Ring rules
 
-- A record with sequence `s` always lives in slot `s % 131072`. That number divides 2³², so the mapping keeps working when the 32-bit counter wraps. A read checks the stored sequence, so it can never return a record from an older lap.
-- The sector after the write head is always erased. On entering a new sector, `TagLog_Task()` first starts erasing the next one, so the log keeps at least 1022 full sectors = **130,816 records** (up to 130,944).
+- A record with sequence `s` always lives in slot `s % 65536`. That number divides 2³², so the mapping keeps working when the 32-bit counter wraps. A read checks the stored sequence, so it can never return a record from an older lap.
+- The sector after the write head is always erased. On entering a new sector, `TagLog_Task()` first starts erasing the next one, so the log keeps at least 510 full sectors = **65,280 records** (up to 65,408).
 - Appends go into a 64-record RAM queue (2 KB) and never block. The task programs up to one page per call. While an erase is running, reads wait in the queue. If the queue is full, the read is counted in `DROPPED`.
 
 ## Boot (mount)
 
-1. Read the first intact record of each of the 1024 sectors. The sector whose first sequence is newest (serial-number comparison) holds the write head. Scan it for its newest record; the next sequence follows it.
+1. Read the first intact record of each of the 512 sectors. The sector whose first sequence is newest (serial-number comparison) holds the write head. Scan it for its newest record; the next sequence follows it.
 2. A slot torn by a power cut (fails CRC, not erased) can't be programmed again. Skip forward to the next erased slot of that sector.
 3. Make sure the sector after the head is erased, which repairs an erase cut short by a power cut. If the head sits at a sector start, check that sector too.
 4. The oldest record is the first intact record found walking forward from the head.
@@ -61,7 +61,7 @@ A chip with no valid records (new or holding other data) mounts empty at sequenc
 |---|---|
 | `TAGLOG_STATUS` | `TAGLOG,STATUS,<READY\|CLEARING\|ABSENT>,OLDEST=<seq>,NEXT=<seq>,COUNT=<n>,CAPACITY=<n>,PENDING=<n>,DROPPED=<n>` |
 | `TAGLOG_READ,<seq>,<count>` | Up to 20 lines `TAGLOG,<seq>,<sec>.<ms>,<E\|U>,<ant>,<rssi>,<reads>,<EPC hex>[,TRUNC]`, then `OK,TAGLOG_READ,NEXT=<seq>`. `E` = Unix time, `U` = uptime of the boot that stored it. Sequences that were overwritten or never written are skipped. Bad arguments: `ERROR,TAGLOG_READ` |
-| `TAGLOG_CLEAR` | `OK,TAGLOG_CLEAR`, then a chip erase runs in the background (state `CLEARING`, several seconds). Sequence numbers carry on. `ERROR,TAGLOG_CLEAR` if absent |
+| `TAGLOG_CLEAR` | `OK,TAGLOG_CLEAR`, then the log area (lower 2 MB) is erased in 64 KB blocks in the background (state `CLEARING`, several seconds; the firmware-update staging area in the upper 2 MB is kept). Sequence numbers carry on. `ERROR,TAGLOG_CLEAR` if absent |
 
 To fetch everything: `TAGLOG_STATUS`, then `TAGLOG_READ,<OLDEST>,20` repeatedly, using each reply's `NEXT`, until `NEXT` reaches the status `NEXT`. A host that keeps a cursor should treat a status `NEXT` below its cursor as a cleared log. After `TAGLOG_CLEAR` and a reset with no new tags, numbering restarts at 0.
 

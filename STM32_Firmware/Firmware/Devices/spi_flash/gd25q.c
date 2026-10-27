@@ -12,6 +12,7 @@
 #define GD25Q_CMD_READ_DATA         0x03U
 #define GD25Q_CMD_PAGE_PROGRAM      0x02U
 #define GD25Q_CMD_SECTOR_ERASE      0x20U
+#define GD25Q_CMD_BLOCK_ERASE       0xD8U
 #define GD25Q_CMD_CHIP_ERASE        0xC7U
 #define GD25Q_CMD_READ_JEDEC_ID     0x9FU
 #define GD25Q_CMD_RELEASE_POWERDOWN 0xABU
@@ -336,6 +337,31 @@ uint8_t GD25Q_StartSectorErase(uint32_t address)
     GD25Q_CS_Low();
     (void)GD25Q_SPI_Transfer(GD25Q_CMD_SECTOR_ERASE);
     GD25Q_SendAddress(address - (address % GD25Q_SECTOR_SIZE));
+    GD25Q_CS_High();
+
+    return 1U;
+}
+
+uint8_t GD25Q_StartBlockErase(uint32_t address)
+{
+    if((g_gd25q.present == 0U) || (address >= GD25Q_SIZE_BYTES))
+    {
+        return 0U;
+    }
+
+    if(GD25Q_IsBusy() != 0U)
+    {
+        return 0U;
+    }
+
+    if(GD25Q_WriteEnable() == 0U)
+    {
+        return 0U;
+    }
+
+    GD25Q_CS_Low();
+    (void)GD25Q_SPI_Transfer(GD25Q_CMD_BLOCK_ERASE);
+    GD25Q_SendAddress(address - (address % GD25Q_BLOCK_SIZE));
     GD25Q_CS_High();
 
     return 1U;

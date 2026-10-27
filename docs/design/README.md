@@ -23,3 +23,4 @@ File paths in these records are relative to `STM32_Firmware/` unless they name a
 - [0017 — Fault Handling and Runtime Diagnostics](0017-fault-handling-and-runtime-diagnostics.md)
 - [0018 — RF Settings Persistence, Gen2 and Buzzer Commands](0018-rf-settings-persistence.md)
 - [0019 — Tag Backup Log in External SPI Flash (F411)](0019-tag-backup-log.md)
+- [0020 — Bootloader and Signed Firmware Update](0020-bootloader-and-signed-update.md)

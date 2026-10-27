@@ -45,9 +45,10 @@ _Min_Stack_Size = 0x4000; /* main stack budget, enforced by the MPU guard (stack
 MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
-  /* Sectors 0-4 only: sectors 5-7 hold the settings (reader_settings.c,
-   * configuration_storage.c), so the image must never reach them. */
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 128K
+  /* Sectors 1-4 only: sector 0 is the bootloader, sectors 5-7 hold the
+   * settings (reader_settings.c, configuration_storage.c), so the image
+   * must never reach them (Firmware/Common/firmware_image.h). */
+  FLASH    (rx)    : ORIGIN = 0x8004000,   LENGTH = 112K
 }
 
 /* Sections */

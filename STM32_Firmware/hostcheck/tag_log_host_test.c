@@ -140,13 +140,23 @@ uint8_t GD25Q_StartSectorErase(uint32_t address)
     return 1U;
 }
 
-uint8_t GD25Q_StartChipErase(void)
+uint8_t GD25Q_StartBlockErase(uint32_t address)
 {
+    uint32_t base = address - (address % GD25Q_BLOCK_SIZE);
+
     if(g_busyPolls > 0U)
         return 0U;
-    memset(g_flash, 0xFF, sizeof(g_flash));
-    g_busyPolls = 50U;
+    memset(&g_flash[base], 0xFF, GD25Q_BLOCK_SIZE);
+    g_busyPolls = 10U;
     return 1U;
+}
+
+/* The log must never erase the whole chip: the upper half holds the
+ * firmware update staging area. */
+uint8_t GD25Q_StartChipErase(void)
+{
+    CHECK(0 && "chip erase");
+    return 0U;
 }
 
 /* ============================================================
@@ -256,7 +266,7 @@ static void TestEmptyAndBasic(void)
     CHECK(s.state == TAG_LOG_STATE_READY);
     CHECK(s.oldestSeq == 0U);
     CHECK(s.nextSeq == 0U);
-    CHECK(s.capacity == 130816U);
+    CHECK(s.capacity == 65280U);
 
     AppendTags(0U, 10U);
     Status(&s);
@@ -310,9 +320,23 @@ static void TestWrapAround(void)
            (unsigned long)total, (unsigned long)s.oldestSeq,
            (unsigned long)s.nextSeq, (unsigned long)count,
            (unsigned long)g_sectorErases);
-    CHECK(count >= 130816U);
-    CHECK(count <= 130944U);
+    CHECK(count >= 65280U);
+    CHECK(count <= 65408U);
     CHECK(VerifyRange(s.oldestSeq, s.nextSeq, s.oldestSeq) == 0U);
+
+    /* The upper 2 MB is the firmware update staging area. */
+    {
+        uint32_t i;
+        uint8_t untouched = 1U;
+
+        for(i = GD25Q_SIZE_BYTES / 2U; i < GD25Q_SIZE_BYTES; i++)
+        {
+            if(g_flash[i] != 0xFFU)
+                untouched = 0U;
+        }
+
+        CHECK(untouched == 1U);
+    }
 
     /* One before the oldest is gone. */
     {
@@ -444,6 +468,10 @@ static void TestClear(void)
     CHECK(TagLog_Init(&g_spi) == 1U);
     AppendTags(0U, 500U);
 
+    /* Something staged in the upper half, which a clear must keep. */
+    g_flash[GD25Q_SIZE_BYTES / 2U] = 0x54U;
+    g_flash[GD25Q_SIZE_BYTES - 1U] = 0x54U;
+
     CHECK(TagLog_Clear() == 1U);
     TagLog_Task();
     Status(&s);
@@ -456,6 +484,11 @@ static void TestClear(void)
     CHECK(s.oldestSeq == 500U);
     CHECK(s.nextSeq == 500U);
     CHECK(TagLog_Read(10U, &rec) == 0U);
+    CHECK(g_flash[GD25Q_SIZE_BYTES / 2U] == 0x54U);
+    CHECK(g_flash[GD25Q_SIZE_BYTES - 1U] == 0x54U);
+    CHECK(g_flash[GD25Q_SIZE_BYTES / 2U - 1U] == 0xFFU);
+    g_flash[GD25Q_SIZE_BYTES / 2U] = 0xFFU;
+    g_flash[GD25Q_SIZE_BYTES - 1U] = 0xFFU;
 
     AppendTags(9000U, 20U);
     CHECK(VerifyRange(500U, 520U, 9000U) == 0U);

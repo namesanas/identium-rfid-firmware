@@ -24,6 +24,7 @@
 
 #define GD25Q_SIZE_BYTES            (4UL * 1024UL * 1024UL)
 #define GD25Q_SECTOR_SIZE           4096UL
+#define GD25Q_BLOCK_SIZE            65536UL
 #define GD25Q_PAGE_SIZE             256UL
 #define GD25Q_SECTOR_COUNT          (GD25Q_SIZE_BYTES / GD25Q_SECTOR_SIZE)
 
@@ -62,7 +63,11 @@ uint8_t GD25Q_StartPageProgram(
 /* Starts erasing the 4 KB sector that holds the address. */
 uint8_t GD25Q_StartSectorErase(uint32_t address);
 
-/* Starts erasing the whole chip (several seconds). */
+/* Starts erasing the 64 KB block that holds the address. */
+uint8_t GD25Q_StartBlockErase(uint32_t address);
+
+/* Starts erasing the whole chip (several seconds). On the F411 this
+ * also wipes the firmware-update staging area in the upper 2 MB. */
 uint8_t GD25Q_StartChipErase(void);
 
 #endif /* RFID_CONTROLLER_DEVICE_GD25Q_H */

@@ -25,7 +25,7 @@ Firmware and host applications for the Identium UHF RFID reader.
 | F429 Discovery | `make` / `make CONFIG=release` | `build/debug/rfid_controller.elf` / `build/release/rfid_controller.elf` |
 | F411 custom board | `make BOARD=f411` / `make BOARD=f411 CONFIG=release` | `build/f411-debug/rfid_controller_f411.elf` / `build/f411-release/rfid_controller_f411.elf` |
 
-Add `flash` to program over SWD (for example `make BOARD=f411 CONFIG=release flash`). It first reads the chip on the ST-LINK and refuses to flash an image built for the other board. `make check-chip` runs only that check.
+Add `flash` to program the bootloader and the application over SWD (for example `make BOARD=f411 CONFIG=release flash`). It first reads the chip on the ST-LINK and refuses to flash an image built for the other board. `make check-chip` runs only that check. Every board needs `make flash` once since the bootloader was added: the application now starts at `0x08004000`. After that, `make image` builds a signed update that `STM32_Firmware/Tools/fw_update.py` installs over any host link (see [design 0020](docs/design/0020-bootloader-and-signed-update.md)).
 
 In STM32CubeIDE, pick the board with the build configuration (hammer drop-down or Project → Build Configurations → Set Active): **Debug** and **Release** build the F429 (`RFID_Controller_F429.elf`); **F411** builds the custom board (`RFID_Controller_F429_f411.elf`, output folder `F411/`). The F411 port is described in [`docs/notes/f411-custom-board-port.md`](docs/notes/f411-custom-board-port.md).
 

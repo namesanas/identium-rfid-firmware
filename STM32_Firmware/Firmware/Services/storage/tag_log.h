@@ -4,9 +4,9 @@
  * Tag read backup in the external SPI flash (F411 custom board).
  *
  * Every tag the reader reports is appended to a ring log of 32-byte
- * records that fills the 4 MB GD25Q32E. Once full, the oldest 4 KB
- * sector is erased to make room, so the log always holds the latest
- * ~130,000 reads.
+ * records in the lower 2 MB of the GD25Q32E (the upper 2 MB stages
+ * firmware updates). Once full, the oldest 4 KB sector is erased to
+ * make room, so the log always holds the latest ~65,000 reads.
  *
  * Each record has a sequence number that only grows; a record's flash
  * slot is its sequence number modulo the slot count. A host reads the
@@ -36,7 +36,7 @@ typedef enum
 {
     TAG_LOG_STATE_ABSENT = 0,   /* no flash, or it did not answer */
     TAG_LOG_STATE_READY,
-    TAG_LOG_STATE_CLEARING      /* chip erase running */
+    TAG_LOG_STATE_CLEARING      /* erasing the log area */
 } TagLog_State_t;
 
 typedef struct

@@ -48,8 +48,8 @@ Two targets build from one source tree:
 
 | Target | MCU | Clock | Flash used for code | Purpose |
 |---|---|---|---|---|
-| F429 Discovery (`BOARD=f429`, default) | STM32F429ZIT6, 2 MB flash, 192 KB RAM + 64 KB CCM | 168 MHz (8 MHz HSE) | 1664 KB | Bench rig |
-| F411 custom board (`BOARD=f411`) | STM32F411CEU6, 512 KB flash, 128 KB RAM | 96 MHz (8 MHz HSE) | 128 KB | Product board |
+| F429 Discovery (`BOARD=f429`, default) | STM32F429ZIT6, 2 MB flash, 192 KB RAM + 64 KB CCM | 168 MHz (8 MHz HSE) | 624 KB | Bench rig |
+| F411 custom board (`BOARD=f411`) | STM32F411CEU6, 512 KB flash, 128 KB RAM | 96 MHz (8 MHz HSE) | 112 KB | Product board |
 
 Board selection is a compile-time define: `TARGET_BOARD` (`Firmware/Config/firmware_config.h`, `BOARD_F429_DISCOVERY = 1`, `BOARD_F411_CUSTOM = 2`, default 1) plus the CMSIS device define (`STM32F429xx` or `STM32F411xE`).
 
@@ -66,12 +66,13 @@ STM32_Firmware/
 ├── .mxproject, RFID_Controller_F429.ioc   F429 CubeMX project (reference only)
 ├── RFID_Controller_F429.launch   CubeIDE debug launch, loads Debug/RFID_Controller_F429.elf
 ├── RFID_Controller_F411.launch   CubeIDE debug launch, loads F411/RFID_Controller_F429_f411.elf
-├── STM32F429ZITX_FLASH.ld        F429 linker script: FLASH 1664 K, 16 KB stack budget, .noinit
+├── STM32F429ZITX_FLASH.ld        F429 linker script: FLASH 624 K from 0x08004000, 16 KB stack budget, .noinit
+├── Bootloader/                   Sector-0 bootloader: signature check and install (design 0020)
 ├── STM32F429ZITX_RAM.ld          CubeIDE-generated RAM-run script; not used by the Makefile
 ├── Startup/startup_stm32f429zitx.s   F429 vector table / reset handler
 ├── Boards/f411/
 │   ├── F411_custom.ioc           CubeMX project for the custom board (reopen to regenerate)
-│   ├── STM32F411CEUX_FLASH.ld    F411 linker script: FLASH 128 K (sectors 0-4), .noinit
+│   ├── STM32F411CEUX_FLASH.ld    F411 linker script: FLASH 112 K (sectors 1-4), .noinit
 │   └── startup_stm32f411ceux.s   F411 vector table (kept out of Startup/ on purpose, see 8.4)
 ├── Inc/                          main.h, stm32f4xx_hal_conf.h (HSE_VALUE 8 MHz), stm32f4xx_it.h
 ├── Src/
@@ -275,7 +276,9 @@ Notes:
 
 | | F429 | F411 |
 |---|---|---|
-| Code region (linker) | 0x08000000, 1664 KB (sectors 0–20) | 0x08000000, 128 KB (sectors 0–4) |
+| Bootloader | sector 0, 0x08000000, 16 KB | sector 0, 0x08000000, 16 KB |
+| Code region (linker) | 0x08004000, 624 KB (sectors 1–11) | 0x08004000, 112 KB (sectors 1–4) |
+| Update staging | sectors 12–20, 0x08100000, 640 KB | SPI flash 0x200000, 2 MB |
 | Reader settings | sector 21, 0x081A0000 | sector 5, 0x08020000 |
 | Identium config A / B | sector 22, 0x081C0000 / sector 23, 0x081E0000 | sector 6, 0x08040000 / sector 7, 0x08060000 |
 | RAM | 192 KB at 0x20000000 (+ 64 KB CCM, unused) | 128 KB at 0x20000000 |
@@ -478,6 +481,7 @@ Each answers `ERROR,<CMD>` on failure.
 | `CLEAR_DIAG` | `OK,CLEAR_DIAG` (resets the loop-timing maxima only) |
 | `REBOOT` | `OK,REBOOT`, then a software reset 500 ms later (`RESET=SOFTWARE` in `GET_DIAG` afterwards). Tag-log records still queued in RAM are lost |
 | `TAGLOG_STATUS` / `TAGLOG_READ,<seq>,<count>` / `TAGLOG_CLEAR` | Tag backup log in the F411's SPI flash, see design note 0019. `ABSENT` on the F429 |
+| `FW_STATUS` / `FW_BEGIN` / `FW_DATA` / `FW_END` / `FW_APPLY` / `FW_ABORT` | Signed firmware update, see design note 0020. `Tools/fw_update.py` sends the whole sequence |
 | `DEBUG_FAULT,USAGE\|BUS\|STACK` | Debug builds only (`DEBUG` defined). Crashes the MCU on purpose; no reply. Unknown argument: `ERROR,DEBUG_FAULT`. In a release build the command does not exist: `ERROR,INVALID_COMMAND` |
 
 ### 5.5 Identium JSON-over-TCP protocol (active mode)
@@ -936,8 +940,9 @@ PROG="/c/ST/STM32CubeCLT_1.22.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe
 
 | Task | Command |
 |---|---|
-| Flash, verify, reset | `"$PROG" -c port=SWD mode=UR -w build/release/rfid_controller.elf -v -rst` |
-| Flash with the Makefile | `make CONFIG=release flash PROGRAMMER="$PROG"` |
+| Flash bootloader + application | `make CONFIG=release flash PROGRAMMER="$PROG"` |
+| Flash only the application | `make CONFIG=release flash-app PROGRAMMER="$PROG"` or `"$PROG" -c port=SWD mode=UR -w build/release/rfid_controller.elf -v -rst` |
+| Signed update image | `make CONFIG=release image`, then `python Tools/fw_update.py --port COM3 build/release/rfid_controller-<version>.tlfw` |
 | Flash F411 | `make BOARD=f411 CONFIG=release flash PROGRAMMER="$PROG"` |
 | Device ID only (no reset) | `make check-chip PROGRAMMER="$PROG"` or `"$PROG" -c port=SWD mode=HOTPLUG` |
 | Full chip erase (also erases settings) | `"$PROG" -c port=SWD mode=UR -e all` |
@@ -946,6 +951,8 @@ PROG="/c/ST/STM32CubeCLT_1.22.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe
 | Show option bytes (BOR level) | `"$PROG" -c port=SWD -ob displ` |
 
 Device IDs: `0x419` = STM32F42x/43x (Discovery), `0x431` = STM32F411.
+
+The application starts at `0x08004000`, after the bootloader in sector 0 (design 0020). Programming only the application (`flash-app`, CubeIDE) onto a board without the bootloader leaves it unable to start: run `make flash` once per board.
 
 Use `-hardRst` for resets during tests. A `mode=HOTPLUG -rst` soft reset was once seen to leave the MCU stuck in start-up; the cause was not confirmed.
 

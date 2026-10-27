@@ -35,11 +35,16 @@
  * the log holds at least (sectors - 2) full sectors once it is full.
  * ============================================================ */
 
+/* The lower half of the flash: the upper half is the firmware update
+ * staging area (Common/firmware_image.h, FW_STAGING_ADDRESS). */
+#define TAG_LOG_FLASH_BYTES         (GD25Q_SIZE_BYTES / 2UL)
+
 #define TAG_LOG_RECORD_SIZE         32U
-#define TAG_LOG_SLOT_COUNT          (GD25Q_SIZE_BYTES / TAG_LOG_RECORD_SIZE)
+#define TAG_LOG_SLOT_COUNT          (TAG_LOG_FLASH_BYTES / TAG_LOG_RECORD_SIZE)
 #define TAG_LOG_SLOTS_PER_SECTOR    (GD25Q_SECTOR_SIZE / TAG_LOG_RECORD_SIZE)
 #define TAG_LOG_SLOTS_PER_PAGE      (GD25Q_PAGE_SIZE / TAG_LOG_RECORD_SIZE)
-#define TAG_LOG_SECTOR_COUNT        GD25Q_SECTOR_COUNT
+#define TAG_LOG_SECTOR_COUNT        (TAG_LOG_FLASH_BYTES / GD25Q_SECTOR_SIZE)
+#define TAG_LOG_BLOCK_COUNT         (TAG_LOG_FLASH_BYTES / GD25Q_BLOCK_SIZE)
 #define TAG_LOG_CAPACITY            \
     ((TAG_LOG_SECTOR_COUNT - 2UL) * TAG_LOG_SLOTS_PER_SECTOR)
 
@@ -74,6 +79,7 @@ typedef struct
 
     uint8_t flashBusy;      /* a program or erase was started */
     uint8_t clearRequested;
+    uint32_t clearBlock;    /* next 64 KB block to erase while clearing */
 
     uint8_t queue[TAG_LOG_QUEUE_SIZE][TAG_LOG_RECORD_SIZE];
     uint16_t queueHead;
@@ -515,26 +521,34 @@ void TagLog_Task(void)
         }
 
         g_tagLog.flashBusy = 0U;
-
-        if(g_tagLog.state == TAG_LOG_STATE_CLEARING)
-        {
-            /* Whole chip erased: the log restarts at the current seq. */
-            g_tagLog.state = TAG_LOG_STATE_READY;
-            g_tagLog.oldestSeq = g_tagLog.nextSeq;
-            g_tagLog.headSector = TagLog_SectorOf(g_tagLog.nextSeq);
-        }
     }
 
     if(g_tagLog.clearRequested != 0U)
     {
-        if(GD25Q_StartChipErase() != 0U)
+        g_tagLog.clearRequested = 0U;
+        g_tagLog.clearBlock = 0U;
+        g_tagLog.state = TAG_LOG_STATE_CLEARING;
+    }
+
+    if(g_tagLog.state == TAG_LOG_STATE_CLEARING)
+    {
+        /* Erase only the log area, one 64 KB block per call: a chip
+         * erase would also wipe the firmware-update staging area. */
+        if(g_tagLog.clearBlock < TAG_LOG_BLOCK_COUNT)
         {
-            g_tagLog.clearRequested = 0U;
-            g_tagLog.flashBusy = 1U;
-            g_tagLog.state = TAG_LOG_STATE_CLEARING;
+            if(GD25Q_StartBlockErase(g_tagLog.clearBlock * GD25Q_BLOCK_SIZE) != 0U)
+            {
+                g_tagLog.clearBlock++;
+                g_tagLog.flashBusy = 1U;
+            }
+
+            return;
         }
 
-        return;
+        /* Log area erased: the log restarts at the current seq. */
+        g_tagLog.state = TAG_LOG_STATE_READY;
+        g_tagLog.oldestSeq = g_tagLog.nextSeq;
+        g_tagLog.headSector = TagLog_SectorOf(g_tagLog.nextSeq);
     }
 
     if(g_tagLog.queueCount == 0U)

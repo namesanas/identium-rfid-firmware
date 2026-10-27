@@ -19,6 +19,7 @@
 #include "../../Services/configuration/vendor_config.h"
 #include "../../Services/wifi/wifi_service.h"
 #include "../../Services/storage/tag_log.h"
+#include "../../Services/update/firmware_update.h"
 
 
 
@@ -745,6 +746,125 @@ static uint8_t HOST_EnsureInventoryStopped(void)
     return (SILION_Application_IsInventoryRunning() == 0U) ? 1U : 0U;
 }
 
+/* Bytes per FW_DATA line: 256 hex characters fit HOST_RX_BUFFER_SIZE. */
+#define HOST_FW_CHUNK_MAX 128U
+
+/* Firmware update over any host link (docs/design/0020):
+ *
+ *   FW_BEGIN,<bytes>        -> OK,FW_BEGIN,CHUNK=128
+ *   FW_DATA,<offset>,<hex>  -> OK,FW_DATA,<bytes received>
+ *   FW_END                  -> OK,FW_END,<version>   (SHA-256 checked)
+ *   FW_APPLY                -> OK,FW_APPLY, then a reset into the
+ *                              bootloader, which checks the signature
+ *   FW_ABORT                -> OK,FW_ABORT
+ *   FW_STATUS               -> FW,STATE=..,RECEIVED=..,BOOT=..,LAST=..,VERSION=..
+ *
+ * Errors: ERROR,<command>,<reason>; FW_DATA adds the byte count the
+ * reader expects next. Returns 0 for a command that is not one of these. */
+static uint8_t HOST_FirmwareUpdateCommand(const char *command)
+{
+    static uint8_t data[HOST_FW_CHUNK_MAX];
+    char line[112];
+    char version[32];
+    FirmwareUpdate_Result_t result;
+    uint8_t length;
+    char *end;
+    uint32_t value;
+
+    if(strncmp(command, "FW_DATA,", 8U) == 0)
+    {
+        value = (uint32_t)strtoul(&command[8], &end, 10);
+
+        if(
+            (end == &command[8]) || (*end != ',') ||
+            (HOST_ParseHexBytes(end + 1, data, HOST_FW_CHUNK_MAX, &length) == 0U)
+        )
+        {
+            (void)snprintf(line, sizeof(line), "ERROR,FW_DATA,FORMAT,%lu\r\n",
+                           (unsigned long)FirmwareUpdate_GetReceived());
+        }
+        else if((result = FirmwareUpdate_Write(value, data, length)) != FW_UPDATE_OK)
+        {
+            (void)snprintf(line, sizeof(line), "ERROR,FW_DATA,%s,%lu\r\n",
+                           FirmwareUpdate_ResultName(result),
+                           (unsigned long)FirmwareUpdate_GetReceived());
+        }
+        else
+        {
+            (void)snprintf(line, sizeof(line), "OK,FW_DATA,%lu\r\n",
+                           (unsigned long)FirmwareUpdate_GetReceived());
+        }
+    }
+    else if(strncmp(command, "FW_BEGIN,", 9U) == 0)
+    {
+        value = (uint32_t)strtoul(&command[9], &end, 10);
+
+        if((end == &command[9]) || (*end != '\0'))
+            (void)snprintf(line, sizeof(line), "ERROR,FW_BEGIN,FORMAT\r\n");
+        else if(HOST_EnsureInventoryStopped() == 0U)
+            (void)snprintf(line, sizeof(line), "ERROR,FW_BEGIN,INVENTORY\r\n");
+        else if((result = FirmwareUpdate_Begin(value)) != FW_UPDATE_OK)
+            (void)snprintf(line, sizeof(line), "ERROR,FW_BEGIN,%s\r\n",
+                           FirmwareUpdate_ResultName(result));
+        else
+            (void)snprintf(line, sizeof(line), "OK,FW_BEGIN,CHUNK=%u\r\n",
+                           (unsigned int)HOST_FW_CHUNK_MAX);
+    }
+    else if(strcmp(command, "FW_END") == 0)
+    {
+        if((result = FirmwareUpdate_Finish()) != FW_UPDATE_OK)
+            (void)snprintf(line, sizeof(line), "ERROR,FW_END,%s\r\n",
+                           FirmwareUpdate_ResultName(result));
+        else
+            (void)snprintf(line, sizeof(line), "OK,FW_END,%s\r\n",
+                           FirmwareUpdate_GetVersion());
+    }
+    else if(strcmp(command, "FW_APPLY") == 0)
+    {
+        if((result = FirmwareUpdate_Apply()) != FW_UPDATE_OK)
+        {
+            (void)snprintf(line, sizeof(line), "ERROR,FW_APPLY,%s\r\n",
+                           FirmwareUpdate_ResultName(result));
+        }
+        else
+        {
+            (void)snprintf(line, sizeof(line), "OK,FW_APPLY\r\n");
+
+            /* Delayed so the reply still reaches the host. */
+            ReaderSettings_RequestReboot(500U);
+        }
+    }
+    else if(strcmp(command, "FW_ABORT") == 0)
+    {
+        FirmwareUpdate_Abort();
+        (void)snprintf(line, sizeof(line), "OK,FW_ABORT\r\n");
+    }
+    else if(strcmp(command, "FW_STATUS") == 0)
+    {
+        static const char *const stateNames[] = { "IDLE", "RECEIVING", "READY" };
+        const char *last = FirmwareUpdate_GetLastOutcome(version, sizeof(version));
+
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "FW,STATE=%s,RECEIVED=%lu,BOOT=%s,LAST=%s,VERSION=%s\r\n",
+            stateNames[FirmwareUpdate_GetState()],
+            (unsigned long)FirmwareUpdate_GetReceived(),
+            (FirmwareUpdate_BootloaderPresent() != 0U) ? "1" : "NONE",
+            last,
+            version
+        );
+    }
+    else
+    {
+        return 0U;
+    }
+
+    HOST_SendString(line);
+
+    return 1U;
+}
+
 
 void HOST_Interface_Task(void)
 	{
@@ -1197,6 +1317,18 @@ void HOST_Interface_Task(void)
                         "ERROR,TAGLOG_CLEAR\r\n"
                     );
                 }
+            }
+
+            /*
+             * =================================================
+             * FIRMWARE UPDATE (FW_BEGIN, FW_DATA, FW_END, ...)
+             * =================================================
+             */
+            else if(
+                (strncmp(hostRxBuffer, "FW_", 3U) == 0) &&
+                (HOST_FirmwareUpdateCommand(hostRxBuffer) != 0U)
+            )
+            {
             }
 
 #ifdef DEBUG

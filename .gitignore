@@ -33,3 +33,8 @@ TAGlink_Desktop/screenshots/
 
 # Command-line build output (Makefile)
 build/
+
+# Firmware signing key (Tools/fw_sign.py): never commit; keep a backup
+STM32_Firmware/keys/
+*.pem
+*.tlfw

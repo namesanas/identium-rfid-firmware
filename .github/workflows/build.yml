@@ -10,9 +10,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Host-side protocol test
+      # Tools/fw_sign.py signs the bootloader test images.
+      - name: Install Python cryptography
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-cryptography
+
+      - name: Host-side tests
         working-directory: STM32_Firmware
-        run: make hostcheck
+        run: make hostcheck PYTHON=python3
 
   build:
     runs-on: ubuntu-24.04
@@ -43,3 +49,4 @@ jobs:
             STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.hex
             STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.bin
             STM32_Firmware/build/${{ env.OUT }}/rfid_controller*.map
+            STM32_Firmware/build/boot-${{ matrix.board }}/bootloader.*

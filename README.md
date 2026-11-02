@@ -16,6 +16,10 @@ Firmware and host applications for the Identium UHF RFID reader.
 - [ESP32 coprocessor](docs/notes/dev-guide-esp32-coprocessor.md): building and flashing with ESP-IDF for the DevKit and the ESP32-C3, troubleshooting
 - [TAGlink apps](docs/notes/dev-guide-taglink-apps.md): desktop and mobile features, connections, building the exe and APK, releasing
 
+Picking the work back up after a break: [open items](docs/notes/open-items.md) —
+what is verified on hardware, what is not, the outstanding audit fixes and the
+commands to get going again.
+
 ## Building
 
 **STM32 firmware** — one source tree for both boards; the board is chosen when building. Needs `arm-none-eabi-gcc` (STM32CubeCLT) and a Unix shell (Git Bash on Windows):

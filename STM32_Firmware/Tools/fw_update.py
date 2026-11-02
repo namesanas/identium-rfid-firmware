@@ -70,7 +70,11 @@ class Link:
             if not data:
                 raise ConnectionError("connection closed")
             return data
-        return self.conn.read(4096)
+        # read(n) waits for n bytes or the port timeout, so ask only for what
+        # has already arrived (at least one byte). Reading a fixed 4096 here
+        # would spend the full timeout on every chunk and make the transfer
+        # several times slower than the link.
+        return self.conn.read(max(1, self.conn.in_waiting))
 
     def reply(self, prefixes, timeout_s=REPLY_TIMEOUT_S):
         """Next line starting with one of prefixes; other lines (tags,

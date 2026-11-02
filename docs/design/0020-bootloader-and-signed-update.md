@@ -4,7 +4,7 @@
 
 Readers can be updated in the field over any host link (USB CDC, host serial port, TCP 5000, WiFi) without SWD. The new firmware only runs if it is signed with the Identium signing key. A small bootloader in flash sector 0 checks the signature and installs the image. Together with read protection (`make protect`, [0017](0017-fault-handling-and-runtime-diagnostics.md)), this means a fielded reader only ever runs firmware we built and signed.
 
-Not yet tested on hardware. So far it has been checked only by the host tests (below) and by builds of all four board/config combinations.
+Tested on the F429 bench reader on 2026-11-02: a signed image installs over USB CDC and the reader comes back up healthy; an image with a tampered signature is rejected by the bootloader (`LAST=BAD_SIGNATURE`) and the installed application keeps running. Also covered by the host tests (below) and by builds of all four board/config combinations. The F411 path is still untested on hardware.
 
 ## Flash layout
 
@@ -91,7 +91,8 @@ Errors are `ERROR,<command>,<reason>`:
   - `sign`: signs a `.bin`.
   - `info <image> [--public-c Bootloader/boot_public_key.c]`: prints an image header and checks its signature.
   - Needs `python -m pip install cryptography`.
-- `Tools/fw_update.py --port COM3 | --tcp <ip> <image.tlfw>`: runs the whole sequence and waits for the verdict. `--status` only prints `FW_STATUS`. Over a 115200-baud serial link a 90 KB image takes roughly 20 s.
+- Step-by-step instructions for all of this, including signing a build made outside the Makefile and sending one from STM32CubeIDE, are in [how-to-build-a-firmware-update-image](../notes/how-to-build-a-firmware-update-image.md).
+- `Tools/fw_update.py --port COM3 | --tcp <ip> <image.tlfw>`: runs the whole sequence and waits for the verdict. `--status` only prints `FW_STATUS`. A 90 KB image takes about 5 s over USB CDC, and roughly 20 s over a 115200-baud serial link, where the hex encoding doubles the bytes on the wire.
 
 ## Signing key
 
@@ -104,7 +105,28 @@ The public half in `Bootloader/boot_public_key.c` is committed.
 - No rollback protection: any correctly signed image installs, including an older one.
 - No automatic fallback: if a signed image installs but then misbehaves, the reader keeps running it until a fixed image is sent. Verified signatures rule out corrupted images, but not buggy ones.
 - The bootloader checks the signature only when installing, not on every boot. With read protection level 1, flash cannot be rewritten over SWD without a mass erase, so the installed image can only come through this path.
-- Not yet in TAGlink Desktop / Mobile; `Tools/fw_update.py` is the host side for now.
+- Not yet in TAGlink Mobile. TAGlink Desktop has it on its Firmware page (below); `Tools/fw_update.py` is the other host side.
+
+## TAGlink Desktop
+
+The Firmware page (`TAGlink_Desktop/firmware_page.py`) is the operator-facing
+side of the same sequence: it shows what the reader reports, checks a chosen
+`.tlfw` locally, uploads it with a progress bar, and reports the bootloader's
+verdict after the restart.
+
+- It checks everything the reader checks except the signature, which only the
+  bootloader can verify: magic, header format, load address, size and the
+  SHA-256 of the binary. A wrong or damaged file is refused before anything is
+  sent.
+- The chunks are written straight to the transport rather than through the
+  GUI's command queue, which puts a deliberate 100 ms gap between commands and
+  would add more than a minute over the ~720 chunks of a 90 KB image.
+  `SerialManager.set_poll_interval()` tightens the transport's idle poll for the
+  duration of the upload.
+- After `FW_APPLY` it reuses the existing restart handling (`restart_deadline`),
+  so it reconnects as soon as the reader is back and then asks `FW_STATUS`.
+- A reader with no bootloader is reported as such and the Send button stays
+  disabled.
 
 ## Host tests (`make hostcheck`)
 

@@ -25,6 +25,11 @@ class SerialManager(QObject):
         self.transport = None
         self.binary_mode = False
         self.buf = bytearray()
+        # How long the worker waits for a new command before checking the
+        # port again. 20 ms is fine for the GUI's one-command-at-a-time
+        # traffic, but it dominates an operation made of hundreds of small
+        # round trips (a firmware upload), so that can ask for less.
+        self.poll_interval = 0.02
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
@@ -157,6 +162,11 @@ class SerialManager(QObject):
 
     def send_bytes(self, data):
         self.q.put(('send_bytes', bytes(data)))
+
+    def set_poll_interval(self, seconds):
+        """Worker wait between port reads. A single float assignment, so it
+        needs no lock; the worker picks it up on its next loop."""
+        self.poll_interval = min(0.02, max(0.002, float(seconds)))
 
     def set_binary_mode(self, enabled):
         self.q.put(('binary_mode', bool(enabled)))
@@ -359,7 +369,7 @@ class SerialManager(QObject):
     def _run(self):
         while not self.stop.is_set():
             try:
-                kind, payload = self.q.get(timeout=.02)
+                kind, payload = self.q.get(timeout=self.poll_interval)
                 if kind == 'connect':
                     self._open(*payload)
                 elif kind == 'disconnect':

@@ -13,7 +13,7 @@ import theme
 
 # Segoe Fluent Icons / Segoe MDL2 Assets glyphs (both ship with Windows):
 # list, tag, settings, diagnostic, document, toolbox.
-RAIL_ICONS = tuple(chr(code) for code in (0xE8FD, 0xE8EC, 0xE713, 0xE9D9, 0xE7C3, 0xE90F))
+RAIL_ICONS = tuple(chr(code) for code in (0xE8FD, 0xE8EC, 0xE713, 0xE9D9, 0xE7C3, 0xE90F, 0xE896))
 
 
 def _button(text, handler, object_name=None):
@@ -96,7 +96,8 @@ def refresh_theme(window, dark, theme_name=None):
     # Sun = switch to light, moon = switch to dark.
     window.theme_btn.setIcon(_glyph_icon(chr(0xE706) if dark else chr(0xE708), c['text'], 18))
     window.theme_btn.setToolTip("Switch to light theme" if dark else "Switch to dark theme")
-    window.theme_choice_btn.setText(f"Theme: {theme.label(theme_name)}")
+    window.theme_choice_btn.setText(
+        "Theme" if getattr(window, 'compact_bar', False) else f"Theme: {theme.label(theme_name)}")
     window.theme_choice_btn.setToolTip(f"Color theme: {theme.label(theme_name)}")
     for name, action in window.theme_actions.items():
         action.setChecked(name == theme_name)
@@ -182,6 +183,10 @@ def build_ui(window):
     top_layout.addWidget(_separator())
 
     window.kv = []
+    # Chips that only repeat what the Inventory page shows. The top bar is a
+    # single row that cannot wrap, so on a small or scaled screen these are
+    # hidden rather than letting every label in the row get clipped.
+    window.metric_chips = []
     for label, value in (
         ("Reader", "Offline"), ("Inventory", "IDLE"), ("Reads", "0"),
         ("Unique", "0"), ("Rate", "0.0/s"), ("Temp", "--")
@@ -203,6 +208,8 @@ def build_ui(window):
         window.kv.append(value_label)
         if label == "Reader":
             chip.hide()   # the connection label already shows this
+        else:
+            window.metric_chips.append(chip)
 
     mode_chip = QFrame(); mode_chip.setObjectName("MetricChip")
     mode_layout = QVBoxLayout(mode_chip); mode_layout.setContentsMargins(6, 2, 6, 2); mode_layout.setSpacing(0)
@@ -211,6 +218,7 @@ def build_ui(window):
     mode_layout.addWidget(window.work_mode_value); mode_layout.addWidget(mode_caption)
     mode_chip.setToolTip("Reader work mode: Passive answers this tool only; Active runs the configured autonomous inventory and upload")
     top_layout.addWidget(mode_chip)
+    window.metric_chips.append(mode_chip)
     window.return_passive = _button("Return to passive", window.return_to_passive, "Accent")
     window.return_passive.setToolTip("Stop the reader's autonomous inventory and switch it to passive mode")
     window.return_passive.hide()   # shown while the reader is in active mode
@@ -218,7 +226,7 @@ def build_ui(window):
 
     top_layout.addWidget(_spacer())
     window.theme_choice_btn = _button("Theme", lambda: window.theme_menu.popup(window.theme_choice_btn.mapToGlobal(window.theme_choice_btn.rect().bottomLeft())))
-    window.theme_choice_btn.setMinimumWidth(94)
+    window.theme_choice_btn.setMinimumWidth(0)
     window.theme_choice_btn.setMaximumWidth(112)
     window.theme_menu = QMenu(window.theme_choice_btn)
     window.theme_actions = {}
@@ -252,6 +260,7 @@ def build_ui(window):
         ("⌁", "Diagnostics", "VSWR and reader information"),
         ("≡", "Log", "Event log, raw serial and command console"),
         ("✦", "Tools", "Read-rate tuner, stock check and batch encoding"),
+        ("⭳", "Firmware", "Send a signed firmware update to the reader"),
     ]
     for index, (icon, label, tooltip) in enumerate(nav_items):
         button = QToolButton()
@@ -639,6 +648,7 @@ def build_ui(window):
 
     # Tools workspace (tools_page.py).
     window.tools.build()
+    window.firmware.build()
 
     # Chart axes are created once and then updated by Main.handle_vswr_point.
     window.vswr_chart.addSeries(window.vswr_series); window.vswr_chart.addSeries(window.vswr_threshold_series)

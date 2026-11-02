@@ -942,7 +942,7 @@ PROG="/c/ST/STM32CubeCLT_1.22.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe
 |---|---|
 | Flash bootloader + application | `make CONFIG=release flash PROGRAMMER="$PROG"` |
 | Flash only the application | `make CONFIG=release flash-app PROGRAMMER="$PROG"` or `"$PROG" -c port=SWD mode=UR -w build/release/rfid_controller.elf -v -rst` |
-| Signed update image | `make CONFIG=release image`, then `python Tools/fw_update.py --port COM3 build/release/rfid_controller-<version>.tlfw` |
+| Signed update image | `make CONFIG=release image`, then `python Tools/fw_update.py --port COM3 build/release/rfid_controller-<version>.tlfw` (full instructions: [how-to-build-a-firmware-update-image](how-to-build-a-firmware-update-image.md)) |
 | Flash F411 | `make BOARD=f411 CONFIG=release flash PROGRAMMER="$PROG"` |
 | Device ID only (no reset) | `make check-chip PROGRAMMER="$PROG"` or `"$PROG" -c port=SWD mode=HOTPLUG` |
 | Full chip erase (also erases settings) | `"$PROG" -c port=SWD mode=UR -e all` |

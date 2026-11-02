@@ -66,7 +66,7 @@ if window.table.rowCount():
     window.table.selectRow(0)
     window.use_selected_epc()
 window.update_write_mode()
-assert window.stack.count() == 6
+assert window.stack.count() == 7
 assert window.table.columnCount() == 6
 assert window.table.rowCount() == 2
 assert window.selected_epc_display.text() == window.target_epc.text()
@@ -102,6 +102,34 @@ window.upload_interface.setCurrentIndex(window.upload_interface.findData('WIFI')
 assert window.queue[-1] == 'SET_UPLOAD_IF,WIFI'
 window.port.setCurrentIndex(window.port.findData(namespace['WIFI_OPTION']))
 assert window.tcp_host() == '192.168.1.17'
+# Firmware page: the reader's status and a locally checked image.
+window.on_line('FW,STATE=IDLE,RECEIVED=0,BOOT=1,LAST=INSTALLED,VERSION=v0.10.1')
+assert window.firmware.boot_field.text() == 'Present'
+assert 'installed' in window.firmware.last_field.text()
+assert window.firmware.staged_field.text() == 'v0.10.1'
+assert window.firmware.boot_warning.isHidden()
+window.on_line('FW,STATE=IDLE,RECEIVED=0,BOOT=NONE,LAST=NONE,VERSION=')
+assert not window.firmware.boot_warning.isHidden()
+assert not window.firmware.send_btn.isEnabled()        # no image chosen yet
+import firmware_page
+_image_dir = os.path.join(os.path.dirname(GUI_DIR), 'STM32_Firmware', 'build', 'release')
+_images = [f for f in sorted(os.listdir(_image_dir)) if f.endswith('.tlfw')] if os.path.isdir(_image_dir) else []
+if _images:
+    with open(os.path.join(_image_dir, _images[-1]), 'rb') as handle:
+        _info, _problem = firmware_page.describe_image(handle.read())
+    assert _info is not None and not _problem, _problem
+    assert _info['board'] in ('F429', 'F411') and _info['size'] > 0
+    # A damaged image must be caught before anything is sent to the reader.
+    _bad = bytearray(_info['bytes']); _bad[firmware_page.HEADER_SIZE + 64] ^= 0xFF
+    assert firmware_page.describe_image(bytes(_bad))[0] is None
+    assert firmware_page.describe_image(b'not an image')[0] is None
+    window.firmware.image = _info
+    window.firmware.file_label.setText(_images[-1])
+    window.firmware.file_detail.setText(f"Version {_info['version']} for the {_info['board']} board, "
+                                       f"{_info['size']:,} bytes — checksum ok.")
+    window.firmware.note(f"Chose {_info['version']} for {_info['board']}.")
+    window.firmware.progress.setValue(58)
+    window.firmware.status_label.setText('Ready to send.')
 window.queue = []; window.pending = None
 window.select_feature(4)
 assert window.log_badge.isHidden()

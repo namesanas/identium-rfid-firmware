@@ -9,6 +9,7 @@ from vswr_transport import VSWRBridge
 import theme
 from ui_builder import build_ui, refresh_theme, set_vswr_x_range
 from tools_page import ToolsController
+from firmware_page import FirmwareController
 
 INFO=["GET_VERSION","GET_SERIAL","GET_CAPABILITIES","GET_TEMPERATURE","GET_REGION","GET_ANTENNA","GET_POWER","GET_PROTOCOL","GET_SESSION","GET_FREQUENCY","GET_GPI","GET_NETWORK","GET_WORK_MODE","GET_WIFI"]
 # Queried fresh for a support report. While the reader inventories it only
@@ -24,7 +25,18 @@ class Main(QMainWindow):
     vswr_error_signal = Signal(str)
 
     def __init__(self):
-        super().__init__(); self.setWindowTitle("RFID Reader"); self.resize(1500,920); self.setMinimumSize(1200,760)
+        super().__init__(); self.setWindowTitle("RFID Reader")
+        self.compact_bar=False
+        self.conn_detail=''
+        # Never open larger than the screen: a 1366x768 laptop, or a 1080p
+        # screen at 125%/150% scaling, has far less room than the preferred
+        # size, and a window bigger than the desktop clips its own layout.
+        available=QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        if available is not None:
+            self.resize(min(1500,available.width()-40), min(920,available.height()-60))
+        else:
+            self.resize(1500,920)
+        self.setMinimumSize(960,600)
         self.settings=QSettings("SilionRFID","E310Reader"); self.dark=self.settings.value("dark",True,type=bool); self.theme_name=theme.normalize(self.settings.value("color_theme",theme.DEFAULT_THEME,type=str))
         self.connected=False; self.inventory=False; self.total=0; self.epcs={}; self.epc_row_map={}; self.selected_epc=''; self.epc_write_pending=''; self.last_read_data=''; self.poll_mode='MULTI'; self.single_poll_timeout_ms=3000; self.tag_filter=''; self.filter_exact=False; self.first_tag=None; self.pending=None; self.queue=[]; self.backlog=[]; self.pump_scheduled=False; self.info_scheduled=False
         self.module_capabilities={}; self.discovered_readers=[]; self.vswr_samples=[]; self.vswr_scanning=False; self.vswr_bridge=None; self.vswr_serial_mode=False; self.region_frequencies=[]; self.work_mode=''; self.work_mode_requested=''; self.info_deferred=False
@@ -44,6 +56,7 @@ class Main(QMainWindow):
         self.io.tx_signal.connect(self.on_tx)
         
         self.tools=ToolsController(self)
+        self.firmware=FirmwareController(self)
         build_ui(self)
         # A WiFi status refresh must not overwrite what the user is typing.
         self.wifi_enable.toggled.connect(self.mark_wifi_dirty); self.wifi_mode.currentIndexChanged.connect(self.mark_wifi_dirty)
@@ -72,6 +85,32 @@ class Main(QMainWindow):
         self.status_timer=QTimer(self); self.status_timer.timeout.connect(self.status_poll); self.status_timer.start(15000)
         self.timeout_timer=QTimer(self); self.timeout_timer.timeout.connect(self.check_timeout); self.timeout_timer.start(100)
 
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self.apply_responsive_layout()
+
+    def apply_responsive_layout(self):
+        """The top bar is one row that cannot wrap, so below this width Qt
+        would squeeze its items past their minimums and the labels would
+        overlap. Drop the chips, which only repeat the Inventory page."""
+        if not hasattr(self,'metric_chips'):
+            return
+        # Measured: with the chips shown the row needs 1420 px before Qt
+        # starts squeezing items past their minimums; without them it is
+        # clean from 960 px.
+        compact=self.width() < 1420
+        if compact == self.compact_bar:
+            return
+        self.compact_bar=compact
+        for chip in self.metric_chips:
+            chip.setVisible(not compact)
+        self.theme_choice_btn.setText("Theme" if compact else f"Theme: {theme.label(self.theme_name)}")
+        # The Connect button already says which state we are in, so the word
+        # beside it is what goes when the row runs out of room.
+        self.conn.setMinimumWidth(self.conn.fontMetrics().horizontalAdvance(
+            '●' if compact else '● Disconnected') + 8)
+        self.update_connection_label()
+
     def card(self): f=QFrame(); f.setObjectName("Card"); return f
     def sec(self,t):
         x=QLabel(t); x.setObjectName("Section"); x.setWordWrap(True); x.setMinimumWidth(0); x.setToolTip(t); return x
@@ -84,6 +123,11 @@ class Main(QMainWindow):
             self.set_log_badge(False)
         if hasattr(self,'vswr_x_axis'):
             refresh_theme(self,self.dark,self.theme_name)   # selected rail icon colour
+
+    def update_connection_label(self):
+        state='Connected' if self.connected else 'Disconnected'
+        self.conn.setText('●' if self.compact_bar else f'● {state}')
+        self.conn.setToolTip(self.conn_detail or state)
 
     def set_log_badge(self, visible=True):
         if hasattr(self, 'log_badge'):
@@ -110,6 +154,7 @@ class Main(QMainWindow):
         self.stop.setEnabled(on and self.inventory)
         if hasattr(self,'rfid_nav_button'): self.rfid_nav_button.setEnabled(True)
         self.tools.on_connection(on)
+        self.firmware.on_connection(on)
 
     def toggle(self):
         if self.connected:
@@ -156,7 +201,7 @@ class Main(QMainWindow):
         generation=self.connection_generation
         self.connected=on
         if on:
-            self.connect.setText("Disconnect"); self.conn.setText("● Connected"); self.conn.setToolTip(detail); self.conn.setStyleSheet(f"color:{theme.colors(self.dark,self.theme_name)['success']};font-weight:700"); self.kv[0].setText("Online"); self.set_controls(True); self.log("Connected: "+detail)
+            self.connect.setText("Disconnect"); self.conn_detail=detail; self.update_connection_label(); self.conn.setStyleSheet(f"color:{theme.colors(self.dark,self.theme_name)['success']};font-weight:700"); self.kv[0].setText("Online"); self.set_controls(True); self.log("Connected: "+detail)
             self.info_scheduled=True
             QTimer.singleShot(500, lambda g=generation: self.request_info_staged(g))
             if self.restart_deadline is not None:
@@ -164,7 +209,7 @@ class Main(QMainWindow):
                 self.log('Reader restarted.')
                 QTimer.singleShot(3000, lambda: self.connected and not self.inventory and self.request('GET_DIAG'))
         else:
-            self.connect.setText("Connect"); self.conn.setText("● Disconnected"); self.conn.setToolTip(""); self.conn.setStyleSheet(""); self.kv[0].setText("Offline"); self.apply_work_mode(''); self.pending=None; self.epc_write_pending=''; self.queue=[]; self.pump_scheduled=False; self.info_scheduled=False; self.set_controls(False); self.log("Disconnected")
+            self.connect.setText("Connect"); self.conn_detail=''; self.update_connection_label(); self.conn.setStyleSheet(""); self.kv[0].setText("Offline"); self.apply_work_mode(''); self.pending=None; self.epc_write_pending=''; self.queue=[]; self.pump_scheduled=False; self.info_scheduled=False; self.set_controls(False); self.log("Disconnected")
             reconnect=self.reconnect.isChecked() and not self.manual_disconnect
             self.manual_disconnect=False
             self.restart_requested=False
@@ -288,7 +333,10 @@ class Main(QMainWindow):
         cmd=self.queue.pop(0)
         self.pending=[cmd,time.monotonic()]
         self.io.send(cmd)
-    def on_tx(self,cmd):self.log("> "+cmd)
+    def on_tx(self,cmd):
+        if self.firmware.quiet(cmd):
+            return
+        self.log("> "+cmd)
     def check_timeout(self):
         if self.pending:
             cmd=self.pending[0]
@@ -360,6 +408,7 @@ class Main(QMainWindow):
             'GET_WIFI':'WIFI',
             'GET_DIAG':'DIAG',
             'GET_GEN2':'GEN2',
+            'FW_STATUS':'FW',
         }.get(base)
 
         # All command-style operations complete with OK,<COMMAND>
@@ -413,6 +462,9 @@ class Main(QMainWindow):
             self.pump()
 
         if kind!='TAG':
+            # The firmware update sends its next chunk from this reply, so it
+            # is dispatched directly instead of on the next event loop turn.
+            self.firmware.on_reply(kind,data)
             # After this handler has updated the inventory state.
             QTimer.singleShot(0, lambda k=kind, d=data: self.tools.on_reply(k, d))
 
@@ -424,7 +476,8 @@ class Main(QMainWindow):
             self.handle_vswr_point(data)
             return
 
-        self.log("< "+line)
+        if not self.firmware.quiet(line):
+            self.log("< "+line)
         if kind=='OK':
             if data=='START':self.set_inventory(True)
             elif data=='STOP':self.set_inventory(False)
@@ -1153,6 +1206,7 @@ class Main(QMainWindow):
         self.lock_tag_btn.setEnabled(self.connected and not on)
         self.kill_tag_btn.setEnabled(self.connected and not on)
         self.tools.on_inventory(on)
+        self.firmware.on_inventory(on)
     def handle_tag(self,t):
         self.tools.on_tag(t)
         self.total+=1

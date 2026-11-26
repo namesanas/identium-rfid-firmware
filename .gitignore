@@ -30,6 +30,12 @@ reader_manager/
 TAGlink_Desktop/build/
 TAGlink_Desktop/dist/
 TAGlink_Desktop/screenshots/
+TAGlink_Desktop_common/build/
+TAGlink_Desktop_common/dist/
+TAGlink_Desktop_common/screenshots/
+
+# Stray duplicate of TAGlink_Desktop/icon.ico (identical bytes)
+/TagLink (2).ico
 
 # Command-line build output (Makefile)
 build/

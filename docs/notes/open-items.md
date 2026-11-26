@@ -38,6 +38,9 @@ after the fact.
   (`LAST=BAD_SIGNATURE`) and the reader keeps running its old firmware.
 - F429: the same update through TAGlink Desktop's Firmware page, good image and
   bad image.
+- F411: TAGlink read the SPI flash tag log, looked up sequence `40012`, and
+  exported all 65,307 retained records. Wired discovery and commands passed at
+  `192.168.1.35:5000`. See the [board bring-up handoff](custom-board-bringup-handoff.md).
 
 ## Not yet tested on hardware
 
@@ -50,7 +53,9 @@ after the fact.
    about 10 s.
 3. **Read protection**: `make protect` / `make unprotect`, on a spare board —
    `make protect` makes the board unreadable, and unprotecting mass-erases it.
-4. **F411 tag backup log** (SPI flash tag log, pushed 2026-10-13).
+4. **F411 tag log capture and clear.** Verify new tag capture and retention once
+   live reads work. Full log clearing passed in simulation and is pending on
+   hardware.
 5. **REBOOT over WiFi** through the ESP32 coprocessor.
 6. The released `rfid_controller_f429-v0.11.0.tlfw` was never installed on the
    bench reader — the test above used a locally built `boottest1` image.

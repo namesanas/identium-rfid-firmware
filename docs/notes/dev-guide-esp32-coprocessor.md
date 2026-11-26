@@ -253,6 +253,11 @@ python -m esptool --chip esp32 -p COM10 -b 460800 write-flash 0x0 wifi_coprocess
 
 Afterwards, reconnect PA15–EN and reset the STM so it pulses EN and handshakes.
 
+For switching the COM10 bench ESP32 between `wifi_coprocessor` and its saved
+`mubr_handheld` firmware, use the [firmware switcher](../../ESP32_Firmware/FIRMWARE_SWITCHING.md).
+It restores complete flash images, including each firmware's partition table
+and saved settings.
+
 ### Custom board: ESP32-C3 through CN11
 
 CN11 "WIFI_ESP" pinout:

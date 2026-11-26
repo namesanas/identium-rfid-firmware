@@ -1,0 +1,3 @@
+# Full flash backups include device settings and possibly WiFi credentials.
+*
+!.gitignore

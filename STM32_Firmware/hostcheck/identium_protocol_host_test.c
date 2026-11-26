@@ -12,6 +12,9 @@ static uint32_t g_heartbeatSeconds = 10U;
 static uint8_t g_inventoryRunning = 1U;
 
 static char g_tx[64][8200];
+static uint32_t g_sbuf = 1580U;
+static uint8_t g_aggregate = 0U;
+static uint16_t g_txSpace = 2048U;
 static uint8_t g_http = 0U;          /* HTTP upload selected */
 static uint32_t g_httpRttMs = 0U;    /* simulated POST round trip */
 static uint32_t g_httpBusyUntil = 0U;
@@ -41,10 +44,10 @@ uint64_t Time_GetEpochMs(void) { return 1789981401488ULL + g_tick; }
 
 uint32_t Configuration_Service_GetHeartbeatSeconds(void) { return g_heartbeatSeconds; }
 uint8_t Configuration_Service_GetRemoteCmdReply(void) { return 1U; }
-uint32_t Configuration_Service_GetSBufSize(void) { return 1580U; }
+uint32_t Configuration_Service_GetSBufSize(void) { return g_sbuf; }
 uint32_t Configuration_Service_GetRecvTimeoutSeconds(void) { return 10U; }
 uint32_t Configuration_Service_GetClearBufferTimeSeconds(void) { return 8U; }
-uint8_t Configuration_Service_GetDataAggregationMode(void) { return 0U; }
+uint8_t Configuration_Service_GetDataAggregationMode(void) { return g_aggregate; }
 uint32_t Configuration_Service_GetDataAggregationTimeMs(void) { return 1000U; }
 uint32_t Configuration_Service_GetNetworkWatchdogMinutes(void) { return 0U; }
 uint32_t Configuration_Service_GetInventoryWatchdogMinutes(void) { return 0U; }
@@ -61,6 +64,7 @@ uint8_t SILION_Application_IsInventoryRunning(void) { return g_inventoryRunning;
 
 void NVIC_SystemReset(void) { assert(0 && "unexpected reset"); }
 
+uint16_t ActiveUpload_Transport_GetTxFreeSize(void) { return g_txSpace; }
 uint8_t ActiveUpload_Transport_IsConnected(void) { return g_connected; }
 uint8_t ActiveUpload_Transport_IsHttp(void) { return g_http; }
 uint8_t ActiveUpload_Transport_IsHttpBusy(void)
@@ -74,6 +78,7 @@ uint16_t ActiveUpload_Transport_SendComplete(const uint8_t *buffer, uint16_t len
         assert(ActiveUpload_Transport_IsHttpBusy() == 0U || strstr((const char *)buffer, "tag_read") == NULL);
         g_httpBusyUntil = g_tick + g_httpRttMs;
     }
+    if(!g_http) assert(length <= g_txSpace);
     assert(g_txCount < 64U);
     assert(length < sizeof(g_tx[0]));
     memcpy(g_tx[g_txCount], buffer, length);
@@ -402,6 +407,32 @@ static void test_http_batches(void)
            (Identium_Protocol_GetTagsExpired() - expired) == 2000U);
 }
 
+static void test_oversized_tcp_batch(void)
+{
+    g_tick = 30000000U;
+    g_sbuf = 8192U;
+    g_aggregate = 1U;
+    g_txSpace = 2048U;
+    Identium_Protocol_Init();
+    for(unsigned i = 0; i < 64; ++i)
+    {
+        SILION_Tag_t tag = make_tag((uint8_t)i);
+        assert(Identium_Protocol_ReportTag(&tag));
+    }
+    unsigned delivered = 0;
+    for(unsigned i = 0; i < 6; ++i)
+    {
+        g_tick += 1000U;
+        reset_tx();
+        Identium_Protocol_Task();
+        for(unsigned j = 0; j < g_txCount; ++j)
+            if(strstr(g_tx[j], "tag_read")) delivered += count_tags(g_tx[j]);
+    }
+    assert(delivered == 64U);
+    g_sbuf = 1580U;
+    g_aggregate = 0U;
+}
+
 int main(void)
 {
     Identium_Protocol_Init();
@@ -410,6 +441,7 @@ int main(void)
     test_disconnect_buffer_and_stale();
     test_packed_tag_queue();
     test_http_batches();
+    test_oversized_tcp_batch();
     printf("HOST PROTOCOL TEST: PASS\n");
     return 0;
 }

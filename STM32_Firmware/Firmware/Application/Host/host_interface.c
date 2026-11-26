@@ -258,7 +258,11 @@ static uint8_t HOST_SendTagLogRecords(const char *args)
 
     for(i = 0U; i < count; i++, seq++)
     {
-        if(TagLog_Read(seq, &record) == 0U)
+        TagLog_ReadResult_t result = TagLog_ReadResult(seq, &record);
+        /* Retry this sequence on busy/read error instead of skipping it. */
+        if((result == TAG_LOG_READ_BUSY) || (result == TAG_LOG_READ_ERROR))
+            break;
+        if(result != TAG_LOG_READ_OK)
             continue;
 
         pos = snprintf(
@@ -315,6 +319,13 @@ static char hostRxBuffer[HOST_RX_BUFFER_SIZE];
 static uint16_t hostRxIndex = 0U;
 
 static uint32_t hostRxOverflowReported = 0U;
+
+void HOST_Interface_ResetInput(void)
+{
+    hostRxIndex = 0U;
+    hostRxBuffer[0] = '\0';
+    hostRxOverflowReported = 0U;
+}
 
 void HOST_Interface_Init(void)
 {

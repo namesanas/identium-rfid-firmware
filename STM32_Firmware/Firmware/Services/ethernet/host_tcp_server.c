@@ -10,12 +10,14 @@
 #define HOST_TCP_SERVER_TX_SIZE    2048U
 #define HOST_TCP_SERVER_RX_CHUNK   128U
 #define HOST_TCP_SERVER_RETRY_MS   1000U
+#define HOST_TCP_SERVER_IDLE_MS    60000U
 
 static uint8_t g_txQueue[HOST_TCP_SERVER_TX_SIZE];
 static uint16_t g_txHead = 0U;
 static uint16_t g_txTail = 0U;
 static uint8_t g_connected = 0U;
 static uint32_t g_lastListenMs = 0U;
+static uint32_t g_lastActivityMs = 0U;
 
 static void Host_Tcp_Server_Listen(void)
 {
@@ -60,6 +62,7 @@ static void Host_Tcp_Server_Flush(void)
             return;   /* previous send in flight or socket buffer full */
         }
 
+        g_lastActivityMs = Time_GetTickMs();
         g_txTail = (uint16_t)((g_txTail + sent) % HOST_TCP_SERVER_TX_SIZE);
     }
 }
@@ -87,17 +90,24 @@ void Host_Tcp_Server_Task(void)
             if(g_connected == 0U)
             {
                 g_connected = 1U;
+                g_lastActivityMs = Time_GetTickMs();
                 g_txHead = 0U;
                 g_txTail = 0U;
             }
 
             received = W5500_Socket3_Receive(chunk, sizeof(chunk));
+            if(received != 0U) g_lastActivityMs = Time_GetTickMs();
             for(i = 0U; i < received; i++)
             {
                 HOST_Transport_PushByte(HOST_TRANSPORT_ETHERNET, chunk[i]);
             }
 
             Host_Tcp_Server_Flush();
+            if((Time_GetTickMs() - g_lastActivityMs) >= HOST_TCP_SERVER_IDLE_MS)
+            {
+                Host_Tcp_Server_Disconnected();
+                Host_Tcp_Server_Listen();
+            }
             break;
 
         case W5500_Sn_SR_CLOSE_WAIT:

@@ -521,7 +521,9 @@ uint8_t Configuration_Storage_Save(
             nextSequence = recordB1.sequence + 1U;
         }
     }
-    else if(validA2 != 0U)
+    else if((validA2 != 0U) &&
+            ((validB2 == 0U) ||
+             (Configuration_Storage_IsSequenceNewer(recordA.sequence, recordB.sequence) != 0U)))
     {
         targetAddress = CONFIG_STORAGE_ADDRESS_B;
         targetSector = CONFIG_STORAGE_SECTOR_B;

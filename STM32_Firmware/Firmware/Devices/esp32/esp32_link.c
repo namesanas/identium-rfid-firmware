@@ -71,7 +71,7 @@ static uint8_t g_failureCount;
 static uint8_t g_resetRequested;
 static uint8_t g_busRecoveryPulse;
 static uint8_t g_busRecoveryPhase;
-static uint8_t g_transferEvent;
+static volatile uint8_t g_transferEvent;
 static uint32_t g_stateAtMs;
 static uint32_t g_transferStartedMs;
 static uint32_t g_requestSentMs;
@@ -206,13 +206,13 @@ static uint8_t ESP32_Link_StartTransmit(void)
         ((uint16_t)g_txFrame[6] | ((uint16_t)g_txFrame[7] << 8U)) + ESP32_LINK_CRC_SIZE);
     uint8_t result;
 
+    g_transferEvent = ESP32_LINK_EVENT_NONE;
     result = I2C_MasterSendDataIT(&g_i2c, g_txFrame, length,
                                   ESP32_LINK_I2C_ADDRESS, I2C_DISABLE_SR);
     if (result != I2C_STATUS_OK)
     {
         return 0U;
     }
-    g_transferEvent = ESP32_LINK_EVENT_NONE;
     g_ioState = ESP32_LINK_IO_TX;
     g_transferStartedMs = Time_GetTickMs();
     return 1U;

@@ -33,6 +33,12 @@ CONFIG  ?= debug
 BOARD   ?= f429
 PROGRAMMER ?= STM32_Programmer_CLI
 HOSTCC  ?= gcc
+# Explicit suffix prevents stale extensionless Windows test binaries from running.
+ifeq ($(OS),Windows_NT)
+HOST_EXE := .exe
+else
+HOST_EXE :=
+endif
 
 PREFIX  ?= arm-none-eabi-
 CC      := $(PREFIX)gcc
@@ -212,12 +218,18 @@ clean:
 # headers (hostcheck/stubs) replace the ARM CMSIS headers.
 hostcheck:
 	@mkdir -p build/hostcheck
-	$(HOSTCC) -std=gnu11 -Wall -Werror -DSTM32F429xx -Ihostcheck/stubs 		hostcheck/identium_protocol_host_test.c Firmware/Protocol/identium_protocol.c 		-o build/hostcheck/identium_protocol_host_test
-	build/hostcheck/identium_protocol_host_test
+	$(HOSTCC) -std=gnu11 -Wall -Wextra -Werror -DSTM32F411xE -DTARGET_BOARD=2 -Ihostcheck/stubs hostcheck/io_connection_host_test.c -o build/hostcheck/io_connection_host_test$(HOST_EXE)
+	build/hostcheck/io_connection_host_test$(HOST_EXE)
+	$(HOSTCC) -std=gnu11 -Wall -Wextra -Werror -DSTM32F411xE -Ihostcheck/stubs hostcheck/http_retry_host_test.c -o build/hostcheck/http_retry_host_test$(HOST_EXE)
+	build/hostcheck/http_retry_host_test$(HOST_EXE)
+	$(HOSTCC) -std=gnu11 -Wall -Wextra -Werror -DSTM32F411xE -Ihostcheck/stubs hostcheck/configuration_storage_host_test.c -o build/hostcheck/configuration_storage_host_test$(HOST_EXE)
+	build/hostcheck/configuration_storage_host_test$(HOST_EXE)
+	$(HOSTCC) -std=gnu11 -Wall -Werror -DSTM32F429xx -Ihostcheck/stubs 		hostcheck/identium_protocol_host_test.c Firmware/Protocol/identium_protocol.c 		-o build/hostcheck/identium_protocol_host_test$(HOST_EXE)
+	build/hostcheck/identium_protocol_host_test$(HOST_EXE)
 	$(HOSTCC) -std=gnu11 -Wall -Wextra -Werror -DSTM32F411xE -DTARGET_BOARD=2 -Ihostcheck/stubs \
 		hostcheck/tag_log_host_test.c Firmware/Services/storage/tag_log.c \
-		-o build/hostcheck/tag_log_host_test
-	build/hostcheck/tag_log_host_test
+		-o build/hostcheck/tag_log_host_test$(HOST_EXE)
+	build/hostcheck/tag_log_host_test$(HOST_EXE)
 	$(PYTHON) hostcheck/make_test_images.py build/hostcheck
 	for b in F429ZI:STM32F429xx:f429 F411CE:STM32F411xE:f411; do \
 		mcu=$${b#*:}; mcu=$${mcu%%:*}; board=$${b##*:}; \
@@ -225,8 +237,8 @@ hostcheck:
 			hostcheck/boot_image_host_test.c Bootloader/boot_image.c \
 			Bootloader/micro-ecc/uECC.c Firmware/Common/firmware_image.c \
 			Firmware/Common/sha256.c build/hostcheck/test_public_key.c \
-			-o build/hostcheck/boot_image_host_test_$$board || exit 1; \
-		build/hostcheck/boot_image_host_test_$$board \
+			-o build/hostcheck/boot_image_host_test_$$board$(HOST_EXE) || exit 1; \
+		build/hostcheck/boot_image_host_test_$$board$(HOST_EXE) \
 			build/hostcheck/test_$$board.tlfw || exit 1; \
 	done
 	$(HOSTCC) -std=gnu11 -Wall -Wextra -Werror -Wno-unknown-pragmas -DSTM32F411xE -DTARGET_BOARD=2 \
@@ -234,8 +246,8 @@ hostcheck:
 		hostcheck/firmware_update_host_test.c Firmware/Services/update/firmware_update.c \
 		Bootloader/boot_image.c Bootloader/micro-ecc/uECC.c Firmware/Common/firmware_image.c \
 		Firmware/Common/sha256.c build/hostcheck/test_public_key.c \
-		-o build/hostcheck/firmware_update_host_test
-	build/hostcheck/firmware_update_host_test build/hostcheck/test_f411.tlfw \
+		-o build/hostcheck/firmware_update_host_test$(HOST_EXE)
+	build/hostcheck/firmware_update_host_test$(HOST_EXE) build/hostcheck/test_f411.tlfw \
 		build/hostcheck/test_f429.tlfw
 
 .PHONY: all bootloader image flash flash-app check-chip protect unprotect hostcheck clean

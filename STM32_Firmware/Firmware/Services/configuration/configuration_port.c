@@ -400,7 +400,7 @@ void Configuration_Port_HandleLinkRequest(
     }
 
     dataLength = (uint16_t)(((uint16_t)frame[2] << 8U) | frame[3]);
-    if((uint16_t)(6U + dataLength) > length)
+    if((6UL + dataLength + ((frame[5] & 0x02U) ? 2UL : 0UL)) > length)
     {
         return;
     }

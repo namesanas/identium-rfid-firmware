@@ -76,9 +76,11 @@ uint8_t GD25Q_IsBusy(void)
     return 0U;
 }
 
+static uint8_t g_forceBusy;
 uint8_t GD25Q_WaitReady(uint32_t timeoutMs)
 {
     (void)timeoutMs;
+    if(g_forceBusy) return 0U;
     g_busyPolls = 0U;
     return 1U;
 }
@@ -524,9 +526,29 @@ static void TestQueueOverflowAndAbsent(void)
     g_present = 1U;
 }
 
+static void TestBusyRead(void)
+{
+    SILION_Tag_t tag;
+    TagLog_Record_t record;
+    memset(g_flash, 0xFF, sizeof(g_flash));
+    CHECK(TagLog_Init(&g_spi) == 1U);
+    MakeTag(42U, &tag);
+    TagLog_Append(&tag);
+    TagLog_Task();
+    g_forceBusy = 1U;
+    CHECK(TagLog_ReadResult(0U, &record) == TAG_LOG_READ_BUSY);
+    CHECK(TagLog_Read(0U, &record) == 0U);
+    g_forceBusy = 0U;
+    CHECK(TagLog_ReadResult(0U, &record) == TAG_LOG_READ_OK);
+    CHECK(record.seq == 0U);
+    CHECK(TagLog_ReadResult(99U, &record) == TAG_LOG_READ_GONE);
+    Drain();
+}
+
 int main(void)
 {
     printf("tag log host test\n");
+    TestBusyRead();
     TestEmptyAndBasic();
     TestWrapAround();
     TestTornProgram();

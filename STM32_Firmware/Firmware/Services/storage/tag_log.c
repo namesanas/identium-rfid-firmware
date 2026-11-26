@@ -638,8 +638,15 @@ void TagLog_GetStatus(TagLog_Status_t *pStatus)
 
 uint8_t TagLog_Read(uint32_t seq, TagLog_Record_t *pRecord)
 {
+    return (TagLog_ReadResult(seq, pRecord) == TAG_LOG_READ_OK) ? 1U : 0U;
+}
+
+TagLog_ReadResult_t TagLog_ReadResult(uint32_t seq, TagLog_Record_t *pRecord)
+{
     uint8_t raw[TAG_LOG_RECORD_SIZE];
     uint32_t slot;
+
+    if(g_tagLog.state == TAG_LOG_STATE_CLEARING) return TAG_LOG_READ_BUSY;
 
     if(
         (g_tagLog.state != TAG_LOG_STATE_READY) ||
@@ -657,14 +664,14 @@ uint8_t TagLog_Read(uint32_t seq, TagLog_Record_t *pRecord)
         (GD25Q_WaitReady(TAG_LOG_READ_WAIT_MS) == 0U)
     )
     {
-        return 0U;
+        return TAG_LOG_READ_BUSY;
     }
 
     slot = TagLog_SlotOf(seq);
 
     if(GD25Q_Read(TagLog_SlotAddress(slot), raw, sizeof(raw)) == 0U)
     {
-        return 0U;
+        return TAG_LOG_READ_ERROR;
     }
 
     if(TagLog_Decode(raw, slot, pRecord) == 0U)

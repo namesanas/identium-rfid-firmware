@@ -23,7 +23,8 @@ void GPIO_Service_Init(
 
 void GPIO_Service_Task(void);
 
-/* Apply one atomic set_gpo operation containing 1..4 outputs. */
+/* Validate all requested outputs before applying a set_gpo operation.
+ * F411 has three outputs; F429 has four. */
 uint8_t GPIO_Service_SetOutputs(
     const uint8_t outputNumbers[],
     const uint8_t states[],

@@ -801,11 +801,16 @@ static void Identium_Protocol_FlushTags(
     {
         uint16_t batchCount;
         uint16_t messageLength;
+        uint32_t batchLimit = Configuration_Service_GetSBufSize();
+        uint16_t txSpace = ActiveUpload_Transport_GetTxFreeSize();
+
+        if(batchLimit > txSpace) batchLimit = txSpace;
+        if(batchLimit == 0U) return;
 
         if(
             Identium_Protocol_BuildTagBatch(
                 flushBudget,
-                Configuration_Service_GetSBufSize(),
+                batchLimit,
                 &batchCount,
                 &messageLength
             ) == 0U

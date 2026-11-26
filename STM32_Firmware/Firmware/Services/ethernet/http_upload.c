@@ -24,7 +24,7 @@ extern uint32_t Configuration_Service_GetRecvTimeoutSeconds(void);
 #define HTTP_QUEUE_SIZE          12288U
 #define HTTP_RESPONSE_BODY_MAX   2000U  /* < IDENTIUM_PROTOCOL_RX_BUFFER_SIZE */
 #define HTTP_LINE_MAX            128U
-#define HTTP_MAX_ATTEMPTS        3U
+#define HTTP_RETRY_MAX_MS        30000U
 #define HTTP_DEFAULT_TIMEOUT_S   10U
 #define HTTP_MIN_TIMEOUT_S       2U
 #define HTTP_MAX_TIMEOUT_S       120U
@@ -33,7 +33,8 @@ typedef enum
 {
     HTTP_STATE_IDLE = 0,
     HTTP_STATE_SENDING,     /* request (re)transmission in progress */
-    HTTP_STATE_WAITING      /* request sent, response not complete */
+    HTTP_STATE_WAITING,     /* request sent, response not complete */
+    HTTP_STATE_RETRY        /* retained request, bounded retry delay */
 } HttpUpload_State_t;
 
 typedef enum
@@ -62,7 +63,8 @@ static uint16_t g_queueUsed = 0U;
 static char g_request[HTTP_REQUEST_SIZE];
 static uint16_t g_requestLength = 0U;
 static uint16_t g_requestSent = 0U;
-static uint8_t g_attempts = 0U;
+static uint32_t g_retryDelayMs = 0U;
+static uint32_t g_retryAtMs = 0U;
 static uint32_t g_sentAtMs = 0U;
 static HttpUpload_State_t g_state = HTTP_STATE_IDLE;
 
@@ -582,6 +584,19 @@ static uint8_t HttpUpload_ParseByte(uint8_t byte)
     return 0U;
 }
 
+/* Keep the request until a 2xx acknowledgement. Retry delay caps at 30 s.
+ * RAM-only: resets and deliberate URL changes can still discard data. */
+static void HttpUpload_Retry(void)
+{
+    g_retryDelayMs = (g_retryDelayMs == 0U) ? 1000U : g_retryDelayMs * 2U;
+    if(g_retryDelayMs > HTTP_RETRY_MAX_MS) g_retryDelayMs = HTTP_RETRY_MAX_MS;
+    g_retryAtMs = Time_GetTickMs();
+    g_state = HTTP_STATE_RETRY;
+    g_requestSent = 0U;
+    HttpUpload_ResetParser();
+    (void)ActiveUpload_Transport_Close();
+}
+
 /* The response is complete: free the slot, then hand a command (if any)
  * to the Identium parser. A command reply produced by the parser is
  * queued and goes out as the next request. */
@@ -591,8 +606,13 @@ static void HttpUpload_FinishResponse(uint8_t closeSocket)
     uint8_t deliver;
 
     g_lastStatus = g_status;
+    if((g_status < 200U) || (g_status >= 300U))
+    {
+        HttpUpload_Retry();
+        return;
+    }
     g_state = HTTP_STATE_IDLE;
-    g_attempts = 0U;
+    g_retryDelayMs = 0U;
 
     /* Only a 2xx body is a command. 404 {"error":...} would otherwise
      * produce an error reply, which would be answered with 404 again. */
@@ -721,7 +741,7 @@ static uint8_t HttpUpload_StartNext(void)
 
     g_requestLength = (uint16_t)(written + bodyLength);
     g_requestSent = 0U;
-    g_attempts = 0U;
+    g_retryDelayMs = 0U;
     g_state = HTTP_STATE_SENDING;
     HttpUpload_ResetParser();
     return 1U;
@@ -776,18 +796,7 @@ void HttpUpload_OnDisconnected(void)
         return;
     }
 
-    g_attempts++;
-    if(g_attempts >= HTTP_MAX_ATTEMPTS)
-    {
-        g_state = HTTP_STATE_IDLE;   /* give up on this event */
-        g_attempts = 0U;
-        return;
-    }
-
-    /* Send the same request again on the next connection. */
-    g_state = HTTP_STATE_SENDING;
-    g_requestSent = 0U;
-    HttpUpload_ResetParser();
+    if(g_state != HTTP_STATE_RETRY) HttpUpload_Retry();
 }
 
 uint8_t HttpUpload_IsBusy(void)
@@ -805,7 +814,7 @@ void HttpUpload_Task(void)
     received = ActiveUpload_Transport_Receive(rx, sizeof(rx));
     for(i = 0U; i < received; i++)
     {
-        if(g_state == HTTP_STATE_IDLE)
+        if((g_state == HTTP_STATE_IDLE) || (g_state == HTTP_STATE_RETRY))
         {
             break;   /* nothing outstanding: unsolicited bytes are ignored */
         }
@@ -820,6 +829,12 @@ void HttpUpload_Task(void)
     if(g_state == HTTP_STATE_IDLE)
     {
         (void)HttpUpload_StartNext();
+    }
+
+    if(g_state == HTTP_STATE_RETRY)
+    {
+        if((now - g_retryAtMs) < g_retryDelayMs) return;
+        g_state = HTTP_STATE_SENDING;
     }
 
     if(g_state == HTTP_STATE_SENDING)
@@ -851,9 +866,7 @@ void HttpUpload_Task(void)
         ((now - g_sentAtMs) >= HttpUpload_TimeoutMs())
     )
     {
-        /* No answer: drop the connection. The ethernet service reports the
-         * disconnect and the request is retried on a fresh connection. */
-        (void)ActiveUpload_Transport_Close();
+        HttpUpload_Retry();
     }
 }
 

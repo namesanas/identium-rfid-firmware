@@ -107,19 +107,19 @@ static void Module_Bridge_SendToHost(const uint8_t *data, uint16_t length)
     uint16_t sent;
     uint8_t attempt;
 
-    g_lastActivityMs = Time_GetTickMs();
-
     if(g_transport != MODULE_BRIDGE_TRANSPORT_TCP)
     {
         /* Queued on the link and sent in the background. The relay
          * never reads more than the queue can take. */
-        (void)HOST_Transport_LinkSend(g_transport, data, length);
+        if(HOST_Transport_LinkSend(g_transport, data, length) != 0U)
+            g_lastActivityMs = Time_GetTickMs();
         return;
     }
 
     for(attempt = 0U; (attempt < 20U) && (length > 0U); attempt++)
     {
         sent = W5500_Socket1_Send(data, length);
+        if(sent != 0U) g_lastActivityMs = Time_GetTickMs();
         data = &data[sent];
         length = (uint16_t)(length - sent);
     }
@@ -744,6 +744,7 @@ void Module_Bridge_Task(void)
         if(received > 0U)
         {
             g_lastHostByteMs = Time_GetTickMs();
+            g_lastActivityMs = g_lastHostByteMs;
         }
     }
 
@@ -756,6 +757,12 @@ void Module_Bridge_Task(void)
     }
 
     Module_Bridge_RelayModuleBytes();
+    if((g_transport == MODULE_BRIDGE_TRANSPORT_TCP) &&
+       ((Time_GetTickMs() - g_lastActivityMs) >= MODULE_BRIDGE_LINK_IDLE_MS))
+    {
+        (void)W5500_Socket1_Close();
+        Module_Bridge_End();
+    }
 }
 
 void Module_Bridge_End(void)

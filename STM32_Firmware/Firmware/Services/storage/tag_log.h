@@ -78,6 +78,9 @@ void TagLog_GetStatus(TagLog_Status_t *pStatus);
  * flash and intact, 0 if it was overwritten, never written, or the
  * flash stayed busy. */
 uint8_t TagLog_Read(uint32_t seq, TagLog_Record_t *pRecord);
+typedef enum { TAG_LOG_READ_GONE = 0, TAG_LOG_READ_OK,
+               TAG_LOG_READ_BUSY, TAG_LOG_READ_ERROR } TagLog_ReadResult_t;
+TagLog_ReadResult_t TagLog_ReadResult(uint32_t seq, TagLog_Record_t *pRecord);
 
 /* Erases the whole log in the background. Sequence numbers keep
  * counting from where they were. Returns 0 if the log is absent. */

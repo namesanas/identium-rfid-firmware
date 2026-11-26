@@ -1,4 +1,5 @@
 #include "wifi_service.h"
+#include "../../Common/retry_timer.h"
 
 #include "../../Config/product_config.h"
 #include "../../Devices/esp32/esp32_link.h"
@@ -78,12 +79,12 @@ static uint8_t g_settingsSnapshotValid;
 static ReaderSettings_t g_settingsSnapshot;
 static uint8_t g_uploadWasConnected;
 static uint8_t g_hostWasConnected;
-static uint32_t g_nextHelloMs;
-static uint32_t g_nextStatusMs;
-static uint32_t g_nextUploadOpenMs;
+static RetryTimer_t g_helloRetry;
+static RetryTimer_t g_statusRetry;
+static RetryTimer_t g_uploadRetry;
 /* CONFIG / CONNECT / DISCONNECT rejected by the ESP: retry after this,
  * and keep polling status meanwhile. */
-static uint32_t g_nextControlMs;
+static RetryTimer_t g_controlRetry;
 static uint8_t g_lastRejectedCommand;
 static uint8_t g_lastRejectedResult;
 static uint32_t g_linkFailureCount;
@@ -340,12 +341,12 @@ static void WiFi_HandleCompletedCommand(void)
         {
             g_linkOnline = 0U;
             g_configured = 0U;
-            g_nextHelloMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+            RetryTimer_Arm(&g_helloRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_OPEN_UPLOAD)
         {
             g_uploadSocketOpened = 0U;
-            g_nextUploadOpenMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+            RetryTimer_Arm(&g_uploadRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_OPEN_HOST)
         {
@@ -353,7 +354,7 @@ static void WiFi_HandleCompletedCommand(void)
         }
         else if (g_commandPurpose == WIFI_COMMAND_STATUS)
         {
-            g_nextStatusMs = Time_GetTickMs() + WIFI_SERVICE_POLL_INTERVAL_MS;
+            RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), WIFI_SERVICE_POLL_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_CONFIG)
         {
@@ -363,7 +364,7 @@ static void WiFi_HandleCompletedCommand(void)
         else if (g_commandPurpose == WIFI_COMMAND_DISCONNECT)
         {
             g_wifiConnectIssued = 0U;
-            g_nextHelloMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+            RetryTimer_Arm(&g_helloRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_SEND_HOST)
         {
@@ -376,12 +377,12 @@ static void WiFi_HandleCompletedCommand(void)
         else if (g_commandPurpose == WIFI_COMMAND_RECV_HOST)
         {
             g_rxPendingBitmap &= (uint8_t)~(1U << ESP32_LINK_SOCKET_HOST);
-            g_nextStatusMs = Time_GetTickMs();
+            RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), 0U);
         }
         else if (g_commandPurpose == WIFI_COMMAND_RECV_UPLOAD)
         {
             g_rxPendingBitmap &= (uint8_t)~(1U << ESP32_LINK_SOCKET_UPLOAD);
-            g_nextStatusMs = Time_GetTickMs();
+            RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), 0U);
         }
         ESP32_Link_ConsumeResult();
         g_commandInFlight = 0U;
@@ -398,17 +399,17 @@ static void WiFi_HandleCompletedCommand(void)
         {
             g_lastRejectedCommand = command;
             g_lastRejectedResult = (length != 0U) ? g_response[0] : ESP32_LINK_RESULT_FAILED;
-            g_nextControlMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+            RetryTimer_Arm(&g_controlRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
         }
         if (g_commandPurpose == WIFI_COMMAND_HELLO)
         {
             g_linkOnline = 0U;
-            g_nextHelloMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+            RetryTimer_Arm(&g_helloRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_OPEN_UPLOAD)
         {
             g_uploadSocketOpened = 0U;
-            g_nextUploadOpenMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+            RetryTimer_Arm(&g_uploadRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_OPEN_HOST)
         {
@@ -416,17 +417,17 @@ static void WiFi_HandleCompletedCommand(void)
         }
         else if (g_commandPurpose == WIFI_COMMAND_STATUS)
         {
-            g_nextStatusMs = Time_GetTickMs() + WIFI_SERVICE_POLL_INTERVAL_MS;
+            RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), WIFI_SERVICE_POLL_INTERVAL_MS);
         }
         else if (g_commandPurpose == WIFI_COMMAND_RECV_HOST)
         {
             g_rxPendingBitmap &= (uint8_t)~(1U << ESP32_LINK_SOCKET_HOST);
-            g_nextStatusMs = Time_GetTickMs();
+            RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), 0U);
         }
         else if (g_commandPurpose == WIFI_COMMAND_RECV_UPLOAD)
         {
             g_rxPendingBitmap &= (uint8_t)~(1U << ESP32_LINK_SOCKET_UPLOAD);
-            g_nextStatusMs = Time_GetTickMs();
+            RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), 0U);
         }
         ESP32_Link_ConsumeResult();
         g_commandInFlight = 0U;
@@ -448,7 +449,7 @@ static void WiFi_HandleCompletedCommand(void)
             else
             {
                 g_linkOnline = 0U;
-                g_nextHelloMs = Time_GetTickMs() + WIFI_SERVICE_RETRY_INTERVAL_MS;
+                RetryTimer_Arm(&g_helloRetry, Time_GetTickMs(), WIFI_SERVICE_RETRY_INTERVAL_MS);
             }
             break;
 
@@ -509,11 +510,11 @@ static void WiFi_HandleCompletedCommand(void)
                 {
                     HttpUpload_OnDisconnected();
                 }
-                g_nextStatusMs = Time_GetTickMs() + WIFI_SERVICE_POLL_INTERVAL_MS;
+                RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), WIFI_SERVICE_POLL_INTERVAL_MS);
             }
             else
             {
-                g_nextStatusMs = Time_GetTickMs() + WIFI_SERVICE_POLL_INTERVAL_MS;
+                RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), WIFI_SERVICE_POLL_INTERVAL_MS);
             }
             break;
 
@@ -639,9 +640,10 @@ void WiFi_Service_Init(WiFi_RxByteCallback_t rxCallback)
     g_settingsSnapshotValid = 0U;
     g_uploadWasConnected = 0U;
     g_hostWasConnected = 0U;
-    g_nextHelloMs = Time_GetTickMs();
-    g_nextStatusMs = Time_GetTickMs();
-    g_nextUploadOpenMs = Time_GetTickMs();
+    RetryTimer_Arm(&g_helloRetry, Time_GetTickMs(), 0U);
+    RetryTimer_Arm(&g_statusRetry, Time_GetTickMs(), 0U);
+    RetryTimer_Arm(&g_uploadRetry, Time_GetTickMs(), 0U);
+    RetryTimer_Arm(&g_controlRetry, Time_GetTickMs(), 0U);
     g_linkFailureCount = 0U;
     g_needsConfiguration = 1U;
     g_uploadTargetValid = 0U;
@@ -659,12 +661,19 @@ void WiFi_Service_Task(void)
 
     ESP32_Link_Task();
     now = Time_GetTickMs();
+    /* Expire armed timers even while their operation is inactive. */
+    (void)RetryTimer_Ready(&g_helloRetry, now);
+    (void)RetryTimer_Ready(&g_uploadRetry, now);
+    (void)RetryTimer_Ready(&g_controlRetry, now);
+    (void)RetryTimer_Ready(&g_statusRetry, now);
     settings = ReaderSettings_Get();
 
     if (g_commandInFlight != 0U)
     {
         WiFi_HandleCompletedCommand();
         if (g_commandInFlight != 0U) return;
+        /* Completion may arm a timer after the tick sampled above. */
+        now = Time_GetTickMs();
     }
 
     if (ESP32_Link_IsSupported() == 0U)
@@ -694,7 +703,7 @@ void WiFi_Service_Task(void)
     g_available = 1U;
     WiFi_ReleaseHostIfGone();
 
-    if ((g_linkOnline == 0U) && ((int32_t)(now - g_nextHelloMs) >= 0))
+    if ((g_linkOnline == 0U) && (RetryTimer_Ready(&g_helloRetry, now) != 0U))
     {
         (void)WiFi_Submit(ESP32_LINK_CMD_HELLO, ESP32_LINK_SOCKET_HOST, NULL, 0U, WIFI_COMMAND_HELLO);
         return;
@@ -711,7 +720,7 @@ void WiFi_Service_Task(void)
             g_hostSocketOpened = 0U;
             g_uploadSocketOpened = 0U;
             g_uploadTargetValid = 0U;
-            g_nextHelloMs = now;
+            RetryTimer_Arm(&g_helloRetry, now, 0U);
         }
         else if (WiFi_SettingsTargetChanged(settings, &g_settingsSnapshot) != 0U)
         {
@@ -727,10 +736,10 @@ void WiFi_Service_Task(void)
     }
 
     if (((g_needsConfiguration != 0U) || (g_configured != 0U)) &&
-        ((int32_t)(now - g_nextControlMs) < 0))
+        (RetryTimer_Ready(&g_controlRetry, now) == 0U))
     {
         /* A control command was rejected: only poll status until retry. */
-        if ((int32_t)(now - g_nextStatusMs) >= 0)
+        if (RetryTimer_Ready(&g_statusRetry, now) != 0U)
         {
             (void)WiFi_Submit(ESP32_LINK_CMD_GET_STATUS, ESP32_LINK_SOCKET_HOST,
                               NULL, 0U, WIFI_COMMAND_STATUS);
@@ -805,7 +814,7 @@ void WiFi_Service_Task(void)
                               NULL, 0U, WIFI_COMMAND_CLOSE_UPLOAD);
             return;
         }
-        if ((g_uploadSocketOpened == 0U) && ((int32_t)(now - g_nextUploadOpenMs) >= 0) &&
+        if ((g_uploadSocketOpened == 0U) && (RetryTimer_Ready(&g_uploadRetry, now) != 0U) &&
             (WiFi_GetUploadTarget(targetIp, &targetPort) != 0U))
         {
             if (WiFi_SubmitSocketOpen(ESP32_LINK_SOCKET_UPLOAD, ESP32_LINK_SOCK_OPEN_CLIENT,
@@ -825,7 +834,7 @@ void WiFi_Service_Task(void)
     }
 
     /* Status has a bounded cadence even while either socket is busy. */
-    if ((int32_t)(now - g_nextStatusMs) >= 0)
+    if (RetryTimer_Ready(&g_statusRetry, now) != 0U)
     {
         (void)WiFi_Submit(ESP32_LINK_CMD_GET_STATUS, ESP32_LINK_SOCKET_HOST,
                           NULL, 0U, WIFI_COMMAND_STATUS);

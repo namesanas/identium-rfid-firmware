@@ -11,6 +11,8 @@
 #include <stdint.h>
 
 void HOST_Interface_Init(void);
+/* Discard a partial command when its transport releases ownership. */
+void HOST_Interface_ResetInput(void);
 void HOST_Interface_Task(void);
 void HOST_SendString(const char *text);
 uint8_t HOST_IsTagTransportEthernet(void);

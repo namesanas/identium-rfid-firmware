@@ -251,11 +251,11 @@ uint8_t GPIO_Service_SetOutputs(
 
         if(
             (outputNumber < 1U) ||
-            (outputNumber > GPIO_SERVICE_MAX_OUTPUTS)
+            (outputNumber > Industrial_IO_GetOutputCount())
         )
         {
             /* GPO 5 is legal on reference readers as a buzzer, but this
-             * four-output controller does not have that physical output. */
+             * board does not have that physical output. */
             GPIO_Service_SetError(
                 errorCode,
                 errorString,

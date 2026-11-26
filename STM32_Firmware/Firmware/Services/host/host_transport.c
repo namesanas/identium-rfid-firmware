@@ -6,6 +6,7 @@
  */
 
 #include "host_transport.h"
+#include "../../Application/Host/host_interface.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -233,7 +234,7 @@ static uint8_t HOST_Mux_Byte(HOST_VendorMux_t *mux, uint8_t byte)
 
     if(mux->eeActive != 0U)
     {
-        uint16_t needed;
+        uint32_t needed;
 
         mux->ee[mux->eeLength++] = byte;
 
@@ -242,10 +243,10 @@ static uint8_t HOST_Mux_Byte(HOST_VendorMux_t *mux, uint8_t byte)
             return 1U;
         }
 
-        needed = (uint16_t)(6U + (((uint16_t)mux->ee[2] << 8U) | mux->ee[3]));
+        needed = 6UL + (((uint32_t)mux->ee[2] << 8U) | mux->ee[3]);
         if((mux->ee[5] & 0x02U) != 0U)
         {
-            needed = (uint16_t)(needed + 2U);   /* serial CRC16-Modbus trailer */
+            needed += 2U;   /* serial CRC16-Modbus trailer */
         }
 
         if((needed > HOST_MUX_EE_MAX) || (mux->ee[1] != 0x00U))
@@ -647,6 +648,7 @@ void HOST_Transport_Release(void)
      */
     hostRxHead = 0U;
     hostRxTail = 0U;
+    HOST_Interface_ResetInput();
 
     CriticalSection_Exit(
         primask

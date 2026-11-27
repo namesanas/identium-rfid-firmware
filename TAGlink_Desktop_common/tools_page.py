@@ -9,14 +9,21 @@ import time
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QTimer, Qt
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QSpinBox,
-    QLineEdit, QCheckBox, QComboBox, QTabWidget, QTableWidget,
-    QTableWidgetItem, QFileDialog, QMessageBox, QPlainTextEdit
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QFrame, QScrollArea,
+    QLineEdit, QCheckBox, QComboBox, QTabWidget, QTableWidget, QSizePolicy,
+    QTableWidgetItem, QFileDialog, QMessageBox
 )
 
-from ui_builder import _button, _field, _table, _card, _spacer
+from ui_builder import (
+    _button, _table, _card, _label, empty_state, form_layout, page_header,
+    section_divider, stat_tile,
+)
+import theme
 from tag_memory import TagMemoryController
+
+SETUP_WIDTH = 316             # left-hand setup panel of each tool
 
 STEP_TIMEOUT_MS = 8000        # a command without a reply fails the step
 SCAN_MS = 1500                # batch encoding: how long to look for tags
@@ -62,10 +69,9 @@ class ToolsController(QObject):
     # ------------------------------------------------------------ page
     def build(self):
         w = self.w
-        page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)
-        header = QHBoxLayout(); title = QLabel("Tools"); title.setObjectName("PageTitle"); header.addWidget(title)
-        header.addWidget(_spacer()); layout.addLayout(header)
-        self.tabs = QTabWidget(); layout.addWidget(self.tabs, 1)
+        page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(16)
+        layout.addLayout(page_header("Tools", w.page_subtitles.get("Tools")))
+        self.tabs = QTabWidget(); self.tabs.setDocumentMode(True); layout.addWidget(self.tabs, 1)
         self.tabs.addTab(self._build_tuner(), "Scan tuning")
         self.tabs.addTab(self._build_stock(), "Stock check")
         self.tabs.addTab(self._build_batch(), "Write tags in batches")
@@ -76,6 +82,38 @@ class ToolsController(QObject):
         w.stack.addWidget(page)
         self.update_buttons()
 
+    # Each tool: a setup panel on the left, its results on the right.
+    def _tool_layout(self):
+        tab = QWidget(); layout = QHBoxLayout(tab); layout.setContentsMargins(0, 16, 0, 0); layout.setSpacing(16)
+        return tab, layout
+
+    def _setup_panel(self, title, hint=None):
+        card, card_layout = _card(self.w, title, hint)
+        return card, card_layout
+
+    @staticmethod
+    def _add_setup(layout, card):
+        """The setup panel scrolls on its own when the window is short."""
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.viewport().setObjectName("ScrollViewport"); scroll.setFixedWidth(SETUP_WIDTH)
+        holder = QWidget(); holder.setObjectName("ScrollContent")
+        holder_layout = QVBoxLayout(holder); holder_layout.setContentsMargins(0, 0, 0, 0)
+        holder_layout.addWidget(card)
+        scroll.setWidget(holder)
+        layout.addWidget(scroll)
+
+    @staticmethod
+    def _status_line(text):
+        label = QLabel(text); label.setObjectName("StatusLine"); label.setWordWrap(True)
+        return label
+
+    @staticmethod
+    def _stack_buttons(layout, *buttons):
+        for button in buttons:
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            layout.addWidget(button)
+
     def refresh_visible_memory(self):
         if self.w.stack.currentWidget() == self.page and self.tabs.currentWidget() == self.memory_tab:
             if self.memory.status is None:
@@ -83,84 +121,116 @@ class ToolsController(QObject):
             self.memory.update_buttons()
 
     def _build_tuner(self):
-        tab = QWidget(); layout = QVBoxLayout(tab); layout.setContentsMargins(0, 12, 0, 0); layout.setSpacing(12)
-        card, card_layout = _card(self.w, "Find the fastest reader mode")
-        intro = QLabel("Place tags in front of the antenna and choose Start test. TAGlink compares scan modes "
-                       "and keeps your current settings until you choose Use fastest mode.")
-        intro.setWordWrap(True); intro.setObjectName("Sub"); card_layout.addWidget(intro)
-        form = QFormLayout(); self.tuner_seconds = QSpinBox(); self.tuner_seconds.setRange(3, 60); self.tuner_seconds.setValue(8); self.tuner_seconds.setSuffix(" s per mode")
-        form.addRow("Test time", _field(self.tuner_seconds, 180)); card_layout.addLayout(form)
-        row = QHBoxLayout()
+        tab, layout = self._tool_layout()
+        setup, setup_layout = self._setup_panel(
+            "Find the fastest reader mode",
+            "Place tags in front of the antenna and choose Start test. TAGlink compares scan modes "
+            "and keeps your current settings until you choose Use fastest mode.")
+        form = form_layout(); self.tuner_seconds = QSpinBox(); self.tuner_seconds.setRange(3, 60); self.tuner_seconds.setValue(8); self.tuner_seconds.setSuffix(" s per mode")
+        form.addRow("Test time", self.tuner_seconds); setup_layout.addLayout(form)
         self.tuner_start_btn = _button("Start test", self.start_tuner, "Primary")
         self.tuner_stop_btn = _button("Stop", self.stop_tool)
         self.tuner_apply_btn = _button("Use fastest mode", self.apply_best)
-        for button in (self.tuner_start_btn, self.tuner_stop_btn, self.tuner_apply_btn): row.addWidget(button)
-        row.addWidget(_spacer()); card_layout.addLayout(row)
-        self.tuner_status = QLabel("Idle."); self.tuner_status.setObjectName("Sub"); card_layout.addWidget(self.tuner_status)
+        self._stack_buttons(setup_layout, self.tuner_start_btn, self.tuner_stop_btn)
+        self.tuner_status = self._status_line("Idle."); setup_layout.addWidget(self.tuner_status)
+        setup_layout.addStretch(1)
+        self._add_setup(layout, setup)
+
+        results, results_layout = _card(self.w)
+        head = QHBoxLayout(); head.addWidget(self.w.sec("Results")); head.addStretch(1); head.addWidget(self.tuner_apply_btn)
+        results_layout.addLayout(head)
         self.tuner_table = QTableWidget(0, 5); _table(self.tuner_table, ["Reader mode", "Reads per second", "Unique tags", "Average signal (dBm)", "Result"], 0)
-        card_layout.addWidget(self.tuner_table, 1)
-        layout.addWidget(card, 1)
+        empty_state(self.tuner_table, "Each scan mode is listed here with its read rate once the test starts.")
+        results_layout.addWidget(self.tuner_table, 1)
+        layout.addWidget(results, 1)
         return tab
 
     def _build_stock(self):
-        tab = QWidget(); layout = QVBoxLayout(tab); layout.setContentsMargins(0, 12, 0, 0); layout.setSpacing(12)
-        card, card_layout = _card(self.w, "Compare tags read with an expected list")
-        row = QHBoxLayout()
+        tab, layout = self._tool_layout()
+        setup, setup_layout = self._setup_panel("Compare tags read with an expected list")
+        setup_layout.addWidget(_label("1.  Expected list", "Caption"))
         self.stock_import_btn = _button("Import list…", self.import_stock_list)
         self.stock_from_inv_btn = _button("Use last scan", self.stock_from_inventory)
+        self._stack_buttons(setup_layout, self.stock_import_btn, self.stock_from_inv_btn)
+        setup_layout.addWidget(section_divider())
+        setup_layout.addWidget(_label("2.  Check", "Caption"))
         self.stock_start_btn = _button("Start check", self.start_stock, "Primary")
         self.stock_stop_btn = _button("Stop", self.stop_stock)
         self.stock_reset_btn = _button("Reset", self.reset_stock)
-        self.stock_export_btn = _button("Export result…", self.export_stock)
-        for button in (self.stock_import_btn, self.stock_from_inv_btn, self.stock_start_btn, self.stock_stop_btn, self.stock_reset_btn, self.stock_export_btn):
-            row.addWidget(button)
-        row.addWidget(_spacer()); row.addWidget(QLabel("Show"))
+        self._stack_buttons(setup_layout, self.stock_start_btn, self.stock_stop_btn, self.stock_reset_btn)
+        self.stock_summary = self._status_line("Import a tag list as a text file or a spreadsheet saved as CSV.")
+        setup_layout.addWidget(self.stock_summary)
+        setup_layout.addStretch(1)
+        self._add_setup(layout, setup)
+
+        results = QVBoxLayout(); results.setSpacing(16)
+        tiles = QHBoxLayout(); tiles.setSpacing(12); self.stock_tiles = {}
+        for caption in ("Expected", "Found", "Missing", "Unexpected"):
+            tile, value = stat_tile(caption, "0"); tiles.addWidget(tile, 1); self.stock_tiles[caption] = value
+        results.addLayout(tiles)
+        card, card_layout = _card(self.w)
+        head = QHBoxLayout(); head.setSpacing(8); head.addWidget(self.w.sec("Tags")); head.addStretch(1)
+        head.addWidget(_label("Show", "Caption"))
         self.stock_show = QComboBox(); self.stock_show.addItems(["All", "Missing", "Found", "Unexpected"]); self.stock_show.currentIndexChanged.connect(self._filter_stock)
-        row.addWidget(self.stock_show); card_layout.addLayout(row)
-        self.stock_summary = QLabel("Import a tag list as a text file or a spreadsheet saved as CSV."); self.stock_summary.setObjectName("Value"); card_layout.addWidget(self.stock_summary)
+        self.stock_show.setMinimumWidth(130)
+        head.addWidget(self.stock_show)
+        self.stock_export_btn = _button("Export result…", self.export_stock)
+        head.addWidget(self.stock_export_btn); card_layout.addLayout(head)
         self.stock_table = QTableWidget(0, 5); _table(self.stock_table, ["Tag ID", "Status", "Reads", "Signal (dBm)", "Last seen"], 0)
+        self.stock_table.setObjectName("InventoryTable")
         self.stock_table.setSortingEnabled(False)
+        empty_state(self.stock_table, "Import a list or use the last scan to see the expected tags here.")
         card_layout.addWidget(self.stock_table, 1)
-        layout.addWidget(card, 1)
+        results.addWidget(card, 1)
+        layout.addLayout(results, 1)
         return tab
 
     def _build_batch(self):
-        tab = QWidget(); layout = QHBoxLayout(tab); layout.setContentsMargins(0, 12, 0, 0); layout.setSpacing(12)
-        card, card_layout = _card(self.w, "Number a batch of tags")
-        form = QFormLayout()
+        tab, layout = self._tool_layout()
+        setup, setup_layout = self._setup_panel("Number a batch of tags")
+        form = form_layout()
         self.batch_prefix = QLineEdit("DECAF"); self.batch_prefix.setPlaceholderText("e.g. DECAF")
         self.batch_start = QSpinBox(); self.batch_start.setRange(0, 2_000_000_000); self.batch_start.setValue(1)
         self.batch_step = QSpinBox(); self.batch_step.setRange(1, 1000); self.batch_step.setValue(1)
         self.batch_length = QSpinBox(); self.batch_length.setRange(4, 124); self.batch_length.setSingleStep(4); self.batch_length.setValue(24); self.batch_length.setSuffix(" hex digits")
         self.batch_format = QComboBox(); self.batch_format.addItems(["0–9", "0–9 and A–F (hex)"])
-        self.batch_preview = QLabel(""); self.batch_preview.setObjectName("Value")
+        self.batch_preview = QLabel(""); self.batch_preview.setObjectName("StatusLine"); self.batch_preview.setWordWrap(True)
+        self.batch_preview.setFont(QFont("Consolas", 10))
         for widget in (self.batch_prefix,):
             widget.textChanged.connect(self._update_batch_preview)
         for widget in (self.batch_start, self.batch_length):
             widget.valueChanged.connect(self._update_batch_preview)
         self.batch_format.currentIndexChanged.connect(self._update_batch_preview)
-        form.addRow("Tag ID prefix", _field(self.batch_prefix, 240)); form.addRow("Start number", _field(self.batch_start, 200))
-        form.addRow("Increase by", _field(self.batch_step, 120)); form.addRow("Tag ID length", _field(self.batch_length, 200))
-        form.addRow("Number format", _field(self.batch_format, 200)); form.addRow("Next tag ID", self.batch_preview)
-        card_layout.addLayout(form)
+        form.addRow("Tag ID prefix", self.batch_prefix); form.addRow("Start number", self.batch_start)
+        form.addRow("Increase by", self.batch_step); form.addRow("Tag ID length", self.batch_length)
+        form.addRow("Number format", self.batch_format)
+        setup_layout.addLayout(form)
+        setup_layout.addWidget(_label("Next tag ID", "Caption"))
+        setup_layout.addWidget(self.batch_preview)
         self.batch_verify = QCheckBox("Check each tag after writing"); self.batch_verify.setChecked(True)
         self.batch_lock = QCheckBox("Lock tags after writing")
         self.batch_lock.setToolTip("Uses the details entered on Tags → Lock.")
-        card_layout.addWidget(self.batch_verify); card_layout.addWidget(self.batch_lock)
-        row = QHBoxLayout()
+        setup_layout.addWidget(self.batch_verify); setup_layout.addWidget(self.batch_lock)
+        setup_layout.addWidget(section_divider())
         self.batch_one_btn = _button("Write one", lambda: self.start_batch(False), "Primary")
         self.batch_auto_btn = _button("Write batch", lambda: self.start_batch(True))
         self.batch_stop_btn = _button("Stop", self.stop_tool)
-        for button in (self.batch_one_btn, self.batch_auto_btn, self.batch_stop_btn): row.addWidget(button)
-        row.addWidget(_spacer()); card_layout.addLayout(row)
-        self.batch_status = QLabel("Place one tag near the antenna to begin."); self.batch_status.setObjectName("Sub"); self.batch_status.setWordWrap(True)
-        card_layout.addWidget(self.batch_status); card_layout.addStretch()
-        layout.addWidget(card, 2)
-        result_card, result_layout = _card(self.w, "Tags written")
+        row = QHBoxLayout(); row.setSpacing(8)
+        for button in (self.batch_one_btn, self.batch_auto_btn):
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed); row.addWidget(button)
+        setup_layout.addLayout(row)
+        self._stack_buttons(setup_layout, self.batch_stop_btn)
+        self.batch_status = self._status_line("Place one tag near the antenna to begin.")
+        setup_layout.addWidget(self.batch_status); setup_layout.addStretch(1)
+        self._add_setup(layout, setup)
+
+        result_card, result_layout = _card(self.w)
+        head = QHBoxLayout(); head.addWidget(self.w.sec("Tags written")); head.addStretch(1); head.addWidget(_button("Export…", self.export_batch))
+        result_layout.addLayout(head)
         self.batch_table = QTableWidget(0, 6); _table(self.batch_table, ["#", "Time", "Old tag ID", "New tag ID", "Checked", "Locked"], 3)
+        empty_state(self.batch_table, "Each tag you write is listed here.")
         result_layout.addWidget(self.batch_table, 1)
-        result_row = QHBoxLayout(); result_row.addWidget(_spacer()); result_row.addWidget(_button("Export…", self.export_batch)); result_layout.addLayout(result_row)
-        layout.addWidget(result_card, 3)
+        layout.addWidget(result_card, 1)
         self._update_batch_preview()
         return tab
 
@@ -471,6 +541,9 @@ class ToolsController(QObject):
                 self.stock_table.setItem(row, column, _item(''))
         for column, key in ((1, 'status'), (2, 'reads'), (3, 'rssi'), (4, 'seen')):
             self.stock_table.item(row, column).setText(str(entry[key]))
+        palette = theme.colors(self.w.dark, self.w.theme_name)
+        tone = {'Found': 'success', 'Missing': 'danger_text', 'Unexpected': 'accent_border'}[entry['status']]
+        self.stock_table.item(row, 1).setForeground(QColor(palette[tone]))
         return row
 
     def _stock_tag(self, tag):
@@ -492,6 +565,8 @@ class ToolsController(QObject):
         unexpected = sum(1 for e in self.stock.values() if e['status'] == 'Unexpected')
         expected = len(self.expected)
         percent = (100.0 * found / expected) if expected else 0.0
+        for caption, value in (('Expected', expected), ('Found', found), ('Missing', missing), ('Unexpected', unexpected)):
+            self.stock_tiles[caption].setText(f'{value:,}')
         self.stock_summary.setText(f'Expected {expected}  ·  Found {found} ({percent:.0f}%)  ·  Missing {missing}  ·  Unexpected {unexpected}'
                                    + ('  ·  checking…' if self.stock_running else ''))
 

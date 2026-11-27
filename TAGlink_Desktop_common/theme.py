@@ -95,112 +95,140 @@ COLORS = {
     },
 }
 
+# Layout rhythm: 4 px grid, 34 px controls, 8 px card radius, 6 px control radius.
 _TEMPLATE = '''
-QMainWindow,QDialog,QWidget#AppRoot,QScrollArea,QWidget#ScrollContent,QStackedWidget{{background:{window};color:{text}}}
-QWidget{{font-family:"Segoe UI";font-size:10.5pt;color:{text}}}
+QMainWindow,QDialog,QWidget#AppRoot,QStackedWidget,QWidget#Page{{background:{window};color:{text}}}
+QWidget{{font-family:"Segoe UI";font-size:10pt;color:{text}}}
 QLabel,QCheckBox,QRadioButton,QToolButton{{background:transparent}}
-QToolTip{{background:{surface_alt};color:{text};border:1px solid {border_strong};padding:4px 6px}}
-QMenu{{background:{surface};color:{text};border:1px solid {border}}}
-QMenu::item:selected{{background:{accent_soft}}}
+QScrollArea{{background:transparent;border:0}}
+QWidget#ScrollViewport,QWidget#ScrollContent{{background:{window}}}
+QToolTip{{background:{surface};color:{text};border:1px solid {border_strong};border-radius:4px;padding:5px 8px}}
+QMenu{{background:{surface};color:{text};border:1px solid {border_strong};border-radius:8px;padding:5px}}
+QMenu::item{{padding:7px 22px 7px 30px;border-radius:5px}}
+QMenu::item:selected{{background:{accent_soft};color:{text_strong}}}
+QMenu::separator{{height:1px;background:{border};margin:5px 8px}}
+QMenu::indicator{{width:14px;height:14px;left:9px}}
+QMenu::indicator:checked{{image:url({img_check_accent})}}
 QMenuBar{{background:{window};color:{muted};border:0}}
 QMenuBar::item{{background:transparent;padding:3px 10px}}
 QMenuBar::item:selected{{background:{accent_soft};color:{text}}}
 
-QFrame#WorkspaceHeader{{background:{surface};border-bottom:1px solid {border}}}
+QFrame#AppHeader{{background:{surface};border-bottom:1px solid {border}}}
+QLabel#Brand{{font-size:14pt;font-weight:700;color:{text_strong}}}
+QLabel#DeviceChip{{color:{muted};background:{surface_alt};border:1px solid {border};border-radius:11px;padding:2px 10px;font-size:9pt}}
+QFrame#ConnectionPanel{{background:{window};border:1px solid {border};border-radius:8px}}
+QLabel#Connection{{color:{muted};font-weight:600;background:{surface};border:1px solid {border};border-radius:13px;padding:4px 12px}}
+QFrame#HeaderDivider{{background:{border};border:0}}
+
 QFrame#NavRail{{background:{surface};border-right:1px solid {border}}}
-QFrame#Card,QFrame#AnalyticsPanel{{background:{surface};border:1px solid {border};border-radius:6px}}
-QScrollArea#PagePanel,QWidget#PagePanelViewport,QWidget#PagePanelContent{{background:{surface}}}
-QScrollArea#PagePanel{{border:1px solid {border}}}
-QFrame#SettingsSection{{background:transparent;border:0}}
+QFrame#NavDivider{{background:{border};border:0}}
+QPushButton#RailButton{{background:transparent;color:{muted};border:0;border-radius:6px;text-align:left;padding:0 12px;font-weight:400}}
+QPushButton#RailButton:hover{{background:{button_hover};color:{text}}}
+QPushButton#RailButton:checked{{background:{accent_soft};color:{text_strong};font-weight:600}}
+QLabel#LogBadge{{background:{danger};border-radius:4px}}
+
+QFrame#Card,QFrame#AnalyticsPanel{{background:{surface};border:1px solid {border};border-radius:8px}}
+QFrame#StatTile{{background:{surface};border:1px solid {border};border-radius:8px}}
 QFrame#SectionDivider{{background:{border};border:0}}
-QLabel#ConnectionTitle{{color:{text_strong};font-weight:600;padding-right:6px}}
 QFrame#MetricChip{{background:transparent}}
 
 QLabel#Title{{font-size:15pt;font-weight:700;color:{text_strong}}}
-QLabel#PageTitle{{font-size:14pt;font-weight:700;color:{text_strong}}}
-QLabel#Section{{font-size:11pt;font-weight:600;color:{text_strong};padding:2px 0 4px 0}}
-QLabel#Sub,QLabel#Caption,QLabel#FieldLabel{{color:{muted}}}
-QLabel#MetricValue{{font-size:11.5pt;font-weight:700;color:{text_strong}}}
-QLabel#MetricCaption{{font-size:8.5pt;color:{muted}}}
-QLabel#Value{{font-size:11.5pt;font-weight:700;color:{text_strong}}}
-QLabel#GpiChip{{background:{surface_alt};border:1px solid {border};border-radius:8px;padding:6px 10px;font-weight:600}}
-QLabel#Connection{{font-weight:600;color:{muted}}}
-QLabel#LogBadge{{background:{danger};color:#FFFFFF;border-radius:5px}}
+QLabel#PageTitle{{font-size:16pt;font-weight:600;color:{text_strong}}}
+QLabel#PageSubtitle{{color:{muted}}}
+QLabel#Section{{font-size:11pt;font-weight:600;color:{text_strong}}}
+QLabel#Sub,QLabel#Caption,QLabel#FieldLabel,QLabel#CardHint{{color:{muted}}}
+QLabel#StatCaption,QLabel#MetricCaption{{font-size:9pt;color:{muted}}}
+QLabel#StatValue{{font-size:13.5pt;font-weight:600;color:{text_strong}}}
+QLabel#MetricValue{{font-size:11.5pt;font-weight:600;color:{text_strong}}}
+QLabel#Value{{font-size:10.5pt;font-weight:600;color:{text_strong}}}
+QLabel#StatusLine{{background:{surface_alt};border:1px solid {border};border-radius:6px;padding:8px 12px;color:{text}}}
+QLabel#EmptyState{{color:{faint};background:transparent}}
+QLabel#GpiChip{{background:{surface_alt};border:1px solid {border};border-radius:6px;padding:7px 10px;font-weight:600}}
 QLabel#WarningText{{color:{danger_text}}}
 
-QPushButton{{background:{button};color:{text};border:1px solid {border_strong};border-radius:5px;padding:6px 12px}}
+QPushButton{{background:{button};color:{text};border:1px solid {border_strong};border-radius:6px;padding:0 14px}}
 QPushButton:hover{{background:{button_hover}}}
 QPushButton:pressed{{background:{border}}}
-QPushButton:disabled{{background:{disabled_bg};color:{disabled_text};border-color:{disabled_border}}}
-QPushButton#Primary,QPushButton#Accent{{background:{accent};color:{on_accent};border-color:{accent_border};font-weight:600}}
-QPushButton#Primary:hover,QPushButton#Accent:hover{{background:{accent_border}}}
-QPushButton#Danger{{background:{danger};color:#FFFFFF;border-color:{danger_border};font-weight:600}}
-QPushButton#Primary:disabled,QPushButton#Accent:disabled,QPushButton#Danger:disabled{{background:{disabled_bg};color:{disabled_text};border-color:{disabled_border};font-weight:400}}
+QPushButton:disabled{{background:transparent;color:{disabled_text};border-color:{disabled_border}}}
+QPushButton#Primary,QPushButton#Accent{{background:{accent};color:{on_accent};border-color:{accent};font-weight:600}}
+QPushButton#Primary:hover,QPushButton#Accent:hover{{background:{accent_border};border-color:{accent_border}}}
+QPushButton#Primary:disabled,QPushButton#Accent:disabled{{background:{disabled_bg};color:{disabled_text};border-color:{disabled_border}}}
+QPushButton#Danger{{background:transparent;color:{danger_text};border-color:{danger_border};font-weight:600}}
+QPushButton#Danger:hover{{background:{danger};color:#FFFFFF;border-color:{danger}}}
+QPushButton#Danger:disabled{{background:transparent;color:{disabled_text};border-color:{disabled_border};font-weight:400}}
+QPushButton#Quiet{{background:transparent;border-color:transparent;color:{text}}}
+QPushButton#Quiet:hover{{background:{button_hover}}}
+QPushButton#Quiet:disabled{{background:transparent;border-color:transparent;color:{disabled_text}}}
+QPushButton::menu-indicator{{image:url({img_down});subcontrol-position:right center;right:10px;width:9px;height:9px}}
 
 QPushButton#IconButton{{padding:0}}
-QPushButton#SegmentLeft,QPushButton#SegmentRight{{background:{field};color:{muted};border:1px solid {border_strong};padding:6px 14px}}
+QPushButton#SegmentLeft,QPushButton#SegmentRight{{background:{field};color:{muted};border:1px solid {border_strong};padding:0 14px}}
 QPushButton#SegmentLeft{{border-top-right-radius:0;border-bottom-right-radius:0}}
 QPushButton#SegmentRight{{border-top-left-radius:0;border-bottom-left-radius:0;border-left:0}}
 QPushButton#SegmentLeft:hover,QPushButton#SegmentRight:hover{{background:{button_hover};color:{text}}}
-QPushButton#SegmentLeft:checked,QPushButton#SegmentRight:checked{{background:{accent};color:{on_accent};border-color:{accent_border};font-weight:600}}
+QPushButton#SegmentLeft:checked,QPushButton#SegmentRight:checked{{background:{accent};color:{on_accent};border-color:{accent};font-weight:600}}
 QPushButton#SegmentLeft:disabled,QPushButton#SegmentRight:disabled{{background:{disabled_bg};color:{disabled_text};border-color:{disabled_border}}}
-QToolButton#RailButton{{color:{muted};border:1px solid transparent;border-radius:5px;padding:3px 0;font-size:9pt}}
-QToolButton#RailButton:hover{{background:{button_hover};color:{text}}}
-QToolButton#RailButton:checked{{background:{accent_soft};color:{text_strong};font-weight:600}}
-QToolButton#Disclosure{{color:{muted};padding:4px 2px;font-weight:600}}
+QToolButton#Disclosure{{color:{muted};padding:4px 2px;font-weight:600;border:0}}
 QToolButton#Disclosure:hover{{color:{text}}}
 
-QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox{{background:{field};color:{text};border:1px solid {border_strong};border-radius:5px;padding:5px 7px;min-height:22px;selection-background-color:{accent};selection-color:{on_accent}}}
+QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox{{background:{field};color:{text};border:1px solid {border_strong};border-radius:6px;padding:0 9px;min-height:32px;selection-background-color:{accent};selection-color:{on_accent}}}
+QLineEdit:hover,QComboBox:hover,QSpinBox:hover,QDoubleSpinBox:hover{{border-color:{faint}}}
 QLineEdit:focus,QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus{{border-color:{accent_border}}}
 QLineEdit:read-only{{background:{field_ro};color:{muted}}}
 QLineEdit:disabled,QComboBox:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled{{background:{disabled_bg};color:{disabled_text};border-color:{disabled_border}}}
-QLineEdit#NetworkReadout:read-only{{background:transparent;border-color:transparent;color:{muted};padding:2px 7px;min-height:18px}}
-QComboBox::drop-down{{border:0;width:22px}}
-QComboBox::down-arrow{{image:url({img_down});width:10px;height:10px;margin-right:6px}}
+QLineEdit#NetworkReadout:read-only{{background:transparent;border-color:transparent;color:{text};padding:0;min-height:24px}}
+QComboBox::drop-down{{border:0;width:26px}}
+QComboBox::down-arrow{{image:url({img_down});width:10px;height:10px;margin-right:8px}}
 QComboBox::down-arrow:disabled{{image:url({img_down_disabled})}}
-QComboBox QAbstractItemView{{background:{surface};color:{text};border:1px solid {border};selection-background-color:{accent_soft};selection-color:{text_strong};outline:0}}
-QSpinBox::up-button,QDoubleSpinBox::up-button,QSpinBox::down-button,QDoubleSpinBox::down-button{{border:0;width:18px;background:transparent}}
+QComboBox QAbstractItemView{{background:{surface};color:{text};border:1px solid {border_strong};padding:4px;selection-background-color:{accent_soft};selection-color:{text_strong};outline:0}}
+QSpinBox::up-button,QDoubleSpinBox::up-button,QSpinBox::down-button,QDoubleSpinBox::down-button{{border:0;width:20px;background:transparent}}
 QSpinBox::up-arrow,QDoubleSpinBox::up-arrow{{image:url({img_up});width:8px;height:8px}}
 QSpinBox::down-arrow,QDoubleSpinBox::down-arrow{{image:url({img_down});width:8px;height:8px}}
 QSpinBox::up-arrow:disabled,QDoubleSpinBox::up-arrow:disabled{{image:url({img_up_disabled})}}
 QSpinBox::down-arrow:disabled,QDoubleSpinBox::down-arrow:disabled{{image:url({img_down_disabled})}}
 
-QCheckBox{{spacing:7px}}
+QCheckBox{{spacing:8px}}
 QCheckBox:disabled{{color:{disabled_text}}}
 QCheckBox::indicator{{width:16px;height:16px;border:1px solid {border_strong};border-radius:4px;background:{field}}}
 QCheckBox::indicator:hover{{border-color:{accent_border}}}
-QCheckBox::indicator:checked{{background:{accent};border-color:{accent_border};image:url({img_check})}}
+QCheckBox::indicator:checked{{background:{accent};border-color:{accent};image:url({img_check})}}
 QCheckBox::indicator:disabled{{background:{disabled_bg};border-color:{disabled_border}}}
 QCheckBox::indicator:checked:disabled{{background:{disabled_text};border-color:{disabled_text};image:url({img_check})}}
 
-QTableWidget{{background:{field};alternate-background-color:{alt_row};gridline-color:{border};border:1px solid {border};border-radius:6px;color:{text};selection-background-color:{selection};selection-color:{selection_text};outline:0}}
-QTableWidget::item{{padding:3px 6px}}
-QTableWidget::item:selected{{background:{selection};color:{selection_text}}}
-QTableWidget#InventoryTable{{font-family:"Consolas";font-size:10.5pt}}
-QTableWidget#DiscoveryTable{{background:{surface}}}
-QHeaderView::section{{background:{header};color:{muted};border:0;border-bottom:1px solid {border};padding:7px 6px;font-family:"Segoe UI";font-weight:600}}
+QTableWidget{{background:{surface};alternate-background-color:{surface};gridline-color:{border};border:1px solid {border};border-radius:6px;color:{text};selection-background-color:{accent_soft};selection-color:{text_strong};outline:0}}
+QTableWidget::item{{padding:0 10px;border-bottom:1px solid {border}}}
+QTableWidget::item:hover{{background:{surface_alt}}}
+QTableWidget::item:selected{{background:{accent_soft};color:{text_strong}}}
+QTableWidget#InventoryTable{{font-family:"Consolas";font-size:10pt}}
+QHeaderView{{background:transparent;border:0}}
+QHeaderView::section{{background:{header};color:{muted};border:0;border-bottom:1px solid {border};padding:8px 10px;font-family:"Segoe UI";font-size:9pt;font-weight:600}}
+QHeaderView::section:first{{border-top-left-radius:6px}}
+QHeaderView::section:last{{border-top-right-radius:6px}}
 QTableCornerButton::section{{background:{header};border:0}}
 
-QPlainTextEdit{{background:{log};color:{text};border:1px solid {border};border-radius:8px;font-family:"Consolas";font-size:10pt;padding:4px}}
-QPlainTextEdit#UpdateLog{{background:{surface_alt};border-radius:4px}}
-QProgressBar{{background:{surface_alt};color:{text_strong};border:1px solid {border};border-radius:4px;text-align:center}}
-QProgressBar::chunk{{background:{accent};border-radius:3px}}
-QTabWidget::pane{{background:{surface};border:1px solid {border};border-radius:8px;top:-1px}}
-QTabBar::tab{{background:transparent;color:{muted};padding:8px 16px;border:0;border-bottom:2px solid transparent}}
+QPlainTextEdit{{background:{log};color:{text};border:1px solid {border};border-radius:8px;font-family:"Consolas";font-size:9.5pt;padding:8px}}
+QPlainTextEdit#UpdateLog{{background:{surface_alt};border-radius:6px}}
+QProgressBar{{background:{surface_alt};color:{text_strong};border:0;border-radius:4px;text-align:center}}
+QProgressBar::chunk{{background:{accent};border-radius:4px}}
+QTabWidget::pane{{background:transparent;border:0;border-top:1px solid {border};top:-1px}}
+QTabBar{{qproperty-drawBase:0}}
+QTabBar::tab{{background:transparent;color:{muted};padding:9px 2px;margin-right:24px;border:0;border-bottom:2px solid transparent;font-weight:600}}
 QTabBar::tab:hover{{color:{text}}}
-QTabBar::tab:selected{{color:{text_strong};border-bottom:2px solid {accent};font-weight:600}}
-QLabel#AboutText{{padding:16px;color:{muted}}}
+QTabBar::tab:selected{{color:{text_strong};border-bottom:2px solid {accent}}}
+QLabel#AboutText{{padding:20px;color:{muted};background:{surface};border:1px solid {border};border-radius:8px}}
 
 QGraphicsView{{background:{surface};border:0}}
 QSplitter::handle{{background:transparent}}
+QSplitter::handle:horizontal{{width:12px}}
 QSplitter::handle:vertical{{height:8px}}
-QScrollBar:vertical{{background:transparent;width:10px;margin:2px}}
-QScrollBar::handle:vertical{{background:{scroll};border-radius:4px;min-height:30px}}
-QScrollBar:horizontal{{background:transparent;height:10px;margin:2px}}
-QScrollBar::handle:horizontal{{background:{scroll};border-radius:4px;min-width:30px}}
+QScrollBar:vertical{{background:transparent;width:12px;margin:2px}}
+QScrollBar::handle:vertical{{background:{scroll};border-radius:4px;min-height:32px;margin:0 2px}}
+QScrollBar:horizontal{{background:transparent;height:12px;margin:2px}}
+QScrollBar::handle:horizontal{{background:{scroll};border-radius:4px;min-width:32px;margin:2px 0}}
 QScrollBar::add-line,QScrollBar::sub-line{{width:0;height:0}}
 QScrollBar::add-page,QScrollBar::sub-page{{background:transparent}}
-QStatusBar{{background:{window};color:{muted}}}
+QStatusBar{{background:{surface};color:{muted};border-top:1px solid {border};font-size:9pt}}
+QStatusBar QLabel{{color:{muted}}}
 QStatusBar::item{{border:0}}
 '''
 
@@ -247,20 +275,21 @@ def _draw_images(name, c):
             painter.end()
             save(image, f'img_{direction}{state}')
 
-    image = QImage(size, size, QImage.Format_ARGB32)
-    image.fill(Qt.transparent)
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing)
-    pen = QPen(QColor('#FFFFFF'), 4.2)
-    pen.setCapStyle(Qt.RoundCap)
-    pen.setJoinStyle(Qt.RoundJoin)
-    painter.setPen(pen)
-    tick = QPainterPath(QPointF(7, 17))
-    tick.lineTo(13.5, 23)
-    tick.lineTo(25, 9)
-    painter.drawPath(tick)
-    painter.end()
-    save(image, 'img_check')
+    for key, color in (('img_check', '#FFFFFF'), ('img_check_accent', c['accent_border'])):
+        image = QImage(size, size, QImage.Format_ARGB32)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor(color), 4.2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        tick = QPainterPath(QPointF(7, 17))
+        tick.lineTo(13.5, 23)
+        tick.lineTo(25, 9)
+        painter.drawPath(tick)
+        painter.end()
+        save(image, key)
     return paths
 
 

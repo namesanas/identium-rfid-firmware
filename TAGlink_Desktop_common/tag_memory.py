@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from protocol import TAG_LOG_MAX_SEQUENCE, TAG_LOG_PAGE_SIZE, parse_tag_log_number
-from ui_builder import _button, _card, _field, _table
+from ui_builder import _button, _card, _field, _table, empty_state
 
 
 MEMORY_CAPACITY = 64_000
@@ -73,13 +73,14 @@ class TagMemoryController(QObject):
     def build(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setContentsMargins(0, 16, 0, 0)
         card, content = _card(self.w, 'Reader tag memory')
-        layout.addWidget(card)
+        layout.addWidget(card, 1)
 
         status_row = QHBoxLayout()
         self.summary = QLabel('Connect to an IF9D reader to check its tag memory.')
         self.summary.setWordWrap(True)
+        self.summary.setObjectName('Sub')
         status_row.addWidget(self.summary, 1)
         self.refresh_button = _button('Refresh memory', self.refresh)
         status_row.addWidget(self.refresh_button)
@@ -92,10 +93,14 @@ class TagMemoryController(QObject):
                 ('first', 'First'), ('previous', 'Previous'), ('next', 'Next'), ('last', 'Last')
             )
         }
+        navigation.setSpacing(8)
         for button in self.navigation.values():
+            button.setObjectName('Quiet')
             navigation.addWidget(button)
         navigation.addStretch()
-        navigation.addWidget(QLabel('Record number'))
+        record_label = QLabel('Record number')
+        record_label.setObjectName('Caption')
+        navigation.addWidget(record_label)
         self.sequence = QLineEdit()
         self.sequence.setPlaceholderText('e.g. 40012')
         self.sequence.setAccessibleName('Record number')
@@ -116,14 +121,17 @@ class TagMemoryController(QObject):
         _table(self.table, ['Record number', 'Tag ID', 'Time', 'Time source', 'Antenna',
                             'Signal (dBm)', 'Reads', 'ID shortened'], 1)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setObjectName('InventoryTable')
+        empty_state(self.table, 'Saved tag records appear here once the reader’s memory is read.')
         content.addWidget(self.table, 1)
 
         actions = QHBoxLayout()
         self.export_page_button = _button('Export this page…', self.export_page)
         self.export_all_button = _button('Export all…', self.export_all)
-        self.cancel_button = _button('Cancel export', self.cancel_export)
+        self.cancel_button = _button('Cancel export', self.cancel_export, 'Quiet')
         self.clear_button = _button('Clear memory…', self.clear_memory, 'Danger')
         self.clear_button.setToolTip('Erase all saved tag records. Stop inventory before clearing.')
+        actions.setSpacing(8)
         for button in (self.export_page_button, self.export_all_button, self.cancel_button):
             actions.addWidget(button)
         actions.addStretch()
@@ -131,6 +139,8 @@ class TagMemoryController(QObject):
         content.addLayout(actions)
 
         self.progress = QProgressBar()
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(8)
         self.progress.hide()
         content.addWidget(self.progress)
         self.message = QLabel()
